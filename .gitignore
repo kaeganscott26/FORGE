@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+.vite/
+coverage/
+*.log
+.forge/
+.DS_Store
+
