@@ -10,4 +10,5 @@ export interface ContextBuilder {
 
 export { OpenAIProvider } from './openai';
 export { ContextBuilderImpl } from './context';
+export { Agent } from './agent';
 
