@@ -14,7 +14,7 @@ export default function ChatPanel(): JSX.Element {
     let mounted = true;
     (async () => {
       try {
-        const res = await (window as any).forge.agent.conversations.list();
+        const res = await import('../forge').then((m) => m.forgeInvoke('agent.conversations.list', undefined));
         if (res && res.success && mounted) {
           const entries = res.data as Array<{ role: 'user' | 'assistant'; content: string }>;
           setMessages(entries.map((e) => ({ role: e.role, content: e.content })));

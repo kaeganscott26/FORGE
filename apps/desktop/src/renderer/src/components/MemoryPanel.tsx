@@ -7,15 +7,15 @@ export default function MemoryPanel(): JSX.Element {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await (window as any).forge.invoke('agent.memories.list', undefined);
+      const res = await import('../forge').then((m) => m.forgeInvoke('agent.memories.list', undefined));
       if (res && res.success) setMemories(res.data as any);
     } catch (e) {
       // ignore
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  const del = useCallback(async (id: string) => { if (!confirm('Delete memory?')) return; await (window as any).forge.invoke('agent.memories.delete', { id }); void refresh(); }, [refresh]);
-  const reindex = useCallback(async () => { setLoading(true); try { await (window as any).forge.invoke('agent.memories.reindex', undefined); await refresh(); } finally { setLoading(false); } }, [refresh]);
+    const del = useCallback(async (id: string) => { if (!confirm('Delete memory?')) return; await import('../forge').then((m) => m.forgeInvoke('agent.memories.delete', { id })); void refresh(); }, [refresh]);
+  const reindex = useCallback(async () => { setLoading(true); try { await import('../forge').then((m) => m.forgeInvoke('agent.memories.reindex', undefined)); await refresh(); } finally { setLoading(false); } }, [refresh]);
   return (
     <div className="memory-panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
