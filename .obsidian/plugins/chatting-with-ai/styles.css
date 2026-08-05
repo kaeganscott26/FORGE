@@ -1,0 +1,60 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Chatting with AI — Global styles (outside Svelte component scope)
+   Component styles live in ChatContainer.svelte with scoped CSS.
+   All class names use the `ochatting-` prefix to avoid colliding with
+   upstream Obsidian Chat (`ochat-`) when both plugins are installed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ochatting-view-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Desktop sidebar min-width */
+.workspace-leaf-content[data-type="ochatting-view"] {
+  min-width: 280px;
+}
+
+.ochatting-oauth-explainer {
+  padding: 0.75em;
+  margin-bottom: 0.75em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+
+.ochatting-device-link-row {
+  margin: 0.4em 0 0.8em;
+}
+
+.ochatting-device-code-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0.4em 0 1em;
+}
+
+.ochatting-device-code {
+  font-size: 1.4em;
+  padding: 0.3em 0.6em;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  user-select: all;
+}
+
+.ochatting-device-status {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.ochatting-device-status-error {
+  font-style: italic;
+  color: var(--text-error);
+}
+
+.ochatting-device-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}

@@ -11,17 +11,56 @@
             "id": "c7cf25e93dafa201",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
+            }
+          },
+          {
+            "id": "38a1f13f0224d021",
+            "type": "leaf",
+            "state": {
+              "type": "webviewer",
               "state": {
-                "file": "node_modules/fs-extra/README.md",
-                "mode": "source",
-                "source": false
+                "url": "https://auth.openai.com/log-in",
+                "title": "Welcome back - OpenAI",
+                "mode": "webview"
               },
-              "icon": "lucide-file",
-              "title": "README"
+              "icon": "globe-2",
+              "title": "Welcome back - OpenAI"
+            }
+          },
+          {
+            "id": "17c087f27548b99a",
+            "type": "leaf",
+            "state": {
+              "type": "webviewer",
+              "state": {
+                "url": "https://auth.openai.com/log-in",
+                "title": "Welcome back - OpenAI",
+                "mode": "webview"
+              },
+              "icon": "globe-2",
+              "title": "Welcome back - OpenAI"
+            }
+          },
+          {
+            "id": "f1c9013ff085a979",
+            "type": "leaf",
+            "state": {
+              "type": "webviewer",
+              "state": {
+                "url": "https://chatgpt.com/",
+                "title": "ChatGPT",
+                "mode": "webview"
+              },
+              "icon": "globe-2",
+              "title": "ChatGPT"
             }
           }
-        ]
+        ],
+        "currentTab": 3
       }
     ],
     "direction": "vertical"
@@ -55,7 +94,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "[\"tags\"]",
+                "query": "",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -79,12 +118,12 @@
               "title": "Bookmarks"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "horizontal",
-    "width": 479.32421875
+    "width": 479.32421875,
+    "collapsed": true
   },
   "right": {
     "id": "e76b5054b8bd778c",
@@ -163,22 +202,12 @@
               "type": "outline",
               "state": {
                 "file": "node_modules/fs-extra/README.md",
-                "followCursor": false,
+                "followCursor": true,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
               "title": "Outline"
-            }
-          },
-          {
-            "id": "e687e9c683e6fa8f",
-            "type": "leaf",
-            "state": {
-              "type": "aibrowser-chat-view",
-              "state": {},
-              "icon": "messages-square",
-              "title": "OmniChat"
             }
           }
         ],
@@ -186,8 +215,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 886.7109375,
-    "collapsed": true
+    "width": 886.7109375
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -198,49 +226,49 @@
       "templates:Insert template": false,
       "command-palette:Open command palette": false,
       "bases:Create new base": false,
-      "aibrowser-chat:Open OmniChat": false,
-      "workspaces:Manage workspace layouts": false
+      "workspaces:Manage workspace layouts": false,
+      "chatting-with-ai:Open Chatting with AI": false
     }
   },
-  "active": "c7cf25e93dafa201",
+  "active": "f1c9013ff085a979",
   "lastOpenFiles": [
-    "zz-cf-lib/templates/README.md",
-    "apps/desktop/electron.vite.config.1785892674344.mjs",
-    "apps/desktop/electron.vite.config.1785892649539.mjs",
-    "BUILD_PROMPT.md",
-    "PROJECT_STATUS.md",
-    "apps/desktop/electron.vite.config.1785892590184.mjs",
-    "apps/desktop/electron.vite.config.1785892428833.mjs",
-    "apps/desktop/electron.vite.config.1785892365120.mjs",
-    "apps/desktop/package.json",
-    "apps/desktop/electron.vite.config.1785892349359.mjs",
-    "apps/desktop/electron.vite.config.1785892329285.mjs",
-    "apps/desktop/electron.vite.config.1785892323796.mjs",
-    "apps/desktop/electron.vite.config.1785892298548.mjs",
-    "node_modules/fsevents/README.md",
+    "apps/desktop/electron.vite.config.1785905448396.mjs",
+    "packages/ai/test/context.test.ts",
+    "packages/ai/test",
+    "packages/ai/src/context.ts",
+    "apps/desktop/electron.vite.config.1785904849203.mjs",
+    "packages/ai/src/openai.ts",
+    "apps/desktop/electron.vite.config.1785901747628.mjs",
+    "node_modules/electron/dist/LICENSES.chromium.html",
+    "node_modules/monaco-editor/ThirdPartyNotices.txt",
+    "node_modules/monaco-editor/monaco.d.ts",
+    "node_modules/monaco-editor/esm/metadata.d.ts",
     "node_modules/monaco-editor/README.md",
     "node_modules/monaco-editor/CHANGELOG.md",
-    "node_modules/@esbuild/darwin-arm64/README.md",
+    "node_modules/caniuse-lite/README.md",
+    "node_modules/eslint/README.md",
+    "node_modules/typescript/SECURITY.md",
+    "node_modules/typescript/README.md",
     "node_modules/sql.js/logo.svg",
     "node_modules/sql.js/README.md",
     "node_modules/sql.js/documentation_index.md",
     "node_modules/sql.js/CONTRIBUTING.md",
+    "node_modules/@esbuild/darwin-arm64/README.md",
     "node_modules/react-dom/README.md",
-    "node_modules/eslint/README.md",
+    "node_modules/rimraf/README.md",
+    "node_modules/rimraf/LICENSE.md",
+    "node_modules/ajv/README.md",
+    "node_modules/vitest/README.md",
+    "node_modules/vitest/LICENSE.md",
+    "node_modules/glob/README.md",
+    "node_modules/glob/LICENSE.md",
+    "node_modules/global-agent/README.md",
+    "node_modules/rollup/README.md",
+    "node_modules/rollup/LICENSE.md",
+    "node_modules/chai/README.md",
     "node_modules/vite/README.md",
     "node_modules/vite/LICENSE.md",
-    "node_modules/monaco-editor/node_modules/marked/README.md",
-    "node_modules/monaco-editor/node_modules/marked/LICENSE.md",
-    "node_modules/@eslint-community/eslint-utils/node_modules/eslint-visitor-keys/README.md",
-    "node_modules/vitest/node_modules/@vitest/mocker/README.md",
-    "node_modules/glob/node_modules/minimatch/README.md",
-    "node_modules/glob/node_modules/minimatch/LICENSE.md",
-    "node_modules/electron/node_modules/@types/node/README.md",
-    "node_modules/monaco-editor/node_modules/marked/man/marked.1.md",
-    "node_modules/global-agent/node_modules/semver/README.md",
-    "node_modules/glob/node_modules/brace-expansion/README.md",
-    "node_modules/@monaco-editor/react/v4.changes.md",
-    "node_modules/@monaco-editor/react/README.md",
+    "node_modules/uri-js/README.md",
     "Untitled.canvas"
   ]
 }
