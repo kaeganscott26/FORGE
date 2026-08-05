@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "electron-vite dev apps/desktop",
+    "start-renderer": "vite apps/desktop/src/renderer",
     "build": "npm run typecheck && electron-vite build apps/desktop",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
