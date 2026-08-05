@@ -4,63 +4,20 @@
     "type": "split",
     "children": [
       {
-        "id": "c7551ccb5aa2dc57",
+        "id": "8dff843b29b034d9",
         "type": "tabs",
         "children": [
           {
-            "id": "c7cf25e93dafa201",
+            "id": "81dc685d180e0405",
             "type": "leaf",
             "state": {
-              "type": "graph",
+              "type": "empty",
               "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
-            }
-          },
-          {
-            "id": "38a1f13f0224d021",
-            "type": "leaf",
-            "state": {
-              "type": "webviewer",
-              "state": {
-                "url": "https://auth.openai.com/log-in",
-                "title": "Welcome back - OpenAI",
-                "mode": "webview"
-              },
-              "icon": "globe-2",
-              "title": "Welcome back - OpenAI"
-            }
-          },
-          {
-            "id": "17c087f27548b99a",
-            "type": "leaf",
-            "state": {
-              "type": "webviewer",
-              "state": {
-                "url": "https://auth.openai.com/log-in",
-                "title": "Welcome back - OpenAI",
-                "mode": "webview"
-              },
-              "icon": "globe-2",
-              "title": "Welcome back - OpenAI"
-            }
-          },
-          {
-            "id": "f1c9013ff085a979",
-            "type": "leaf",
-            "state": {
-              "type": "webviewer",
-              "state": {
-                "url": "https://chatgpt.com/g/g-p-6a728f8e754c819189060c3dfffca977/c/6a728f93-bce0-83ea-9d03-3e75c708c84f",
-                "title": "FORGE_AI - GitHub Repo Status",
-                "mode": "webview"
-              },
-              "icon": "globe-2",
-              "title": "FORGE_AI - GitHub Repo Status"
+              "icon": "lucide-file",
+              "title": "New tab"
             }
           }
-        ],
-        "currentTab": 3
+        ]
       }
     ],
     "direction": "vertical"
@@ -122,7 +79,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 479.32421875
+    "width": 479.32421875,
+    "collapsed": true
   },
   "right": {
     "id": "e76b5054b8bd778c",
@@ -200,7 +158,6 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "node_modules/fs-extra/README.md",
                 "followCursor": true,
                 "showSearch": false,
                 "searchQuery": ""
@@ -210,7 +167,7 @@
             }
           }
         ],
-        "currentTab": 3
+        "currentTab": 4
       }
     ],
     "direction": "horizontal",
@@ -229,23 +186,22 @@
       "chatting-with-ai:Open Chatting with AI": false
     }
   },
-  "active": "f1c9013ff085a979",
+  "active": "81dc685d180e0405",
   "lastOpenFiles": [
-    "apps/desktop/electron.vite.config.1785907005157.mjs",
+    "PROJECT_STATUS.md",
+    "README.md",
+    "apps/desktop/out/renderer/assets/index-BHgwKNd6.js",
+    "apps/desktop/electron.vite.config.1785907730735.mjs",
+    "packages/ai/test/headless.agent.test.ts",
     "node_modules/electron/dist/LICENSES.chromium.html",
     "node_modules/electron/dist",
-    "node_modules/electron/node_modules/@types/node/web-globals/fetch.d.ts",
-    "node_modules/electron/node_modules/@types/node/web-globals/events.d.ts",
-    "node_modules/electron/node_modules/@types/node/web-globals/domexception.d.ts",
-    "node_modules/electron/node_modules/@types/node/web-globals/abortcontroller.d.ts",
-    "node_modules/electron/node_modules/@types/node/web-globals",
-    "node_modules/electron/node_modules/@types/node/ts5.6/index.d.ts",
-    "node_modules/electron/node_modules/@types/node/ts5.6/globals.typedarray.d.ts",
-    "node_modules/electron/node_modules/@types/node/ts5.6/buffer.buffer.d.ts",
-    "node_modules/electron/README.md",
-    "node_modules/electron/node_modules/@types/node/README.md",
+    "node_modules/monaco-editor/ThirdPartyNotices.txt",
+    "node_modules/monaco-editor/monaco.d.ts",
+    "node_modules/monaco-editor/esm/metadata.d.ts",
     "node_modules/monaco-editor/README.md",
     "node_modules/monaco-editor/CHANGELOG.md",
+    "node_modules/monaco-editor/package.json",
+    "node_modules/monaco-editor/esm/metadata.js",
     "node_modules/caniuse-lite/README.md",
     "node_modules/eslint/README.md",
     "node_modules/typescript/SECURITY.md",
@@ -268,6 +224,7 @@
     "node_modules/rollup/LICENSE.md",
     "node_modules/chai/README.md",
     "node_modules/vite/README.md",
+    "node_modules/vite/LICENSE.md",
     "Untitled.canvas"
   ]
 }

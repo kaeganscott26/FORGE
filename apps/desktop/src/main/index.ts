@@ -39,16 +39,40 @@ function registerHandlers(): void {
   // Agent IPC handlers
   register(IPC_CHANNELS.agentAsk, async (request) => {
     if (!request || typeof (request as any).prompt !== 'string') throw new Error('Invalid agent.ask request');
-    const resp = await agent.ask((request as any).prompt);
+    const prompt = (request as any).prompt;
+    const resp = await agent.ask(prompt);
+    // persist conversation entries when storage is initialized
+    try {
+      await storage.appendConversation('user', prompt);
+      await storage.appendConversation('assistant', String(resp));
+    } catch (e) {
+      // ignore storage errors here
+    }
     return { content: String(resp), contextUsed: true };
   });
   register(IPC_CHANNELS.agentExplainProject, async () => {
     const resp = await agent.explainProject();
+    try { await storage.appendConversation('assistant', String(resp)); } catch (e) {}
     return { content: String(resp), contextUsed: true };
   });
   register(IPC_CHANNELS.agentReviewChanges, async () => {
     const resp = await agent.reviewChanges();
+    try { await storage.appendConversation('assistant', String(resp)); } catch (e) {}
     return { content: String(resp), contextUsed: true };
+  });
+  // Conversations IPC
+  register(IPC_CHANNELS.agentConversationsList, async () => {
+    return (await storage.listConversations()) as any;
+  });
+  register(IPC_CHANNELS.agentConversationsAppend, async (request) => {
+    const entries = (request as any)?.entries || [];
+    for (const e of entries) {
+      if (e && (e.role === 'user' || e.role === 'assistant') && typeof e.content === 'string') {
+        // eslint-disable-next-line no-await-in-loop
+        await storage.appendConversation(e.role, e.content);
+      }
+    }
+    return undefined;
   });
 }
 

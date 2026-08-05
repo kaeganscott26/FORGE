@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -8,6 +8,22 @@ export default function ChatPanel(): JSX.Element {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await (window as any).forge.agent.conversations.list();
+        if (res && res.success && mounted) {
+          const entries = res.data as Array<{ role: 'user' | 'assistant'; content: string }>;
+          setMessages(entries.map((e) => ({ role: e.role, content: e.content })));
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const send = useCallback(async () => {
     const prompt = input.trim();
@@ -20,7 +36,8 @@ export default function ChatPanel(): JSX.Element {
       const result = await window.forge.invoke('agent.ask', { prompt } as any) as any;
       if (!result.success) throw new Error(result.error?.message ?? 'Agent request failed');
       const resp = result.data as any;
-      setMessages((m) => [...m, { role: 'assistant', content: String(resp.content ?? '') }]);
+      const assistantText = String(resp.content ?? '');
+      setMessages((m) => [...m, { role: 'assistant', content: assistantText }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
