@@ -11,10 +11,10 @@
             "id": "81dc685d180e0405",
             "type": "leaf",
             "state": {
-              "type": "empty",
+              "type": "graph",
               "state": {},
-              "icon": "lucide-file",
-              "title": "New tab"
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -79,8 +79,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 479.32421875,
-    "collapsed": true
+    "width": 479.32421875
   },
   "right": {
     "id": "e76b5054b8bd778c",
@@ -188,6 +187,9 @@
   },
   "active": "81dc685d180e0405",
   "lastOpenFiles": [
+    "apps/desktop/src/renderer/src/components/MemoryPanel.tsx",
+    "packages/memory/test/memory.test.ts",
+    "packages/memory/test",
     "PROJECT_STATUS.md",
     "README.md",
     "apps/desktop/out/renderer/assets/index-BHgwKNd6.js",
@@ -200,8 +202,6 @@
     "node_modules/monaco-editor/esm/metadata.d.ts",
     "node_modules/monaco-editor/README.md",
     "node_modules/monaco-editor/CHANGELOG.md",
-    "node_modules/monaco-editor/package.json",
-    "node_modules/monaco-editor/esm/metadata.js",
     "node_modules/caniuse-lite/README.md",
     "node_modules/eslint/README.md",
     "node_modules/typescript/SECURITY.md",
@@ -224,7 +224,6 @@
     "node_modules/rollup/LICENSE.md",
     "node_modules/chai/README.md",
     "node_modules/vite/README.md",
-    "node_modules/vite/LICENSE.md",
     "Untitled.canvas"
   ]
 }

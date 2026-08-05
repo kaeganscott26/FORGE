@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 
-type Message = { role: 'user' | 'assistant'; content: string };
+type MemoryRef = { id?: string; title?: string | null };
+type Message = { role: 'user' | 'assistant'; content: string; memories?: MemoryRef[] };
 
 export default function ChatPanel(): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -37,7 +38,8 @@ export default function ChatPanel(): JSX.Element {
       if (!result.success) throw new Error(result.error?.message ?? 'Agent request failed');
       const resp = result.data as any;
       const assistantText = String(resp.content ?? '');
-      setMessages((m) => [...m, { role: 'assistant', content: assistantText }]);
+      const mems: MemoryRef[] = Array.isArray(resp.memories) ? resp.memories.map((m: any) => ({ id: m.id, title: m.title })) : [];
+      setMessages((m) => [...m, { role: 'assistant', content: assistantText, memories: mems }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -49,7 +51,17 @@ export default function ChatPanel(): JSX.Element {
     <div className="chat-panel">
       <div className="chat-header"><strong>AI Assistant</strong></div>
       <div className="chat-messages" style={{ minHeight: 120, maxHeight: 220, overflow: 'auto', padding: 8, background: '#111', color: '#fff' }}>
-        {messages.length === 0 ? <div className="muted">No messages yet. Ask something about the project.</div> : messages.map((m, i) => <div key={i} className={`chat-msg ${m.role}`}><b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> <span>{m.content}</span></div>)}
+        {messages.length === 0 ? <div className="muted">No messages yet. Ask something about the project.</div> : messages.map((m, i) => (
+          <div key={i} className={`chat-msg ${m.role}`}>
+            <b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> <span>{m.content}</span>
+            {m.role === 'assistant' && m.memories && m.memories.length > 0 && (
+              <div className="chat-memories" style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+                <div style={{ fontWeight: 600 }}>Relevant memories:</div>
+                <ul style={{ margin: '4px 0 0 12px' }}>{m.memories.map((mm, idx) => <li key={idx}>{mm.title ?? '(untitled)'}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
       {error && <div className="chat-error" style={{ color: 'salmon' }}>{error}</div>}
       <div className="chat-input" style={{ display: 'flex', gap: 8, marginTop: 8 }}>

@@ -2,6 +2,7 @@ import type { WorkspaceService } from '@forge/workspace';
 import type { GitService } from '@forge/git';
 import type { StorageService } from '@forge/storage';
 import type { FileNode } from '@forge/ipc';
+import type { MemoryEntry } from '@forge/memory';
 
 export interface ProjectContext {
   projectName: string | null;
@@ -12,6 +13,7 @@ export interface ProjectContext {
   gitStatus?: unknown | null;
   recentCommits?: Array<{ hash: string; message: string; author?: string; timestamp?: number }> | null;
   metadata?: unknown | null;
+  memories?: MemoryEntry[] | null;
 }
 
 export class ContextBuilderImpl {
@@ -28,7 +30,7 @@ export class ContextBuilderImpl {
     return out;
   }
 
-  async buildContext(): Promise<ProjectContext> {
+  async buildContext(query?: string, memories?: MemoryEntry[] | null): Promise<ProjectContext> {
     const ctx: ProjectContext = { projectName: null, rootPath: null, files: [], readme: null, packageJson: null, gitStatus: null, recentCommits: null, metadata: null };
     // Workspace info
     try {
@@ -85,6 +87,13 @@ export class ContextBuilderImpl {
       ctx.metadata = meta ?? null;
     } catch (e) {
       ctx.metadata = null;
+    }
+
+    // include provided memories
+    try {
+      ctx.memories = memories ?? null;
+    } catch (e) {
+      ctx.memories = null;
     }
 
     return ctx;

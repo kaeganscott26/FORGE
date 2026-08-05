@@ -6,6 +6,7 @@ import { WorkspaceService } from '@forge/workspace';
 import { GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
 import { OpenAIProvider, ContextBuilderImpl, Agent } from '@forge/ai';
+import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 
 const workspace = new WorkspaceService();
 const git = new GitService();
@@ -14,7 +15,10 @@ const storage = new StorageService();
 // AI/core instances (provider-agnostic wiring)
 const aiProvider = new OpenAIProvider();
 const contextBuilder = new ContextBuilderImpl(workspace, git, storage);
-const agent = new Agent(aiProvider as any, contextBuilder as any);
+const memoryService = new MemoryService(storage as any);
+const memoryRetriever = new MemoryRetriever(memoryService as any);
+const memoryIndexer = new MemoryIndexer(memoryService as any, workspace as any);
+const agent = new Agent(aiProvider as any, contextBuilder as any, memoryRetriever as any);
 
 function register<C extends IPCChannel>(channel: C, action: (request: IPCRequestMap[C]) => Promise<IPCResponseMap[C]>): void {
   ipcMain.handle(channel, async (_event, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>> => {
@@ -40,6 +44,9 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.agentAsk, async (request) => {
     if (!request || typeof (request as any).prompt !== 'string') throw new Error('Invalid agent.ask request');
     const prompt = (request as any).prompt;
+    // fetch relevant memories to include in the response payload
+    let memories: any[] = [];
+    try { memories = await memoryRetriever.search(prompt, 5); } catch (e) { memories = []; }
     const resp = await agent.ask(prompt);
     // persist conversation entries when storage is initialized
     try {
@@ -48,7 +55,7 @@ function registerHandlers(): void {
     } catch (e) {
       // ignore storage errors here
     }
-    return { content: String(resp), contextUsed: true };
+    return { content: String(resp), contextUsed: true, memories } as any;
   });
   register(IPC_CHANNELS.agentExplainProject, async () => {
     const resp = await agent.explainProject();
@@ -73,6 +80,16 @@ function registerHandlers(): void {
       }
     }
     return undefined;
+  });
+  // Memories IPC
+  register(IPC_CHANNELS.agentMemoriesList, async () => {
+    return (await storage.listMemories()) as any;
+  });
+  register(IPC_CHANNELS.agentMemoriesDelete, async (request) => {
+    const id = (request as any)?.id; if (!id) throw new Error('Memory id required'); await storage.deleteMemory(id); return undefined;
+  });
+  register(IPC_CHANNELS.agentMemoriesReindex, async () => {
+    try { await memoryIndexer.indexWorkspaceFiles(); } catch (e) { /* ignore */ } return undefined;
   });
 }
 

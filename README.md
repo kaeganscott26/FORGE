@@ -13,6 +13,17 @@ npm install
 npm run dev
 ```
 
+If you encounter missing native Electron binaries during `npm install` in CI or restricted environments, run the following locally to force-install the correct Electron build for your platform:
+
+```sh
+# Install deps
+npm ci
+# Force electron for macOS (adjust version as needed)
+npm install --save-dev electron@34.5.8 --allow-scripts
+# Then start dev
+npm run dev
+```
+
 ## Validate
 
 ```sh

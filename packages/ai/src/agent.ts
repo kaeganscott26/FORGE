@@ -1,4 +1,5 @@
 import type { ProjectContext } from './context';
+import type { MemoryRetriever, MemoryEntry } from '@forge/memory';
 
 export interface SimpleAIProvider {
   id: string;
@@ -7,7 +8,7 @@ export interface SimpleAIProvider {
 }
 
 export class Agent {
-  constructor(private provider: SimpleAIProvider, private contextBuilder: { buildContext(): Promise<ProjectContext> }) {}
+  constructor(private provider: SimpleAIProvider, private contextBuilder: { buildContext(query?: string, memories?: MemoryEntry[]): Promise<ProjectContext> }, private memoryRetriever?: MemoryRetriever) {}
 
   private summarizeContext(ctx: ProjectContext): string {
     const parts: string[] = [];
@@ -21,7 +22,12 @@ export class Agent {
   }
 
   async ask(question: string): Promise<string> {
-    const ctx = await this.contextBuilder.buildContext();
+    // retrieve memories first
+    let memories: MemoryEntry[] = [];
+    if (this.memoryRetriever) {
+      try { memories = await this.memoryRetriever.search(question, 5); } catch (e) { memories = []; }
+    }
+    const ctx = await this.contextBuilder.buildContext(question, memories);
     const summary = this.summarizeContext(ctx);
     const prompt = `${question}\n\nContext:\n${summary}`;
     const messages = [{ role: 'system', content: 'You are Forge, an assistant for developer workspaces.' }, { role: 'user', content: prompt }];
