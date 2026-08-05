@@ -4,16 +4,16 @@
     "type": "split",
     "children": [
       {
-        "id": "7f6ce6411fd902ee",
+        "id": "c7551ccb5aa2dc57",
         "type": "tabs",
         "children": [
           {
-            "id": "7b54d053ffc27e3e",
+            "id": "c7cf25e93dafa201",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "zz-cf-lib/templates/README.md",
+                "file": "node_modules/fs-extra/README.md",
                 "mode": "source",
                 "source": false
               },
@@ -55,7 +55,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "tag:#Install",
+                "query": "[\"tags\"]",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -79,7 +79,8 @@
               "title": "Bookmarks"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -99,6 +100,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "node_modules/fs-extra/README.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -117,8 +119,9 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "linksCollapsed": false,
-                "unlinkedCollapsed": true
+                "file": "node_modules/fs-extra/README.md",
+                "linksCollapsed": true,
+                "unlinkedCollapsed": false
               },
               "icon": "links-going-out",
               "title": "Outgoing links"
@@ -159,6 +162,7 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "node_modules/fs-extra/README.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
@@ -166,12 +170,23 @@
               "icon": "lucide-list",
               "title": "Outline"
             }
+          },
+          {
+            "id": "e687e9c683e6fa8f",
+            "type": "leaf",
+            "state": {
+              "type": "aibrowser-chat-view",
+              "state": {},
+              "icon": "messages-square",
+              "title": "OmniChat"
+            }
           }
-        ]
+        ],
+        "currentTab": 3
       }
     ],
     "direction": "horizontal",
-    "width": 300,
+    "width": 886.7109375,
     "collapsed": true
   },
   "left-ribbon": {
@@ -182,11 +197,14 @@
       "daily-notes:Open today's daily note": false,
       "templates:Insert template": false,
       "command-palette:Open command palette": false,
-      "bases:Create new base": false
+      "bases:Create new base": false,
+      "aibrowser-chat:Open OmniChat": false,
+      "workspaces:Manage workspace layouts": false
     }
   },
-  "active": "7b54d053ffc27e3e",
+  "active": "c7cf25e93dafa201",
   "lastOpenFiles": [
+    "zz-cf-lib/templates/README.md",
     "apps/desktop/electron.vite.config.1785892674344.mjs",
     "apps/desktop/electron.vite.config.1785892649539.mjs",
     "BUILD_PROMPT.md",
@@ -199,7 +217,6 @@
     "apps/desktop/electron.vite.config.1785892329285.mjs",
     "apps/desktop/electron.vite.config.1785892323796.mjs",
     "apps/desktop/electron.vite.config.1785892298548.mjs",
-    "apps/desktop/out/renderer/src/renderer/index.html",
     "node_modules/fsevents/README.md",
     "node_modules/monaco-editor/README.md",
     "node_modules/monaco-editor/CHANGELOG.md",

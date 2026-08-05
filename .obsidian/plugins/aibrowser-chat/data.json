@@ -1,0 +1,46 @@
+{
+  "webAppUrl": "https://copilot.microsoft.com/",
+  "openOnStartup": true,
+  "maxContextLength": 50000,
+  "contextItems": [],
+  "enableChatGPT": true,
+  "enableClaude": true,
+  "enableDeepSeek": true,
+  "enablePerplexity": true,
+  "enableGemini": true,
+  "enableGrok": true,
+  "enableCopilot": true,
+  "enableManus": true,
+  "enableKimi": true,
+  "enableOllama": true,
+  "ollamaApiUrl": "http://127.0.0.1:11434",
+  "autoRefreshMinutes": 60,
+  "autoClearContext": false,
+  "contextPrefix": "",
+  "theme": "auto",
+  "sendSelectionEnabled": true,
+  "promptTemplates": [
+    {
+      "id": "t1",
+      "label": "Summarize",
+      "text": "Please summarize the following note concisely:\n\n"
+    },
+    {
+      "id": "t2",
+      "label": "Fix grammar",
+      "text": "Please fix the grammar and spelling in the following text:\n\n"
+    },
+    {
+      "id": "t3",
+      "label": "Expand idea",
+      "text": "Please expand on the following idea with more depth and detail:\n\n"
+    }
+  ],
+  "autoContextOnOpen": false,
+  "stripFrontmatter": false,
+  "saveNoteFolder": "AI Notes",
+  "useDateSubfolder": false,
+  "formatAIResponse": true,
+  "customServices": [],
+  "splitPanelUrl": "https://claude.ai/"
+}

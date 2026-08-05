@@ -1,0 +1,11 @@
+{
+  "aibrowser-chat:open-chatgpt": [
+    {
+      "modifiers": [
+        "Mod"
+      ],
+      "key": "G"
+    }
+  ],
+  "graph:open": []
+}
