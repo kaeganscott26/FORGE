@@ -51,12 +51,12 @@
             "state": {
               "type": "webviewer",
               "state": {
-                "url": "https://chatgpt.com/",
-                "title": "ChatGPT",
+                "url": "https://chatgpt.com/g/g-p-6a728f8e754c819189060c3dfffca977/c/6a728f93-bce0-83ea-9d03-3e75c708c84f",
+                "title": "FORGE_AI - GitHub Repo Status",
                 "mode": "webview"
               },
               "icon": "globe-2",
-              "title": "ChatGPT"
+              "title": "FORGE_AI - GitHub Repo Status"
             }
           }
         ],
@@ -122,8 +122,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 479.32421875,
-    "collapsed": true
+    "width": 479.32421875
   },
   "right": {
     "id": "e76b5054b8bd778c",
@@ -215,7 +214,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 886.7109375
+    "width": 238.4921875
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -232,17 +231,17 @@
   },
   "active": "f1c9013ff085a979",
   "lastOpenFiles": [
+    "apps/desktop/electron.vite.config.1785906582305.mjs",
+    "apps/desktop/electron.vite.config.1785906519500.mjs",
+    "apps/desktop/out/renderer/assets/index-DxMUzX2o.js",
+    "apps/desktop/electron.vite.config.1785906234257.mjs",
+    "apps/desktop/src/renderer/src/components/ChatPanel.tsx",
+    "apps/desktop/electron.vite.config.1785905998076.mjs",
+    "packages/ipc/test/ipc.test.ts",
     "apps/desktop/electron.vite.config.1785905678830.mjs",
     "packages/ai/test/agent.test.ts",
     "packages/ai/src/agent.ts",
     "apps/desktop/electron.vite.config.1785905448396.mjs",
-    "packages/ai/test/context.test.ts",
-    "packages/ai/test",
-    "packages/ai/src/context.ts",
-    "apps/desktop/electron.vite.config.1785904849203.mjs",
-    "packages/ai/src/openai.ts",
-    "apps/desktop/electron.vite.config.1785901747628.mjs",
-    "node_modules/electron/dist/LICENSES.chromium.html",
     "node_modules/monaco-editor/README.md",
     "node_modules/monaco-editor/CHANGELOG.md",
     "node_modules/caniuse-lite/README.md",

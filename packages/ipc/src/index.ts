@@ -30,20 +30,27 @@ export const IPC_CHANNELS = {
   workspaceOpen: 'workspace.open', workspaceInfo: 'workspace.info',
   fileList: 'file.list', fileRead: 'file.read', fileWrite: 'file.write', fileCreate: 'file.create', fileDelete: 'file.delete', fileRename: 'file.rename',
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
-  metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaTaskCreate: 'meta.task.create'
+  metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaTaskCreate: 'meta.task.create',
+  agentAsk: 'agent.ask', agentExplainProject: 'agent.explainProject', agentReviewChanges: 'agent.reviewChanges'
 } as const;
+
+// Agent IPC types
+export type AgentAskRequest = { prompt: string };
+export interface AgentResponse { content: string; contextUsed: boolean; metadata?: unknown }
 
 export interface IPCRequestMap {
   'workspace.open': undefined; 'workspace.info': undefined;
   'file.list': { path?: string }; 'file.read': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string };
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
   'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
+  'agent.ask': AgentAskRequest; 'agent.explainProject': undefined; 'agent.reviewChanges': undefined;
 }
 export interface IPCResponseMap {
   'workspace.open': WorkspaceInfo; 'workspace.info': WorkspaceInfo | null;
   'file.list': FileNode[]; 'file.read': FileContent; 'file.write': FileContent; 'file.create': FileNode; 'file.delete': void; 'file.rename': FileNode;
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
   'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.task.create': Task;
+  'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;
 }
 export type IPCChannel = keyof IPCRequestMap;
 export type ForgeAPI = { invoke<C extends IPCChannel>(channel: C, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>> };
