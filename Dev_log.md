@@ -48,7 +48,15 @@ FORGE needed a safe boundary between model reasoning and machine authority. Tool
 
 PR #9 merged the feature branch as `0c73ba8`; the remote feature branch was removed and local `main` matched `origin/main`. Two feature-branch GitHub workflow runs passed source validation, universal packaging, and artifact upload; the final run used the current Node 24-based official actions without deprecation annotations. Clean merged-main installation, typecheck, lint, all 54 tests, production build, arm64 packaging, and universal packaging passed again.
 
-The final release-metadata commit, exact embedded-commit verification, annotated tag, GitHub Pre-release workflow/assets, stable-channel feed check, `npm run install:mac`, duplicate-install report, and installed-app runtime diagnostics remain required. No v1.1 preview has been published yet.
+At that checkpoint, the final release-metadata commit, exact embedded-commit verification, annotated tag, GitHub Pre-release workflow/assets, stable-channel feed check, `npm run install:mac`, duplicate-install report, and installed-app runtime diagnostics still remained; the following publication finding records their outcome.
+
+### Alpha.1 publication finding
+
+- Published annotated `v1.1.0-alpha.1` from release commit `6d9037f`; the GitHub workflow, Pre-release, five universal assets, remote hashes/architectures, embedded commit, local install, and installed diagnostics passed.
+- Confirmed v1.0.1 remains GitHub Latest, so Stable v1.0.1 installations are not offered the preview.
+- The installed alpha on a persisted Stable preference incorrectly offered v1.0.1 as an update because the Electron Updater channel setter re-enabled downgrade checks. The unsigned downgrade downloaded but failed code-signature validation and was not installed.
+- Added a follow-up policy that explicitly resets `allowDowngrade=false` after channel selection. Unit checks pass, and a packaged Stable-channel check reports v1.1.0-alpha.1 up to date while identifying v1.0.1 as disallowed downgrade.
+- The published alpha.1 tag and assets remain immutable. This guard requires a new preview version before the milestone can be called fully released.
 
 ## 2026-08-06 — Version 1.0.1 release repair
 

@@ -1,6 +1,6 @@
 import { app, shell } from 'electron';
 import electronUpdater from 'electron-updater';
-import type { AppUpdateStatus } from '@forge/ipc';
+import { buildUpdatePolicy, type AppUpdateStatus } from '@forge/ipc';
 
 const { autoUpdater } = electronUpdater;
 const releasesUrl = 'https://github.com/kaeganscott26/FORGE/releases/latest';
@@ -28,8 +28,12 @@ export class UpdaterService {
   }
 
   setChannel(channel: 'stable' | 'preview'): void {
-    autoUpdater.allowPrerelease = channel === 'preview';
-    autoUpdater.channel = channel === 'preview' ? 'preview' : 'latest';
+    const policy = buildUpdatePolicy(channel);
+    autoUpdater.allowPrerelease = policy.allowPrerelease;
+    autoUpdater.channel = policy.feedChannel;
+    // electron-updater enables downgrade checks when its channel changes.
+    // FORGE channels select feeds; they never authorize a version downgrade.
+    autoUpdater.allowDowngrade = policy.allowDowngrade;
   }
 
   status(): AppUpdateStatus {
