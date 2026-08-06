@@ -12,8 +12,8 @@ FORGE is designed for developers who want one place to:
 - preview Markdown documentation;
 - review, stage, commit, pull, and push Git changes;
 - track project goals and tasks;
-- keep project-specific conversations and memories;
-- ask an AI assistant questions using workspace context.
+- keep multiple project-specific conversation threads without mixing workspaces;
+- ask an AI assistant questions using automatically assembled workspace context.
 
 Privileged file, Git, storage, and AI work runs in Electron's main process. The React renderer uses an allowlisted preload bridge rather than direct Node.js access.
 
@@ -23,9 +23,11 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 - Recursive project explorer and Monaco code editor
 - Markdown preview
 - Git status, diff, staging, commit, pull, and push controls
-- SQLite-backed goals, tasks, conversations, and memories per workspace
-- Workspace indexing and lexical memory retrieval
-- In-app AI settings for an encrypted API key, compatible base URL, and model
+- Resizable Explorer, editor, workspace-intelligence, AI chat, and source-control regions with per-workspace layout persistence
+- SQLite-backed goals, tasks, conversation threads, active-thread state, layout, and memories per workspace
+- New Chat and Clear Chat controls that reset conversation state without deleting project intelligence
+- Workspace indexing, lexical memory retrieval, and architecture-first prompt assembly from documentation, Git, metadata, source snapshots, and memory
+- In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, provider model discovery, and availability validation
 - In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
 - GitHub Release update checks in packaged builds
 - One-command local rebuild and in-place app refresh
@@ -86,6 +88,7 @@ It is not the distributed application and cannot provide all Electron IPC featur
 
 ```sh
 npm run typecheck
+npm run lint
 npm test
 npm run build
 npm run package:mac
@@ -127,7 +130,13 @@ FORGE stores workspace-specific application data at:
 <workspace>/.forge/metadata.sqlite
 ```
 
-This directory is ignored by Git. It can contain goals, tasks, conversations, and indexed memories. Back it up before deleting it.
+This directory is ignored by Git. It contains workspace-owned goals, tasks, conversation threads, active conversation selection, panel layout, and indexed memories. Switching folders opens a different database, so chat history cannot leak between workspaces. Back it up before deleting it.
+
+## Workspace intelligence
+
+Every AI turn receives an automatically generated system context before the conversation and user prompt. The context establishes FORGE's local-first philosophy and selects bounded evidence from architecture and project documents, current Git state and history, goals and tasks, relevant source snapshots, file inventory, and retrieved durable memories. Asking “What should I build next?” therefore produces an architecture-grounded answer instead of a generic IDE feature list.
+
+Conversations and durable intelligence have separate lifecycles. **New chat** creates another thread in the current workspace. **Clear** removes messages only from the active thread. Neither action deletes indexed files, memories, embeddings or future indexes, project metadata, layout, or Git state.
 
 ## Documentation
 

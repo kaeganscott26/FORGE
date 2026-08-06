@@ -1,5 +1,65 @@
 # FORGE Developer Log
 
+## 2026-08-06 — Workspace UX and AI context architecture milestone
+
+### Why this milestone exists
+
+- Reframed FORGE's AI from a generic assistant into workspace intelligence grounded in the project folder.
+- Kept feature scope tied to FORGE's philosophy: local-first operation, durable project memory, and a connected graph of source, Markdown, Git, metadata, architecture, and conversations.
+- Explicitly rejected unrelated generic IDE roadmap work.
+
+### Conversation and storage architecture
+
+- Added schema version 2 with `conversation_threads`, thread linkage on messages, and `workspace_state` for active conversation and layout.
+- Migrated legacy unthreaded messages non-destructively into an **Imported conversation**.
+- Added multiple named conversations per workspace, selection, rename, first-prompt automatic titles, New Chat, and Clear Chat.
+- Enforced project ownership for every thread lookup so IDs from a different workspace cannot be read or selected.
+- Defined Clear Chat as deleting only the active thread's message rows. It intentionally preserves memories, indexing, project metadata, layout, Git state, other conversations, and future embeddings/search indexes.
+- Kept API/GitHub credentials app-global and Keychain-backed while keeping conversation and layout state inside the project folder.
+
+### Workspace UX
+
+- Replaced the fixed workspace grid with drag handles between Explorer/editor, editor/workspace intelligence, context/chat, and workspace/source control.
+- Persisted clamped panel dimensions per workspace with debounced IPC saves.
+- Consolidated dashboard and durable memory into the workspace-intelligence region and made the AI panel a thread-oriented project surface.
+- Added context-source disclosure beneath the latest response.
+
+### AI models and prompt assembly
+
+- Changed the default for new configurations from `gpt-4o` to `gpt-5.6-sol`, the current resolved flagship GPT-5.x target at implementation time.
+- Preserved all previously saved/environment model IDs and removed allowlist assumptions.
+- Added provider model listing, exact validation, manual future-model entry, and actionable unsupported-model errors.
+- Updated Chat Completions to use `max_completion_tokens`, with a narrow `max_tokens` retry for older compatible endpoints.
+- Added an automatic FORGE philosophy system frame before every user prompt.
+- Added priority/budget-based evidence assembly from architecture/project documents, metadata/goals, Git status/history, relevant or changed source snapshots, package metadata, file inventory, and retrieved memories.
+- Bounded prior messages separately so each thread maintains continuity without allowing unbounded context growth.
+
+### Future extension points
+
+- Added provider-neutral interfaces for context sources and budgeting, architectural memory, project timeline, AI diff review, context inspection, intent navigation, and the composed workspace-intelligence boundary.
+- Deferred implementations intentionally; these contracts establish architectural seams without claiming incomplete features.
+
+### Files and subsystems affected
+
+- `packages/storage`: schema, migration, threads, workspace state, and layout.
+- `packages/ai`: provider model operations, context assembly, Agent framing, and intelligence interfaces.
+- `packages/ipc`: typed layout, model, conversation, and context-source channels.
+- `apps/desktop/src/main`: secure settings and workspace-bound orchestration.
+- `apps/desktop/src/renderer`: resizable layout, model controls, memory, and conversation UX.
+- Tests, ESLint configuration, CI validation, environment example, and all affected product/developer documentation.
+
+### Validation and tradeoffs
+
+- Repaired the memory test so it uses an isolated temporary workspace instead of the repository's live `.forge` database.
+- Added storage isolation/clear-preservation tests and AI context/provider tests.
+- Added the missing ESLint 9 flat configuration and included lint in the release workflow.
+- Passed typecheck, lint, all 14 test files/30 tests, and the production Electron build before packaging.
+- Built the current ARM64 macOS app, DMG, ZIP, and update blockmaps with Electron Builder 26.15.3. Packaging passed; signing remained unavailable because no Developer ID identity is configured.
+- Initial smoke-start exposed a blank white window. Chrome DevTools Protocol network evidence showed `http://localhost:5173/` returned 404 because Electron Vite's renderer root pointed at `apps/desktop` instead of `apps/desktop/src/renderer`.
+- Corrected the renderer root, then verified Vite connected, React mounted one root child, and the window rendered the FORGE header and welcome content. The previous missing-native-Electron blocker is also no longer present.
+- Character budgeting is deterministic and provider neutral but is not yet token aware.
+- Memory reindex deduplication, embeddings, persisted hybrid search, signed update validation, and renderer sandbox hardening remain deferred.
+
 ## 2026-08-05 — Version 1.0.0 release preparation
 
 ### Repository audit
