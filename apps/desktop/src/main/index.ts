@@ -5,7 +5,7 @@ import { IPC_CHANNELS, type IPCChannel, type IPCRequestMap, type IPCResponseMap,
 import { WorkspaceService } from '@forge/workspace';
 import { GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
-import { OpenAIProvider, ContextBuilderImpl, Agent } from '@forge/ai';
+import { OpenAIProvider, ContextBuilderImpl, Agent, type AgentMessage } from '@forge/ai';
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
@@ -38,6 +38,8 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
 function registerHandlers(): void {
   register(IPC_CHANNELS.workspaceOpen, async () => { const selection = await dialog.showOpenDialog({ title: 'Open Forge workspace', properties: ['openDirectory', 'createDirectory'] }); if (selection.canceled || !selection.filePaths[0]) throw new Error('Workspace selection was cancelled.'); await storage.close(); const info = await workspace.open(selection.filePaths[0]); await git.init(info.rootPath); await storage.init(info.rootPath); return info; });
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
+  register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
+  register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
   register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path));
   register(IPC_CHANNELS.fileRead, async (request) => workspace.readFile(request.path));
   register(IPC_CHANNELS.fileWrite, async (request) => workspace.writeFile(request.path, request.content));
@@ -54,58 +56,70 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.appReleaseOpen, async () => updater.openLatestRelease());
   register(IPC_CHANNELS.settingsGet, async () => settings.publicSettings());
   register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); return result; });
-  register(IPC_CHANNELS.settingsTestApi, async () => { await aiProvider.testConnection(); return { ok: true as const }; });
+  register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
+  register(IPC_CHANNELS.settingsModelsList, async (request) => {
+    const configuration = await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl });
+    return new OpenAIProvider(configuration).listModels();
+  });
+  register(IPC_CHANNELS.settingsModelValidate, async (request) => {
+    const configuration = await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel });
+    return new OpenAIProvider(configuration).validateModel(request.apiModel);
+  });
   register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
-  // Agent IPC handlers
+  const resolveConversation = async (conversationId?: string) => storage.conversationState(conversationId);
+  const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId))
+    .map((entry) => ({ role: entry.role, content: entry.content }));
+  const runAgentTurn = async (conversationId: string, prompt: string) => {
+    const state = await resolveConversation(conversationId);
+    const history = await historyFor(state.activeConversationId);
+    await storage.appendConversation(state.activeConversationId, 'user', prompt);
+    const turn = await agent.askWithContext(prompt, history);
+    await storage.appendConversation(state.activeConversationId, 'assistant', turn.content);
+    return {
+      content: turn.content,
+      contextUsed: turn.context.artifacts.length > 0,
+      conversationId: state.activeConversationId,
+      memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
+      contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path }))
+    };
+  };
   register(IPC_CHANNELS.agentAsk, async (request) => {
-    if (!request || typeof (request as any).prompt !== 'string') throw new Error('Invalid agent.ask request');
-    const prompt = (request as any).prompt;
-    // fetch relevant memories to include in the response payload
-    let memories: any[] = [];
-    try { memories = await memoryRetriever.search(prompt, 5); } catch (e) { memories = []; }
-    const resp = await agent.ask(prompt);
-    // persist conversation entries when storage is initialized
-    try {
-      await storage.appendConversation('user', prompt);
-      await storage.appendConversation('assistant', String(resp));
-    } catch (e) {
-      // ignore storage errors here
-    }
-    return { content: String(resp), contextUsed: true, memories } as any;
+    if (!request.prompt.trim()) throw new Error('A prompt is required.');
+    return runAgentTurn(request.conversationId, request.prompt.trim());
   });
-  register(IPC_CHANNELS.agentExplainProject, async () => {
-    const resp = await agent.explainProject();
-    try { await storage.appendConversation('assistant', String(resp)); } catch (e) {}
-    return { content: String(resp), contextUsed: true };
+  register(IPC_CHANNELS.agentExplainProject, async (request) => {
+    const state = await resolveConversation(request?.conversationId);
+    return runAgentTurn(state.activeConversationId, 'Explain this repository as an evidence-grounded architecture summary.');
   });
-  register(IPC_CHANNELS.agentReviewChanges, async () => {
-    const resp = await agent.reviewChanges();
-    try { await storage.appendConversation('assistant', String(resp)); } catch (e) {}
-    return { content: String(resp), contextUsed: true };
+  register(IPC_CHANNELS.agentReviewChanges, async (request) => {
+    const state = await resolveConversation(request?.conversationId);
+    return runAgentTurn(state.activeConversationId, 'Review the current repository changes against its documented architecture and project goals.');
   });
-  // Conversations IPC
-  register(IPC_CHANNELS.agentConversationsList, async () => {
-    return (await storage.listConversations()) as any;
+  register(IPC_CHANNELS.agentConversationsState, async (request) => storage.conversationState(request?.conversationId));
+  register(IPC_CHANNELS.agentConversationsList, async (request) => {
+    const state = await storage.conversationState(request?.conversationId);
+    return state.messages;
   });
   register(IPC_CHANNELS.agentConversationsAppend, async (request) => {
-    const entries = (request as any)?.entries || [];
-    for (const e of entries) {
-      if (e && (e.role === 'user' || e.role === 'assistant') && typeof e.content === 'string') {
-        // eslint-disable-next-line no-await-in-loop
-        await storage.appendConversation(e.role, e.content);
-      }
+    const state = await storage.conversationState(request.conversationId);
+    for (const entry of request.entries) {
+      await storage.appendConversation(state.activeConversationId, entry.role, entry.content);
     }
     return undefined;
   });
+  register(IPC_CHANNELS.agentConversationCreate, async (request) => storage.createConversation(request.title));
+  register(IPC_CHANNELS.agentConversationSelect, async (request) => storage.selectConversation(request.conversationId));
+  register(IPC_CHANNELS.agentConversationRename, async (request) => storage.renameConversation(request.conversationId, request.title));
+  register(IPC_CHANNELS.agentConversationClear, async (request) => storage.clearConversation(request.conversationId));
   // Memories IPC
   register(IPC_CHANNELS.agentMemoriesList, async () => {
     return (await storage.listMemories()) as any;
   });
   register(IPC_CHANNELS.agentMemoriesDelete, async (request) => {
-    const id = (request as any)?.id; if (!id) throw new Error('Memory id required'); await storage.deleteMemory(id); return undefined;
+    if (!request.id) throw new Error('Memory id required'); await storage.deleteMemory(request.id); return undefined;
   });
   register(IPC_CHANNELS.agentMemoriesReindex, async () => {
-    try { await memoryIndexer.indexWorkspaceFiles(); } catch (e) { /* ignore */ } return undefined;
+    await memoryIndexer.indexWorkspaceFiles(); return undefined;
   });
 }
 

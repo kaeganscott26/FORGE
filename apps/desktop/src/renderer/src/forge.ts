@@ -13,12 +13,16 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
       return { success: true, data: { content: '' } } as any;
     case 'agent.conversations.list':
       return { success: true, data: [] } as any;
+    case 'agent.conversations.state':
+      return { success: true, data: { activeConversationId: 'browser-preview', threads: [{ id: 'browser-preview', title: 'Browser preview', createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 }], messages: [] } } as any;
     case 'agent.memories.list':
       return { success: true, data: [] } as any;
     case 'app.update.status':
       return { success: true, data: { currentVersion: 'development', state: 'development', message: 'Update checks run in the packaged app.' } } as any;
     case 'settings.get':
-      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-4o', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false } } as any;
+      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false } } as any;
+    case 'workspace.layout.get':
+      return { success: true, data: { explorerWidth: 245, intelligenceWidth: 360, bottomHeight: 240, contextHeight: 300 } } as any;
     default:
       return { success: false, error: { message: 'Forge API bridge not available in this environment.' } } as any;
   }

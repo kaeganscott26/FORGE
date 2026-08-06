@@ -3,6 +3,10 @@ import type { GitService } from '@forge/git';
 import type { StorageService } from '@forge/storage';
 import type { FileNode } from '@forge/ipc';
 import type { MemoryEntry } from '@forge/memory';
+import type { ContextAssemblyResult, ContextBudgetPolicy, WorkspaceArtifact } from './intelligence';
+
+const DEFAULT_CONTEXT_BUDGET = 14_000;
+const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 
 export interface ProjectContext {
   projectName: string | null;
@@ -10,93 +14,192 @@ export interface ProjectContext {
   files: Array<{ path: string; type: 'file' | 'directory'; extension?: string }>;
   readme?: { path: string; content: string } | null;
   packageJson?: { path: string; content: string } | null;
+  documents: Array<{ path: string; content: string }>;
+  sourceFiles: Array<{ path: string; content: string; changed: boolean }>;
   gitStatus?: unknown | null;
   recentCommits?: Array<{ hash: string; message: string; author?: string; timestamp?: number }> | null;
   metadata?: unknown | null;
   memories?: MemoryEntry[] | null;
 }
 
-export class ContextBuilderImpl {
-  constructor(private workspace: WorkspaceService, private git: GitService, private storage: StorageService) {}
+export class PriorityContextBudgetPolicy implements ContextBudgetPolicy {
+  select(artifacts: readonly WorkspaceArtifact[], characterBudget: number): { selected: readonly WorkspaceArtifact[]; omittedArtifactIds: readonly string[] } {
+    const ordered = [...artifacts].sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id));
+    const selected: WorkspaceArtifact[] = [];
+    const omittedArtifactIds: string[] = [];
+    let remaining = characterBudget;
+    for (const artifact of ordered) {
+      if (remaining <= 0) { omittedArtifactIds.push(artifact.id); continue; }
+      const allowance = Math.min(artifact.content.length, 4_000, remaining);
+      if (allowance <= 0) { omittedArtifactIds.push(artifact.id); continue; }
+      const content = artifact.content.length > allowance ? `${artifact.content.slice(0, Math.max(0, allowance - 1))}…` : artifact.content;
+      selected.push({ ...artifact, content });
+      remaining -= content.length;
+      if (content.length < artifact.content.length) omittedArtifactIds.push(`${artifact.id}:truncated`);
+    }
+    return { selected, omittedArtifactIds };
+  }
+}
 
-  private flattenFiles(nodes: FileNode[], base = ''): Array<{ path: string; type: 'file' | 'directory'; extension?: string }> {
+export class ContextBuilderImpl {
+  constructor(
+    private workspace: WorkspaceService,
+    private git: GitService,
+    private storage: StorageService,
+    private budgetPolicy: ContextBudgetPolicy = new PriorityContextBudgetPolicy()
+  ) {}
+
+  private flattenFiles(nodes: FileNode[]): Array<{ path: string; type: 'file' | 'directory'; extension?: string }> {
     const out: Array<{ path: string; type: 'file' | 'directory'; extension?: string }> = [];
-    for (const n of nodes) {
-      out.push({ path: n.relativePath || n.path, type: n.type, extension: n.extension });
-      if (n.children && n.children.length) {
-        out.push(...this.flattenFiles(n.children, n.relativePath));
-      }
+    for (const node of nodes) {
+      out.push({ path: node.relativePath || node.path, type: node.type, extension: node.extension });
+      if (node.children?.length) out.push(...this.flattenFiles(node.children));
     }
     return out;
   }
 
-  async buildContext(query?: string, memories?: MemoryEntry[] | null): Promise<ProjectContext> {
-    const ctx: ProjectContext = { projectName: null, rootPath: null, files: [], readme: null, packageJson: null, gitStatus: null, recentCommits: null, metadata: null };
-    // Workspace info
+  async buildContext(_query?: string, memories?: MemoryEntry[] | null): Promise<ProjectContext> {
+    const context: ProjectContext = {
+      projectName: null,
+      rootPath: null,
+      files: [],
+      readme: null,
+      packageJson: null,
+      documents: [],
+      sourceFiles: [],
+      gitStatus: null,
+      recentCommits: null,
+      metadata: null,
+      memories: memories ?? null
+    };
+
     try {
       const info = this.workspace.info();
-      if (info) {
-        ctx.projectName = info.name ?? null;
-        ctx.rootPath = info.rootPath ?? null;
-      }
-    } catch (e) {
-      // leave nulls
+      if (info) { context.projectName = info.name ?? null; context.rootPath = info.rootPath ?? null; }
+    } catch { /* an unopened workspace has no identity */ }
+
+    try { context.files = this.flattenFiles(await this.workspace.list('')); }
+    catch { context.files = []; }
+
+    const candidatePaths = [...new Set(context.files
+      .filter((file) => file.type === 'file' && DOCUMENT_PATTERN.test(file.path))
+      .map((file) => file.path))].slice(0, 10);
+    for (const documentPath of candidatePaths) {
+      try {
+        const file = await this.workspace.readFile(documentPath);
+        context.documents.push({ path: documentPath, content: file.content });
+        if (/^readme\.md$/i.test(documentPath)) context.readme = { path: documentPath, content: file.content };
+      } catch { /* skip unreadable context candidates */ }
     }
 
-    // File list
-    try {
-      const nodes = await this.workspace.list('');
-      ctx.files = this.flattenFiles(nodes);
-    } catch (e) {
-      ctx.files = [];
+    if (!context.readme) {
+      try {
+        const readme = await this.workspace.readFile('README.md');
+        context.readme = { path: readme.path, content: readme.content };
+        context.documents.unshift({ path: readme.path, content: readme.content });
+      } catch { context.readme = null; }
     }
 
-    // README
     try {
-      const readme = await this.workspace.readFile('README.md').catch(() => null);
-      if (readme) ctx.readme = { path: readme.path, content: readme.content };
-    } catch (e) {
-      ctx.readme = null;
+      const packageJson = await this.workspace.readFile('package.json');
+      context.packageJson = { path: packageJson.path, content: packageJson.content };
+    } catch { context.packageJson = null; }
+
+    try { context.gitStatus = await this.git.status(); }
+    catch { context.gitStatus = null; }
+    try {
+      const commits = await this.git.log(12);
+      context.recentCommits = commits.map((commit) => ({ hash: commit.hash, message: commit.message, author: commit.author, timestamp: commit.timestamp }));
+    } catch { context.recentCommits = null; }
+    try { context.metadata = await this.storage.dashboard(); }
+    catch { context.metadata = null; }
+
+    const queryTokens = new Set((_query ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
+    const changedPaths = new Set(
+      context.gitStatus && typeof context.gitStatus === 'object' && 'files' in context.gitStatus && Array.isArray((context.gitStatus as { files?: unknown }).files)
+        ? ((context.gitStatus as { files: Array<{ path?: unknown }> }).files).map((file) => String(file.path ?? ''))
+        : []
+    );
+    const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'c', 'cpp', 'rs', 'go', 'java']);
+    const sourceCandidates = context.files
+      .filter((file) => file.type === 'file' && sourceExtensions.has(file.extension?.toLowerCase() ?? ''))
+      .map((file) => ({
+        path: file.path,
+        changed: changedPaths.has(file.path),
+        score: (changedPaths.has(file.path) ? 100 : 0) + [...queryTokens].reduce((score, token) => score + (file.path.toLowerCase().includes(token) ? 10 : 0), 0)
+      }))
+      .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
+      .slice(0, 6);
+    for (const candidate of sourceCandidates) {
+      try {
+        const file = await this.workspace.readFile(candidate.path);
+        context.sourceFiles.push({ path: candidate.path, content: file.content, changed: candidate.changed });
+      } catch { /* skip unreadable source evidence */ }
     }
 
-    // package.json
-    try {
-      const pkg = await this.workspace.readFile('package.json').catch(() => null);
-      if (pkg) ctx.packageJson = { path: pkg.path, content: pkg.content };
-    } catch (e) {
-      ctx.packageJson = null;
-    }
+    return context;
+  }
 
-    // Git status and recent commits
-    try {
-      const status = await this.git.status();
-      ctx.gitStatus = status;
-    } catch (e) {
-      ctx.gitStatus = null;
-    }
-    try {
-      const commits = await this.git.log(10);
-      ctx.recentCommits = Array.isArray(commits) && commits.length ? commits.map((c: any) => ({ hash: c.hash, message: c.message, author: c.author, timestamp: c.timestamp })) : null;
-    } catch (e) {
-      ctx.recentCommits = null;
-    }
+  async assemble(query: string, memories?: MemoryEntry[] | null, characterBudget = DEFAULT_CONTEXT_BUDGET): Promise<ContextAssemblyResult> {
+    const context = await this.buildContext(query, memories);
+    const artifacts: WorkspaceArtifact[] = [];
+    const add = (artifact: WorkspaceArtifact): void => { if (artifact.content.trim()) artifacts.push(artifact); };
 
-    // Storage metadata
-    try {
-      const meta = await this.storage.dashboard().catch(() => null);
-      ctx.metadata = meta ?? null;
-    } catch (e) {
-      ctx.metadata = null;
+    add({
+      id: 'workspace-inventory', kind: 'source', title: 'Workspace inventory', priority: 60,
+      content: `${context.files.length} indexed entries\n${context.files.slice(0, 180).map((file) => `${file.type === 'directory' ? 'dir' : 'file'}: ${file.path}`).join('\n')}`
+    });
+    for (const document of context.documents) {
+      add({
+        id: `document:${document.path}`, kind: /architecture/i.test(document.path) ? 'architecture' : 'documentation',
+        title: document.path, path: document.path, content: document.content, priority: /architecture/i.test(document.path) ? 100 : /^readme/i.test(document.path) ? 90 : 80
+      });
     }
+    for (const sourceFile of context.sourceFiles) add({
+      id: `source:${sourceFile.path}`, kind: 'source', title: sourceFile.path, path: sourceFile.path,
+      content: sourceFile.content, priority: sourceFile.changed ? 92 : 70
+    });
+    if (context.packageJson) add({ id: 'package-json', kind: 'source', title: 'package.json', path: context.packageJson.path, content: context.packageJson.content, priority: 72 });
+    if (context.gitStatus) add({ id: 'git-status', kind: 'git', title: 'Current Git state', content: JSON.stringify(context.gitStatus, null, 2), priority: 88 });
+    if (context.recentCommits?.length) add({
+      id: 'git-history', kind: 'git', title: 'Recent Git history', priority: 86,
+      content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}${commit.author ? ` — ${commit.author}` : ''}`).join('\n')
+    });
+    if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Project goals and metadata', content: JSON.stringify(context.metadata, null, 2), priority: 94 });
+    for (const memory of context.memories ?? []) add({
+      id: `memory:${memory.id}`, kind: 'memory', title: memory.title || memory.type, content: memory.content,
+      priority: memory.type === 'decision' ? 98 : 84, updatedAt: memory.updatedAt, metadata: typeof memory.metadata === 'object' && memory.metadata ? memory.metadata as Record<string, unknown> : undefined
+    });
 
-    // include provided memories
-    try {
-      ctx.memories = memories ?? null;
-    } catch (e) {
-      ctx.memories = null;
-    }
+    const budgeted = this.budgetPolicy.select(artifacts, characterBudget);
+    const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ''}\n${artifact.content}`).join('\n\n');
+    const projectName = context.projectName ?? 'the active workspace';
+    const systemPrompt = `You are FORGE workspace intelligence operating alongside the repository "${projectName}".
 
-    return ctx;
+Core philosophy:
+- Local-first.
+- The project folder is the source of truth.
+- AI augments the workspace instead of replacing it.
+- Project memory must remain durable.
+- Markdown, Git, conversations, architecture, documentation, source code, and project metadata form one connected knowledge graph.
+
+Decision policy:
+- Ground answers in the supplied workspace evidence and distinguish evidence from inference.
+- When asked what to build next, reason from architecture, project memory, Git history, documentation, current implementation, and goals.
+- Prefer architectural evolution that strengthens workspace intelligence over generic IDE features.
+- Do not default to plugins, collaboration, onboarding, dark mode, or templates unless repository evidence shows they directly advance this architecture.
+- Never imply that clearing or starting a conversation erases workspace memory, indexes, project metadata, or Git state.
+
+Workspace evidence for this turn:
+${evidence || 'No workspace evidence was available.'}`;
+
+    return {
+      systemPrompt,
+      artifacts: budgeted.selected,
+      omittedArtifactIds: budgeted.omittedArtifactIds,
+      characterBudget,
+      characterCount: systemPrompt.length
+    };
   }
 }
 

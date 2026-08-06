@@ -1,46 +1,59 @@
-import type { ProjectContext } from './context';
-import type { MemoryRetriever, MemoryEntry } from '@forge/memory';
+import type { MemoryEntry, MemoryRetriever } from '@forge/memory';
+import type { ContextAssemblyResult } from './intelligence';
+
+export interface AgentMessage { role: 'system' | 'user' | 'assistant'; content: string; }
 
 export interface SimpleAIProvider {
   id: string;
   isConfigured(): Promise<boolean>;
-  chat(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, model?: string): Promise<string>;
+  chat(messages: AgentMessage[], model?: string): Promise<string>;
+}
+
+export interface AgentTurnResult {
+  content: string;
+  memories: MemoryEntry[];
+  context: ContextAssemblyResult;
 }
 
 export class Agent {
-  constructor(private provider: SimpleAIProvider, private contextBuilder: { buildContext(query?: string, memories?: MemoryEntry[]): Promise<ProjectContext> }, private memoryRetriever?: MemoryRetriever) {}
+  constructor(
+    private provider: SimpleAIProvider,
+    private contextBuilder: { assemble(query: string, memories?: MemoryEntry[] | null): Promise<ContextAssemblyResult> },
+    private memoryRetriever?: MemoryRetriever
+  ) {}
 
-  private summarizeContext(ctx: ProjectContext): string {
-    const parts: string[] = [];
-    parts.push(`Project: ${ctx.projectName ?? 'unknown'}`);
-    parts.push(`Root: ${ctx.rootPath ?? 'unknown'}`);
-    parts.push(`Files: ${ctx.files.length} entries`);
-    if (ctx.readme && ctx.readme.content) parts.push(`README: ${ctx.readme.content.slice(0, 512).replace(/\n+/g, ' ')}${ctx.readme.content.length > 512 ? '...' : ''}`);
-    if (ctx.packageJson && ctx.packageJson.content) parts.push(`package.json: ${ctx.packageJson.content.slice(0, 512).replace(/\n+/g, ' ')}${ctx.packageJson.content.length > 512 ? '...' : ''}`);
-    if (ctx.recentCommits && ctx.recentCommits.length) parts.push(`Recent commits: ${ctx.recentCommits.map((c) => `${c.hash.slice(0, 7)} ${c.message}`).join(' | ')}`);
-    return parts.join('\n');
-  }
-
-  async ask(question: string): Promise<string> {
-    // retrieve memories first
+  async askWithContext(question: string, history: readonly AgentMessage[] = []): Promise<AgentTurnResult> {
     let memories: MemoryEntry[] = [];
     if (this.memoryRetriever) {
-      try { memories = await this.memoryRetriever.search(question, 5); } catch (e) { memories = []; }
+      try { memories = await this.memoryRetriever.search(question, 6); }
+      catch { memories = []; }
     }
-    const ctx = await this.contextBuilder.buildContext(question, memories);
-    const summary = this.summarizeContext(ctx);
-    const prompt = `${question}\n\nContext:\n${summary}`;
-    const messages = [{ role: 'system', content: 'You are Forge, an assistant for developer workspaces.' }, { role: 'user', content: prompt }];
-    const resp = await this.provider.chat(messages as any);
-    return resp;
+    const context = await this.contextBuilder.assemble(question, memories);
+    const boundedHistory = history
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .slice(-24)
+      .reduceRight<AgentMessage[]>((selected, message) => {
+        const used = selected.reduce((total, entry) => total + entry.content.length, 0);
+        return used >= 12_000 ? selected : [{ role: message.role, content: message.content.slice(0, 3_000) }, ...selected];
+      }, []);
+    const messages: AgentMessage[] = [
+      { role: 'system', content: context.systemPrompt },
+      ...boundedHistory,
+      { role: 'user', content: question }
+    ];
+    return { content: await this.provider.chat(messages), memories, context };
   }
 
-  async explainProject(): Promise<string> {
-    return this.ask('Explain this repository in a concise developer-facing summary.');
+  async ask(question: string, history: readonly AgentMessage[] = []): Promise<string> {
+    return (await this.askWithContext(question, history)).content;
   }
 
-  async reviewChanges(): Promise<string> {
-    return this.ask('Review the repository changes and summarize what changed or needs attention.');
+  async explainProject(history: readonly AgentMessage[] = []): Promise<string> {
+    return this.ask('Explain this repository as an evidence-grounded architecture summary.', history);
+  }
+
+  async reviewChanges(history: readonly AgentMessage[] = []): Promise<string> {
+    return this.ask('Review the current repository changes against its documented architecture and project goals.', history);
   }
 }
 

@@ -8,8 +8,8 @@ class MockProvider {
 }
 
 class MockBuilder {
-  async buildContext() {
-    return { projectName: 'repo', rootPath: '/repo', files: [], readme: null, packageJson: null, gitStatus: null, recentCommits: null, metadata: null };
+  async assemble() {
+    return { systemPrompt: 'FORGE workspace context', artifacts: [], omittedArtifactIds: [], characterBudget: 100, characterCount: 23 };
   }
 }
 
@@ -28,5 +28,16 @@ describe('Agent', () => {
     const agent = new Agent(provider as any, builder as any);
     const r = await agent.explainProject();
     expect(r).toContain('response to:');
+  });
+
+  it('injects workspace context and bounded conversation history', async () => {
+    let sent: any[] = [];
+    const provider = new MockProvider();
+    provider.chat = async (messages: any[]) => { sent = messages; return 'grounded'; };
+    const agent = new Agent(provider as any, new MockBuilder() as any);
+    const result = await agent.askWithContext('What should I build next?', [{ role: 'user', content: 'Architecture first' }]);
+    expect(result.content).toBe('grounded');
+    expect(sent[0]).toEqual({ role: 'system', content: 'FORGE workspace context' });
+    expect(sent.at(-1)?.content).toBe('What should I build next?');
   });
 });

@@ -20,6 +20,10 @@
 .settings-section input { width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #374451; border-radius: 6px; outline: none; background: #090d11; color: #e5ebf1; }
 .settings-section input:focus { border-color: #51bde9; box-shadow: 0 0 0 2px rgba(81, 189, 233, .14); }
 .settings-help { margin: -3px 0 13px; color: #8594a3; font-size: 12px; line-height: 1.55; }
+.model-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0 13px; }
+.model-actions em { padding: 4px 8px; border-radius: 20px; font-size: 10px; font-style: normal; }
+.model-valid { background: #203a26; color: #9bedaa; }
+.model-invalid { background: #47252a; color: #ffb3ba; }
 .settings-link { padding-left: 0; background: transparent; font-size: 11px; }
 .settings-link:hover { background: transparent; text-decoration: underline; }
 .settings-footer { height: auto; padding: 14px 24px; border-top: 1px solid #2a333d; }

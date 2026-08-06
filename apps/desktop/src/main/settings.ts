@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { SettingsSaveRequest, UserSettings } from '@forge/ipc';
+import { DEFAULT_OPENAI_MODEL } from '@forge/ai';
 
 interface StoredSettings {
   apiBaseUrl?: string;
@@ -18,7 +19,6 @@ export interface GitHubCredentials {
 }
 
 const defaultBaseUrl = 'https://api.openai.com/v1';
-const defaultModel = 'gpt-4o';
 
 export class SettingsService {
   private data: StoredSettings = {};
@@ -40,7 +40,7 @@ export class SettingsService {
   publicSettings(): UserSettings {
     return {
       apiBaseUrl: this.data.apiBaseUrl ?? process.env.OPENAI_BASE_URL ?? defaultBaseUrl,
-      apiModel: this.data.apiModel ?? process.env.OPENAI_MODEL ?? defaultModel,
+      apiModel: this.data.apiModel ?? process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL,
       apiKeyConfigured: Boolean(this.data.apiKey || process.env.OPENAI_API_KEY),
       githubUsername: this.data.githubUsername ?? '',
       githubTokenConfigured: Boolean(this.data.githubToken),
@@ -50,7 +50,7 @@ export class SettingsService {
 
   async save(request: SettingsSaveRequest): Promise<UserSettings> {
     this.data.apiBaseUrl = this.validateUrl(request.apiBaseUrl || defaultBaseUrl);
-    this.data.apiModel = request.apiModel.trim() || defaultModel;
+    this.data.apiModel = request.apiModel.trim() || DEFAULT_OPENAI_MODEL;
     this.data.githubUsername = request.githubUsername.trim();
 
     if (request.clearApiKey) delete this.data.apiKey;
@@ -66,11 +66,11 @@ export class SettingsService {
     return this.publicSettings();
   }
 
-  async apiConfiguration(): Promise<{ apiKey?: string; baseUrl: string; model: string }> {
+  async apiConfiguration(overrides: { apiKey?: string; baseUrl?: string; model?: string } = {}): Promise<{ apiKey?: string; baseUrl: string; model: string }> {
     return {
-      apiKey: this.data.apiKey ? await this.decrypt(this.data.apiKey) : process.env.OPENAI_API_KEY,
-      baseUrl: this.data.apiBaseUrl ?? process.env.OPENAI_BASE_URL ?? defaultBaseUrl,
-      model: this.data.apiModel ?? process.env.OPENAI_MODEL ?? defaultModel
+      apiKey: overrides.apiKey?.trim() || (this.data.apiKey ? await this.decrypt(this.data.apiKey) : process.env.OPENAI_API_KEY),
+      baseUrl: this.validateUrl(overrides.baseUrl || this.data.apiBaseUrl || process.env.OPENAI_BASE_URL || defaultBaseUrl),
+      model: overrides.model?.trim() || this.data.apiModel || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
     };
   }
 

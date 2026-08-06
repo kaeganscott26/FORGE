@@ -78,7 +78,7 @@ export class MemoryRetriever {
 export class MemoryIndexer {
   constructor(private memoryService: MemoryService, private workspace: WorkspaceService) {}
 
-  async indexConversations(limit = 100) {
+  async indexConversations(_limit = 100) {
     // conversations are stored in StorageService; memoryService may rely on StorageService to persist
     // leave this as-is if storage is accessible externally
     return;
@@ -104,7 +104,7 @@ export class MemoryIndexer {
         const fc = await this.workspace.readFile(f.relativePath || f.path);
         await this.memoryService.create({ type: ext === 'md' ? 'document' : 'code', title: f.name, content: fc.content, metadata: { path: f.relativePath || f.path } });
         count += 1;
-      } catch (e) {
+      } catch {
         // skip unreadable files
       }
     }
@@ -113,4 +113,3 @@ export class MemoryIndexer {
 
 export default MemoryService;
 export interface MemoryEngine { reindex(): Promise<void>; }
-

@@ -1,73 +1,96 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { JSX } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
+import type { AgentResponse, ConversationState } from '@forge/ipc';
+import { forgeInvoke } from '../forge';
 
-type MemoryRef = { id?: string; title?: string | null };
-type Message = { role: 'user' | 'assistant'; content: string; memories?: MemoryRef[] };
+const data = async <T,>(promise: ReturnType<typeof forgeInvoke>): Promise<T> => {
+  const result = await promise;
+  if (!result.success) throw new Error(result.error.message);
+  return result.data as T;
+};
 
-export default function ChatPanel(): JSX.Element {
-  const [messages, setMessages] = useState<Message[]>([]);
+export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): JSX.Element {
+  const [conversation, setConversation] = useState<ConversationState | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contextSources, setContextSources] = useState<AgentResponse['contextSources']>([]);
+
+  const loadState = useCallback(async (conversationId?: string): Promise<void> => {
+    setError(null);
+    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversations.state', conversationId ? { conversationId } : undefined))); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await import('../forge').then((m) => m.forgeInvoke('agent.conversations.list', undefined));
-        if (res && res.success && mounted) {
-          const entries = res.data as Array<{ role: 'user' | 'assistant'; content: string }>;
-          setMessages(entries.map((e) => ({ role: e.role, content: e.content })));
-        }
-      } catch (e) {
-        // ignore
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    setConversation(null);
+    setInput('');
+    setContextSources([]);
+    void loadState();
+  }, [workspaceKey, loadState]);
+
+  const createConversation = async (): Promise<void> => {
+    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.create', {}))); setContextSources([]); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  };
+
+  const selectConversation = async (conversationId: string): Promise<void> => {
+    if (conversationId === conversation?.activeConversationId) return;
+    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.select', { conversationId }))); setContextSources([]); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  };
+
+  const renameConversation = async (): Promise<void> => {
+    if (!conversation) return;
+    const current = conversation.threads.find((thread) => thread.id === conversation.activeConversationId);
+    const title = window.prompt('Conversation title:', current?.title ?? '');
+    if (!title?.trim()) return;
+    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.rename', { conversationId: conversation.activeConversationId, title }))); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  };
+
+  const clearConversation = async (): Promise<void> => {
+    if (!conversation || !window.confirm('Clear messages in this conversation? Workspace memory, indexed files, metadata, and Git state will remain intact.')) return;
+    try {
+      setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.clear', { conversationId: conversation.activeConversationId })));
+      setContextSources([]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  };
 
   const send = useCallback(async () => {
     const prompt = input.trim();
-    if (!prompt || loading) return;
+    if (!prompt || loading || !conversation) return;
+    const conversationId = conversation.activeConversationId;
     setError(null);
-    setMessages((m) => [...m, { role: 'user', content: prompt }]);
     setInput('');
     setLoading(true);
+    setConversation((current) => current ? { ...current, messages: [...current.messages, { id: `pending-${Date.now()}`, conversationId, role: 'user', content: prompt, createdAt: Date.now() }] } : current);
     try {
-      const result = await window.forge.invoke('agent.ask', { prompt } as any) as any;
-      if (!result.success) throw new Error(result.error?.message ?? 'Agent request failed');
-      const resp = result.data as any;
-      const assistantText = String(resp.content ?? '');
-      const mems: MemoryRef[] = Array.isArray(resp.memories) ? resp.memories.map((m: any) => ({ id: m.id, title: m.title })) : [];
-      setMessages((m) => [...m, { role: 'assistant', content: assistantText, memories: mems }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading]);
+      const response = await data<AgentResponse>(forgeInvoke('agent.ask', { prompt, conversationId }));
+      setContextSources(response.contextSources ?? []);
+      await loadState(response.conversationId);
+    } catch (cause) {
+      await loadState(conversationId);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setLoading(false); }
+  }, [conversation, input, loadState, loading]);
 
-  return (
-    <div className="chat-panel">
-      <div className="chat-header"><strong>AI Assistant</strong></div>
-      <div className="chat-messages" style={{ minHeight: 120, maxHeight: 220, overflow: 'auto', padding: 8, background: '#111', color: '#fff' }}>
-        {messages.length === 0 ? <div className="muted">No messages yet. Ask something about the project.</div> : messages.map((m, i) => (
-          <div key={i} className={`chat-msg ${m.role}`}>
-            <b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> <span>{m.content}</span>
-            {m.role === 'assistant' && m.memories && m.memories.length > 0 && (
-              <div className="chat-memories" style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-                <div style={{ fontWeight: 600 }}>Relevant memories:</div>
-                <ul style={{ margin: '4px 0 0 12px' }}>{m.memories.map((mm, idx) => <li key={idx}>{mm.title ?? '(untitled)'}</li>)}</ul>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      {error && <div className="chat-error" style={{ color: 'salmon' }}>{error}</div>}
-      <div className="chat-input" style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask the agent..." style={{ flex: 1 }} onKeyDown={(e) => { if (e.key === 'Enter') void send(); }} />
-        <button disabled={loading || !input.trim()} onClick={() => void send()}>{loading ? 'Thinking…' : 'Send'}</button>
-      </div>
+  const activeThread = conversation?.threads.find((thread) => thread.id === conversation.activeConversationId);
+  return <section className="chat-panel" aria-label="Workspace conversations">
+    <div className="chat-header">
+      <div><strong>Workspace AI</strong><small>{activeThread?.title ?? 'Loading conversation…'}</small></div>
+      <div><button onClick={renameConversation} disabled={!conversation}>Rename</button><button onClick={clearConversation} disabled={!conversation?.messages.length}>Clear</button><button className="accent" onClick={createConversation}>New chat</button></div>
     </div>
-  );
+    <label className="conversation-picker">Conversation
+      <select value={conversation?.activeConversationId ?? ''} onChange={(event) => void selectConversation(event.target.value)} disabled={!conversation}>
+        {conversation?.threads.map((thread) => <option key={thread.id} value={thread.id}>{thread.title} ({thread.messageCount})</option>)}
+      </select>
+    </label>
+    <div className="chat-messages">
+      {!conversation?.messages.length ? <div className="chat-empty"><strong>Begin a workspace-grounded conversation.</strong><span>FORGE will assemble architecture, project memory, Git history, documentation, goals, and current implementation context automatically.</span></div> : conversation.messages.map((message) => <article key={message.id} className={`chat-msg ${message.role}`}><b>{message.role === 'user' ? 'You' : 'FORGE'}</b><p>{message.content}</p></article>)}
+      {loading && <div className="chat-thinking">Assembling workspace context…</div>}
+    </div>
+    {contextSources?.length ? <details className="context-sources"><summary>{contextSources.length} workspace context sources used</summary>{contextSources.map((source) => <span key={source.id}>{source.title}</span>)}</details> : null}
+    {error && <div className="chat-error">{error}</div>}
+    <div className="chat-input"><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about this workspace…" rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} /><button disabled={loading || !input.trim() || !conversation} onClick={() => void send()}>{loading ? 'Thinking…' : 'Send'}</button></div>
+  </section>;
 }
