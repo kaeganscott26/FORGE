@@ -4,13 +4,13 @@
 
 **Working version:** 1.1.0-alpha.1
 
-**Branch:** `agent/tool-runtime-terminal`
+**Branch:** `main`
 
 **Platform:** macOS; arm64 and universal package validation
 
 ## Release state
 
-FORGE 1.1 tool runtime and terminal implementation is complete on the feature branch and is undergoing delivery gates. It has not yet been merged, tagged, published, or installed as the released preview. The existing v1.0.1 tag/release is unchanged.
+FORGE 1.1 tool runtime and terminal implementation was merged through PR #9 at `0c73ba8`. Synchronized `main` has passed the complete source and macOS packaging suite. The preview has not yet been tagged, published, or installed from the final release commit. The existing v1.0.1 tag/release is unchanged.
 
 The preview remains unsigned/ad-hoc because no Apple Developer ID signing identity or notarization credentials are configured. Automatic update detection can be exercised, but trusted unattended installation requires a consistently signed and notarized chain.
 
@@ -36,6 +36,8 @@ The preview remains unsigned/ad-hoc because no Apple Developer ID signing identi
 ## Current verification
 
 - Repository and GitHub inventory completed before edits: synchronized `main` at `1f0f0e9`, no open issues or PRs, v1.0.1 preserved.
+- PR #9 merged to `main` as `0c73ba8`; the feature branch was removed remotely and local `main` matched `origin/main` before release validation.
+- Feature-branch GitHub workflow runs `31098636313` and `31098848617` passed source validation, universal packaging, and artifact upload. The second run used Node 24-based `checkout@v7` and `upload-artifact@v7` without the prior deprecation annotation.
 - `npm run typecheck`, `npm run lint`, and 19 Vitest files / 54 tests pass.
 - Tests cover schemas, unknown/malformed calls, containment/traversal/symlinks, atomic patch/backup behavior, dirty editor paths, risk/approval/session expiry, redaction/isolation, provider fallback, context bounds, shell environment/timeout/cancellation/output, PTY lifecycle/cwd, web restrictions/default-off, release identity/channel selection, and storage migration.
 - `npm run build` passes with main, sandbox-compatible CommonJS preload, and renderer output.
@@ -45,15 +47,13 @@ The preview remains unsigned/ad-hoc because no Apple Developer ID signing identi
 - CDP packaged-runtime probes verified `file://` from `app.asar`, working fixed preload bridge, `preview` diagnostics, workspace/Git metadata, Terminal and Agent Actions UI, PTY `pwd`/streaming, universal PTY execution, and rejection of file and terminal `..` escapes.
 - A configured provider requested `file.read` through the packaged runtime; FORGE mapped the provider-safe alias back to the stable name, executed Tier 0, returned a bounded Tool Result, and recorded the action. A Tier 1 create remained absent until its visible diff received Run Once approval. A Tier 2 `/bin/pwd` request remained unexecuted, was rejected, and was retained in history with an audit record.
 - Packaged launches against AIFRED, FORGE, and INTERVENTION showed separate conversation/action stores; FORGE verification IDs did not appear in the other workspace stores.
-- The current local artifacts embed feature-build-time `HEAD` `1f0f0e9`; final merged release artifacts must be rebuilt so diagnostics embed the exact release commit.
+- The merged-main validation artifacts embed `0c73ba8`. Final release artifacts must be rebuilt after the release-metadata commit so diagnostics embed the exact annotated tag target.
 
 ## Remaining delivery gates
 
-1. Run clean `npm ci` and the full suite again.
-2. Review the exact diff, security posture, workflow syntax, ignored output, and `.obsidian/` exclusion.
-3. Commit/push the feature branch, open a PR, verify GitHub checks, merge only if green, and synchronize `main`.
-4. Rebuild/reverify merged `main`, create annotated `v1.1.0-alpha.1`, publish the GitHub Pre-release and universal assets, and verify stable users are not offered it.
-5. Run `npm run install:mac` from exact merged source, identify duplicates without deleting them, and verify the launched installed diagnostics.
+1. Commit and push the final release metadata on synchronized `main`.
+2. Rebuild and reverify that exact commit, create annotated `v1.1.0-alpha.1`, publish the GitHub Pre-release and universal assets, and verify stable users are not offered it.
+3. Run `npm run install:mac` from the exact release commit, identify duplicates without deleting them, and verify the launched installed diagnostics.
 
 ## Known risks and debt
 

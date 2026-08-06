@@ -46,7 +46,9 @@ FORGE needed a safe boundary between model reasoning and machine authority. Tool
 
 ### Deferred release work
 
-Feature branch commit/push/PR/merge, clean-main rebuild, final embedded commit verification, annotated tag, GitHub Pre-release workflow/assets, stable-channel feed check, `npm run install:mac`, duplicate-install report, and installed-app runtime diagnostics remain required. No v1.1 preview has been published yet.
+PR #9 merged the feature branch as `0c73ba8`; the remote feature branch was removed and local `main` matched `origin/main`. Two feature-branch GitHub workflow runs passed source validation, universal packaging, and artifact upload; the final run used the current Node 24-based official actions without deprecation annotations. Clean merged-main installation, typecheck, lint, all 54 tests, production build, arm64 packaging, and universal packaging passed again.
+
+The final release-metadata commit, exact embedded-commit verification, annotated tag, GitHub Pre-release workflow/assets, stable-channel feed check, `npm run install:mac`, duplicate-install report, and installed-app runtime diagnostics remain required. No v1.1 preview has been published yet.
 
 ## 2026-08-06 — Version 1.0.1 release repair
 

@@ -36,6 +36,6 @@ This preview makes the AI an authorized tool-using subsystem inside FORGE. A mod
 
 ## Verification and limitations
 
-Typecheck, lint, 54 tests, production build, arm64 packaging, universal packaging, architecture inspection, and packaged runtime PTY/preload/workspace/file-URL probes pass on the feature branch. Packaged provider-native Tier 0 execution, Tier 1 diff/approval, Tier 2 rejection, audit retention, and three-workspace isolation also pass. Final merged-main rebuild, GitHub workflow, tag, Pre-release assets, local install, and installed-app diagnostics remain release gates.
+Typecheck, lint, 54 tests, production build, arm64 packaging, universal packaging, architecture inspection, and packaged runtime PTY/preload/workspace/file-URL probes passed on the feature branch and synchronized `main`. Packaged provider-native Tier 0 execution, Tier 1 diff/approval, Tier 2 rejection, audit retention, and three-workspace isolation also passed. Two feature-branch GitHub workflow runs passed universal packaging and artifact upload before PR #9 merged. Exact release-commit rebuild, annotated tag, Pre-release assets, local install, and installed-app diagnostics remain final release gates.
 
 This preview is unsigned and not notarized. It cannot claim a trusted unattended installation or automatic-update chain. Do not treat the alpha as stable v1.1.0.
