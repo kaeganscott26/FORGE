@@ -28,6 +28,8 @@ export interface ShellRunOutput {
   truncated: boolean;
 }
 
+export interface BackgroundShellRunOutput { requestId: string; pid: number; outputPath: string; startedAt: number; }
+
 export async function resolveWorkspacePath(workspaceRoot: string, requested = '.'): Promise<string> {
   if (path.isAbsolute(requested)) throw new Error('Absolute paths require a separate, explicitly approved policy.');
   const root = await fs.realpath(workspaceRoot);
@@ -98,6 +100,39 @@ export class ShellService {
     });
   }
 
+  async startBackground(input: ShellRunInput, outputPath: string, requestId: string = randomUUID()): Promise<BackgroundShellRunOutput> {
+    const root = this.workspaceRoot(); if (!root) throw new Error('Open a workspace before running a background shell task.');
+    if (!input.command.trim() || input.command.includes('\0') || input.args.some((argument) => argument.includes('\0'))) throw new Error('A valid executable and null-free arguments are required.');
+    if (!outputPath || path.isAbsolute(outputPath) || outputPath.split(/[\\/]/).includes('..')) throw new Error('Background output path must be workspace-relative.');
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.'); const realRoot = await fs.realpath(root); const requestedOutput = path.resolve(root, outputPath);
+    if (requestedOutput === path.resolve(root) || !requestedOutput.startsWith(`${path.resolve(root)}${path.sep}`)) throw new Error('Background output path escapes the active workspace.');
+    await fs.mkdir(path.dirname(requestedOutput), { recursive: true }); const realParent = await fs.realpath(path.dirname(requestedOutput));
+    if (realParent !== realRoot && !realParent.startsWith(`${realRoot}${path.sep}`)) throw new Error('Background output path resolves outside the active workspace.');
+    const absoluteOutput = path.join(realParent, path.basename(requestedOutput)); const output = await fs.open(absoluteOutput, 'a'); const environment = filteredEnvironment(input.environment, input.environmentAllowlist); const startedAt = Date.now();
+    return new Promise((resolve, reject) => {
+      const child = spawn(input.command, input.args, { cwd, env: environment, shell: false, detached: true, stdio: ['ignore', output.fd, output.fd] });
+      const cleanupError = (error: Error): void => { this.running.delete(requestId); void output.close(); reject(error); };
+      child.once('error', cleanupError);
+      child.once('spawn', () => {
+        child.removeListener('error', cleanupError); this.running.set(requestId, child); child.unref(); void output.close();
+        const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 24 * 60 * 60_000);
+        const timer = setTimeout(() => {
+          const running = this.running.get(requestId);
+          if (!running?.pid) return;
+          try {
+            if (process.platform === 'win32') running.kill('SIGTERM');
+            else process.kill(-running.pid, 'SIGTERM');
+          } catch {
+            running.kill('SIGTERM');
+          }
+        }, timeoutMs);
+        timer.unref();
+        child.once('close', () => { clearTimeout(timer); this.running.delete(requestId); });
+        resolve({ requestId, pid: child.pid!, outputPath, startedAt });
+      });
+    });
+  }
+
   private readonly cancelled = new Set<string>();
   cancel(requestId: string): boolean {
     const child = this.running.get(requestId);
@@ -112,7 +147,7 @@ export type TerminalState = 'running' | 'exited';
 export interface TerminalSessionInfo { id: string; cwd: string; pid: number; state: TerminalState; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
 export interface TerminalEvent { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
 
-interface TerminalSession { info: TerminalSessionInfo; process: pty.IPty; }
+interface TerminalSession { info: TerminalSessionInfo; process: pty.IPty; workspaceRoot: string; canonicalWorkspaceRoot: string; }
 
 export class TerminalService {
   private readonly sessions = new Map<string, TerminalSession>();
@@ -122,12 +157,13 @@ export class TerminalService {
     const root = this.workspaceRoot();
     if (!root) throw new Error('Open a workspace before creating a terminal.');
     const cwd = await resolveWorkspacePath(root, requestedCwd);
+    const canonicalWorkspaceRoot = await fs.realpath(root);
     const id = requestedId ?? randomUUID();
     if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
     const shell = process.env.SHELL && path.isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
     const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: filteredEnvironment() as Record<string, string> });
     const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
-    const session = { info, process: terminal };
+    const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id, session);
     terminal.onData((data) => {
       info.recentOutput = `${info.recentOutput}${data}`.slice(-this.outputLimit);
@@ -141,11 +177,21 @@ export class TerminalService {
   }
 
   list(): TerminalSessionInfo[] { return [...this.sessions.values()].map(({ info }) => ({ ...info })); }
-  input(id: string, data: string): void { const session = this.required(id); if (session.info.state !== 'running') throw new Error('Terminal session is not running.'); session.process.write(data); }
+  input(id: string, data: string): void {
+    const session = this.required(id);
+    if (session.info.state !== 'running') throw new Error('Terminal session is not running.');
+    if (!data || data.length > 65_536 || data.includes('\0')) throw new Error('Terminal input must contain between 1 and 65,536 non-null characters.');
+    session.process.write(data);
+  }
   resize(id: string, columns: number, rows: number): void { this.required(id).process.resize(Math.max(20, columns), Math.max(5, rows)); }
   terminate(id: string): void { const session = this.required(id); if (session.info.state === 'running') session.process.kill(); }
-  async restart(id: string): Promise<TerminalSessionInfo> { const current = this.required(id); const relative = path.relative(this.workspaceRoot()!, current.info.cwd) || '.'; this.terminate(id); this.sessions.delete(id); return this.create(relative, 100, 30, id); }
+  async restart(id: string): Promise<TerminalSessionInfo> { const current = this.required(id); const relative = path.relative(current.canonicalWorkspaceRoot, current.info.cwd) || '.'; this.terminate(id); this.sessions.delete(id); return this.create(relative, 100, 30, id); }
   remove(id: string): void { this.terminate(id); this.sessions.delete(id); }
   dispose(): void { for (const id of [...this.sessions.keys()]) this.remove(id); }
-  private required(id: string): TerminalSession { const session = this.sessions.get(id); if (!session) throw new Error('Unknown terminal session.'); return session; }
+  private required(id: string): TerminalSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error('Unknown terminal session.');
+    if (this.workspaceRoot() !== session.workspaceRoot) throw new Error('Terminal session does not belong to the active workspace.');
+    return session;
+  }
 }
