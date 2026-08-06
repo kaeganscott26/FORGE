@@ -82,7 +82,9 @@ The user terminal is separate from model-requested `shell.run`. The model cannot
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The 1.1 preview reports `1.1.0-alpha.1`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.1-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current 1.1 preview reports `1.1.0-alpha.2`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.2-dev` and `development`.
+
+Stable is the default update channel and excludes every prerelease. Preview must be selected explicitly and permits newer alpha, beta, release-candidate, and stable versions. Both channels reject equal or older versions, so changing channels never authorizes a downgrade. A candidate is downloaded only after FORGE validates its semantic version and channel eligibility.
 
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 

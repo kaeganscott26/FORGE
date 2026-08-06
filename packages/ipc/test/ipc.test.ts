@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReleaseIdentity, buildUpdatePolicy, formatAppBuildInfo, IPC_CHANNELS, normalizeUpdateChannel } from '../src';
+import { buildReleaseIdentity, buildUpdatePolicy, formatAppBuildInfo, IPC_CHANNELS, isUpdateVersionEligible, normalizeUpdateChannel } from '../src';
 
 describe('IPC contract', () => {
   it('exposes agent channels', () => {
@@ -30,5 +30,20 @@ describe('IPC contract', () => {
     expect(normalizeUpdateChannel('preview')).toBe('preview'); expect(normalizeUpdateChannel('anything-else')).toBe('stable');
     expect(buildUpdatePolicy('stable')).toEqual({ feedChannel: 'latest', allowPrerelease: false, allowDowngrade: false });
     expect(buildUpdatePolicy('preview')).toEqual({ feedChannel: 'preview', allowPrerelease: true, allowDowngrade: false });
+  });
+
+  it('only permits forward updates that belong to the selected channel', () => {
+    expect(isUpdateVersionEligible('1.0.1', '1.1.0-alpha.1', 'stable')).toBe(false);
+    expect(isUpdateVersionEligible('1.0.1', '1.1.0-alpha.2', 'stable')).toBe(false);
+    expect(isUpdateVersionEligible('1.0.1', '1.1.0-beta.1', 'stable')).toBe(false);
+    expect(isUpdateVersionEligible('1.0.1', '1.1.0', 'stable')).toBe(true);
+    expect(isUpdateVersionEligible('1.0.1', '1.1.0-alpha.1', 'preview')).toBe(true);
+    expect(isUpdateVersionEligible('1.1.0-alpha.1', '1.1.0-alpha.2', 'preview')).toBe(true);
+    expect(isUpdateVersionEligible('1.1.0-alpha.2', '1.1.0-alpha.1', 'preview')).toBe(false);
+    expect(isUpdateVersionEligible('1.1.0-alpha.2', '1.1.0-beta.1', 'preview')).toBe(true);
+    expect(isUpdateVersionEligible('1.1.0-beta.1', '1.1.0', 'preview')).toBe(true);
+    expect(isUpdateVersionEligible('1.1.0', '1.1.0-beta.1', 'preview')).toBe(false);
+    expect(isUpdateVersionEligible('invalid', '1.1.0', 'preview')).toBe(false);
+    expect(isUpdateVersionEligible('1.1.0', 'invalid', 'preview')).toBe(false);
   });
 });

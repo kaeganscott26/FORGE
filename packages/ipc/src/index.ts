@@ -1,3 +1,5 @@
+import { gt, prerelease, valid } from 'semver';
+
 export type IPCResult<T> = { success: true; data: T } | { success: false; error: { message: string; code?: string } };
 
 export interface FileNode {
@@ -53,6 +55,11 @@ export function normalizeUpdateChannel(value: unknown): 'stable' | 'preview' { r
 
 export function buildUpdatePolicy(channel: 'stable' | 'preview'): { feedChannel: 'latest' | 'preview'; allowPrerelease: boolean; allowDowngrade: false } {
   return { feedChannel: channel === 'preview' ? 'preview' : 'latest', allowPrerelease: channel === 'preview', allowDowngrade: false };
+}
+
+export function isUpdateVersionEligible(currentVersion: string, candidateVersion: string, channel: 'stable' | 'preview'): boolean {
+  if (!valid(currentVersion) || !valid(candidateVersion) || !gt(candidateVersion, currentVersion)) return false;
+  return channel === 'preview' || prerelease(candidateVersion) === null;
 }
 
 export function formatAppBuildInfo(info: AppBuildInfo): string {

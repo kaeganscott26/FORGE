@@ -1,41 +1,35 @@
-# FORGE 1.1.0-alpha.1
+# FORGE 1.1.0-alpha.2
 
-This preview makes the AI an authorized tool-using subsystem inside FORGE. A model tool call is now only a request: FORGE validates, authorizes, executes, audits, bounds, and returns the result.
+This preview preserves the complete policy-controlled agent tools and integrated terminal introduced in alpha.1, and fixes updater downgrade behavior discovered during alpha.1 installed-runtime verification. The immutable alpha.1 release and its assets are unchanged.
 
-## Agent tools and approval
+## Forward-only update policy
 
-- Adds provider-neutral tool calls with native structured-provider support and a strict validated fallback.
-- Adds allowlisted filesystem, Git, shell, and external-web tools with stable schemas and fail-closed unknown/malformed rejection.
-- Implements permanent Tier 0/1/2 risk policy, one-time decisions, narrowly scoped expiring Tier 1 session permissions, and no allow-everything mode.
-- Adds Agent Actions UI for exact scope, command/path, working directory, network disclosure, expected effect, file diff, approval, rejection, cancellation, copy, results, and history.
-- Adds a schema-v3 per-workspace SQLite action log with conversation/model/tool/risk/outcome/duration/path/exit/rollback metadata and secret redaction.
-- Returns bounded, redacted tool results to the agent and labels Tool Result, External Web, Terminal, workspace evidence, and inference separately.
+- Keeps Stable as the default and requires explicit Preview selection before any alpha, beta, or release-candidate can be offered.
+- Resets Electron Updater's `allowDowngrade` flag after every channel change because changing its channel can enable downgrade checks internally.
+- Disables automatic download until FORGE independently validates the candidate.
+- Requires valid semantic versions and strictly forward movement.
+- Excludes prereleases on Stable while allowing Preview to advance through newer alpha, beta, release-candidate, and stable versions.
+- Rejects equal versions, malformed versions, alpha.2 to alpha.1, and alpha.2 to stable 1.0.1.
 
-## Filesystem, Git, shell, and web security
+The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.1 < 1.1.0`.
 
-- Enforces relative workspace paths, traversal rejection, realpath/symlink containment, atomic text writes, UTF-8 BOM preservation, generated diffs, rollback backups, and unsaved-editor protection.
-- Reuses the existing protected Git service; read operations are Tier 0, stage/unstage Tier 1, and commit/pull/push Tier 2. Pull stops on a dirty tree and force push is absent.
-- Runs agent commands as executable + argument array with workspace cwd, filtered environment, timeout/output caps, cancellation, and process-tree termination. Every shell execution is Tier 2.
-- Keeps external web research disabled by default and blocks credential/file/local/private-network URLs, unsafe redirects/DNS results, unsupported content, oversized responses, and ambient workspace upload.
+## Agent authority and terminal
 
-## Integrated terminal
+- The model requests tools; FORGE validates schemas, authorizes risk, executes in the main process, audits outcomes, bounds results, and returns evidence.
+- Tier 0 read operations may run automatically. Tier 1 reversible changes require one-time approval or an exact, expiring session grant. Tier 2 executable, destructive, Git write, and network operations always require explicit one-time approval.
+- Filesystem operations enforce workspace containment, symlink escape rejection, atomic writes, diffs, backups, and dirty-editor protection.
+- The integrated `node-pty` terminal remains main-process owned with workspace cwd, multiple sessions, streaming, resize, terminate/restart, output copy, and exit state.
+- External web research remains disabled by default and never uploads workspace content implicitly.
+- Tool requests and sanitized results remain visible in the per-workspace action log.
 
-- Adds a real main-process `node-pty` terminal rendered by xterm.js.
-- Supports multiple sessions, workspace cwd display, resize, input/output streaming, terminate, restart, clear visible, copy output, running/exited state, and exit codes.
-- Visually separates user terminal input from agent `shell.run` requests and never automatically indexes terminal output.
-- Packages rebuilt universal `pty.node` and `spawn-helper` outside `app.asar`.
+## Release identity
 
-## Release channels and diagnostics
+- Version: `1.1.0-alpha.2`.
+- Development diagnostics: `1.1.0-alpha.2-dev / development`.
+- Preview package diagnostics: `1.1.0-alpha.2 / preview`.
+- Preview publication produces a GitHub Pre-release and `preview-mac.yml`; it does not become Latest.
+- v1.0.1 remains the Latest stable release.
 
-- Version: `1.1.0-alpha.1`.
-- Development diagnostics: `1.1.0-alpha.1-dev / development`.
-- Preview package diagnostics: `1.1.0-alpha.1 / preview`.
-- Stable remains the default updater channel; prereleases require explicit Preview opt-in.
-- Diagnostics include exact commit, build date, runtime, renderer source, platform, and architecture.
-- Adds `release:preview` and `release:stable`; prerelease tags publish GitHub Pre-releases instead of Latest.
+## Limitation
 
-## Verification and limitations
-
-Typecheck, lint, 54 tests, production build, arm64 packaging, universal packaging, architecture inspection, and packaged runtime PTY/preload/workspace/file-URL probes passed on the feature branch and synchronized `main`. Packaged provider-native Tier 0 execution, Tier 1 diff/approval, Tier 2 rejection, audit retention, and three-workspace isolation also passed. Two feature-branch GitHub workflow runs passed universal packaging and artifact upload before PR #9 merged. Exact release-commit rebuild, annotated tag, Pre-release assets, local install, and installed-app diagnostics remain final release gates.
-
-This preview is unsigned and not notarized. It cannot claim a trusted unattended installation or automatic-update chain. Do not treat the alpha as stable v1.1.0.
+This preview is ad-hoc signed/unsigned and is not notarized because no Apple Developer ID credentials are configured. Update detection and download can be verified, but unattended in-app replacement is not a trusted installation path. Use the DMG or `npm run install:mac` for the local source build and verify About diagnostics after replacement.

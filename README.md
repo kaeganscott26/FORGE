@@ -119,7 +119,7 @@ Generated packages are written to `dist_electron/` and are intentionally exclude
 
 ## Release automation
 
-Pushing a version tag runs `.github/workflows/package-mac.yml`, validates the source, creates a universal package, and publishes the release assets. A prerelease tag such as `v1.1.0-alpha.1` creates a GitHub Pre-release and does not become Latest. A manual workflow run creates a downloadable Actions artifact without publishing a release. Read [Release Channels](docs/RELEASE_CHANNELS.md).
+Pushing a version tag runs `.github/workflows/package-mac.yml`, validates the source, creates a universal package, and publishes the release assets. A prerelease tag such as `v1.1.0-alpha.2` creates a GitHub Pre-release and does not become Latest. A manual workflow run creates a downloadable Actions artifact without publishing a release. Read [Release Channels](docs/RELEASE_CHANNELS.md).
 
 For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 

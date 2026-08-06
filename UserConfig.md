@@ -92,7 +92,7 @@ The Settings build diagnostic is intentionally separate from user configuration.
 
 External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabling web research does not approve a request: each `web.search`, `web.fetch`, or `web.open` remains Tier 2 and shows its exact query/URL and declared project-data transfer.
 
-The update channel defaults to **Stable**, including migrated settings that have no channel field. Choose **Preview** to allow alpha, beta, and release-candidate versions. Stable sets Electron Updater to `latest` with prereleases disallowed; Preview uses the preview channel with prereleases allowed. This preference contains no secret.
+The update channel defaults to **Stable**, including migrated settings that have no channel field. Choose **Preview** to allow alpha, beta, and release-candidate versions. Stable sets Electron Updater to `latest` with prereleases disallowed; Preview uses the preview channel with prereleases allowed. After setting either feed, FORGE resets Electron Updater's downgrade flag to false and independently accepts a candidate only when valid SemVer proves it is newer than the installed version and belongs to the selected channel. Downloads remain disabled until this check passes. This preference contains no secret.
 
 Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. The persistent per-workspace action log is stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
 
@@ -112,7 +112,7 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree. Use a prerelease version such as `1.1.0-alpha.1` for Preview.
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree. Use a prerelease version such as `1.1.0-alpha.2` for Preview.
 2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
 3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`.
 4. Commit and push `main`.

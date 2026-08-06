@@ -1,11 +1,12 @@
 import { app, shell } from 'electron';
 import electronUpdater from 'electron-updater';
-import { buildUpdatePolicy, type AppUpdateStatus } from '@forge/ipc';
+import { buildUpdatePolicy, isUpdateVersionEligible, type AppUpdateStatus } from '@forge/ipc';
 
 const { autoUpdater } = electronUpdater;
 const releasesUrl = 'https://github.com/kaeganscott26/FORGE/releases/latest';
 
 export class UpdaterService {
+  private channel: 'stable' | 'preview' = 'stable';
   private updateStatus: AppUpdateStatus = {
     currentVersion: app.getVersion(),
     state: 'idle',
@@ -16,11 +17,10 @@ export class UpdaterService {
     if (app.isPackaged) {
       autoUpdater.setFeedURL({ provider: 'github', owner: 'kaeganscott26', repo: 'FORGE', releaseType: 'release' });
     }
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
     autoUpdater.on('checking-for-update', () => this.setStatus('checking', 'Checking GitHub Releases for an update…'));
-    autoUpdater.on('update-available', (info) => this.setStatus('available', `FORGE ${info.version} is newer and will download now.`, info.version));
     autoUpdater.on('update-not-available', () => this.setStatus('not-available', 'FORGE is up to date.'));
     autoUpdater.on('download-progress', (progress) => this.setStatus('downloading', `Downloading update: ${Math.round(progress.percent)}%.`, this.updateStatus.availableVersion));
     autoUpdater.on('update-downloaded', (info) => this.setStatus('downloaded', `FORGE ${info.version} is ready. Restart to apply it.`, info.version));
@@ -28,6 +28,7 @@ export class UpdaterService {
   }
 
   setChannel(channel: 'stable' | 'preview'): void {
+    this.channel = channel;
     const policy = buildUpdatePolicy(channel);
     autoUpdater.allowPrerelease = policy.allowPrerelease;
     autoUpdater.channel = policy.feedChannel;
@@ -47,7 +48,14 @@ export class UpdaterService {
     }
     try {
       this.setStatus('checking', 'Checking GitHub Releases for an update…');
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      const candidateVersion = result?.updateInfo.version;
+      if (!candidateVersion || !isUpdateVersionEligible(app.getVersion(), candidateVersion, this.channel)) {
+        this.setStatus('not-available', 'FORGE is up to date. Older versions and releases outside the selected channel are never installed.');
+        return this.status();
+      }
+      this.setStatus('available', `FORGE ${candidateVersion} is newer and will download now.`, candidateVersion);
+      await autoUpdater.downloadUpdate();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown update error.';
       this.setStatus('error', `Automatic update failed: ${message} Download the latest release manually.`);

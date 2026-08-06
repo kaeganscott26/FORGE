@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "1.1.0-alpha.1",
+  "version": "1.1.0-alpha.2",
   "private": true,
   "description": "Local-first AI-native development workspace",
   "author": "Kaegan Scott",
@@ -91,6 +91,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/semver": "^7.7.0",
     "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^43.3.0",

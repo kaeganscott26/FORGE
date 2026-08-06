@@ -1,5 +1,28 @@
 # FORGE Developer Log
 
+## 2026-08-06 — FORGE 1.1.0-alpha.2 updater release
+
+### Why
+
+Installed alpha.1 verification found that assigning Electron Updater's channel re-enabled downgrade checks. A persisted Stable preference therefore offered v1.0.1 to alpha.1. Signature validation prevented installation, but the offer and download violated FORGE's forward-only channel policy. Alpha.1 and all of its assets remain immutable; alpha.2 is the new vehicle for the fix.
+
+### Updater boundary
+
+- Retains the post-channel `allowDowngrade=false` guard merged through PR #10.
+- Adds a provider-independent SemVer eligibility gate before download and changes Electron Updater to `autoDownload=false`.
+- Rejects malformed, equal, and older versions on every channel.
+- Restricts Stable to newer normal semantic versions and requires explicit Preview selection for alpha, beta, or release-candidate versions.
+- Verifies the order `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.1 < 1.1.0` in the IPC contract tests.
+- Keeps update detection, download, installation, and restart as distinct states; the unsigned release cannot claim trusted unattended installation.
+
+### Release-candidate validation before commit
+
+- `npm ci`, typecheck, lint, all 19 test files / 55 tests, and the production build passed.
+- ARM64 packaging passed; the app executable, `pty.node`, and `spawn-helper` are arm64.
+- Universal packaging passed; all three executables contain x86_64 and arm64 slices, ZIP integrity and DMG verification passed, and the app is ad-hoc signed with no TeamIdentifier.
+- A packaged universal runtime probe loaded the renderer through `file://` inside `app.asar`, reported alpha.2/Preview/packaged/darwin arm64, opened the FORGE workspace, read `AGENTS.md` through IPC, rejected an unknown channel, streamed `pwd` through the PTY, and rejected a terminal cwd escape.
+- This pre-commit package embeds baseline main commit `00ea8383`; it is validation evidence only and is not eligible for publication. Exact release-commit rebuild, full packaged tool/audit/isolation probes, tag, workflow, asset comparison, updater transition, and installed-app evidence remain mandatory before completion.
+
 ## 2026-08-06 — FORGE 1.1 tool runtime, terminal, and preview channels
 
 ### Why
