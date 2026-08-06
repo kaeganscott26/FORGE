@@ -50,7 +50,13 @@ When asking “What should I build next?”, expect FORGE to reason from the cur
 
 ## 7. Use durable memory
 
-**Reindex workspace** creates searchable memory records from supported project files. Repeated indexing can currently produce duplicate entries; review the memory list after reindexing.
+**Reindex workspace** creates classified, searchable knowledge records from supported project files. Reindexing updates existing records by source path instead of creating duplicates. Machine-specific `.obsidian` state and generated output are excluded by default.
+
+The panel separates Architecture, Documentation, Source Code, Memory, and Configuration so a file-derived context record is not mislabeled as a personal or durable memory. Source and configuration groups are collapsed by default to keep the panel concise.
+
+**Remove indexed copy** deletes only FORGE's derived retrieval record; it never changes the source file, and a later reindex can restore it. **Forget memory** applies only to a durable memory record and also never deletes a project file. Both actions require confirmation.
+
+After an AI turn, context disclosure groups the evidence used and shows a heuristic relevance score plus the reason each item was selected. Memory retrieval requires an actual query-concept match, so recency alone cannot pull unrelated content into a request.
 
 Memory is separate from conversation history. Deleting a memory is an explicit durable-data action and asks for confirmation. Clear Chat and New Chat never delete memory.
 
@@ -58,13 +64,19 @@ Memory is separate from conversation history. Deleting a memory is an explicit d
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
+Open **Settings → About this build** to see or copy the application version, exact source commit, build date, runtime mode, renderer source, platform, and architecture. A packaged 1.0.1 installation must report `FORGE v1.0.1` and `file:// packaged app.asar`.
+
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 
 ## 9. Troubleshooting
 
 ### macOS blocks the first launch
 
-Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.0 is unsigned.
+Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.1 is unsigned.
+
+### The old UI still opens after replacement
+
+Check both `/Applications/FORGE.app` and `~/Applications/FORGE.app`. macOS can retain two apps with the same bundle identifier and launch the older user-level copy. Open the system Applications copy explicitly, then verify **Settings → About this build** before removing any duplicate.
 
 ### Electron reports that it is uninstalled
 

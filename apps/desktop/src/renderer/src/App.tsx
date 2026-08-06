@@ -45,7 +45,7 @@ export default function App(): JSX.Element {
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { void call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, []);
   useEffect(() => {
-    if (!updateStatus || !['checking', 'downloading'].includes(updateStatus.state)) return undefined;
+    if (!updateStatus || !['checking', 'available', 'downloading'].includes(updateStatus.state)) return undefined;
     const timer = window.setInterval(() => { void call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, 1500);
     return () => window.clearInterval(timer);
   }, [updateStatus]);
@@ -75,7 +75,7 @@ export default function App(): JSX.Element {
   const gridStyle = { '--explorer-width': `${layout.explorerWidth}px`, '--intelligence-width': `${layout.intelligenceWidth}px`, '--bottom-height': `${layout.bottomHeight}px`, '--context-height': `${layout.contextHeight}px` } as CSSProperties;
 
   return <main className="app-shell">
-    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '1.0.0'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button onClick={() => void forgeInvoke('app.release.open', undefined)}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
+    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '1.0.1'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'available', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'available' ? `Preparing v${updateStatus.availableVersion}…` : updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button onClick={() => void forgeInvoke('app.release.open', undefined)}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
     {settingsOpen && <SettingsModal initialSection={settingsOpen} onClose={() => setSettingsOpen(null)} />}
     {error && <div className="notice"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
     {!workspace ? <section className="welcome"><div><p className="eyebrow">LOCAL-FIRST DEVELOPMENT WORKSPACE</p><h1>Think in files.<br />Build with context.</h1><p>FORGE keeps your notes, source code, Git history, conversations, and durable project memory in one private desktop workspace.</p><button className="primary" onClick={openWorkspace}>Open a project folder</button></div></section> : <section className="workspace-grid" style={gridStyle}>
@@ -99,8 +99,18 @@ function ResizeHandle({ axis, className, label, onDelta }: { axis: 'x' | 'y'; cl
     event.preventDefault();
     let previous = axis === 'x' ? event.clientX : event.clientY;
     const move = (pointer: PointerEvent): void => { const next = axis === 'x' ? pointer.clientX : pointer.clientY; onDelta(next - previous); previous = next; };
-    const stop = (): void => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); document.body.classList.remove('resizing'); };
-    document.body.classList.add('resizing'); window.addEventListener('pointermove', move); window.addEventListener('pointerup', stop);
+    const stop = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      document.body.classList.remove('resizing-x', 'resizing-y');
+    };
+    document.body.classList.add(axis === 'x' ? 'resizing-x' : 'resizing-y');
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
   };
   return <div className={`resize-handle ${axis === 'x' ? 'vertical' : 'horizontal'} ${className}`} role="separator" aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'} aria-label={label} onPointerDown={start} />;
 }

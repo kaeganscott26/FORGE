@@ -111,6 +111,16 @@ Current evidence sources are:
 
 The stable system frame tells the model to treat the project folder as authority, distinguish evidence from inference, and recommend architectural evolution. It explicitly rejects generic plugin/collaboration/onboarding/theme/template suggestions unless repository evidence connects them to FORGE's architecture. The context budget is provider-independent and selected through `ContextBudgetPolicy`, not through model-specific assumptions.
 
+### Classified knowledge and retrieval trust
+
+Indexing classifies derived records as Architecture, Documentation, Source Code, or Configuration; durable decisions, notes, and conversation knowledge remain Memory. Machine-specific `.obsidian` state and generated output are excluded from default indexing. Reindexing upserts by source path and removes duplicate legacy indexed copies.
+
+Memory retrieval requires at least one real query-concept match. Recency can refine the order of a match but cannot make unrelated content relevant by itself. Configuration is suppressed unless the question asks about build/tooling/configuration, and `.obsidian` evidence is suppressed unless Obsidian is named explicitly.
+
+Every selected artifact carries a heuristic relevance score and reason. The renderer groups disclosure by evidence class and labels the score as relevance rather than presenting it as a calibrated probability. Removing an indexed copy operates only on the derived SQLite record; source files remain untouched.
+
+This is a trust foundation, not yet the full knowledge graph. Concept entities, references, related concepts, and cross-document relationship traversal remain the next architectural layer needed to move from retrieving files to navigating project understanding.
+
 ## Provider and model selection
 
 `OpenAIProvider` uses a free-form model ID. `gpt-5.6-sol` is the default only when a user has not saved a preference. The Settings UI can query the provider's `/models` endpoint and validate an exact ID, but saving is not constrained to a compiled allowlist; this supports future model IDs and OpenAI-compatible endpoints.
@@ -138,7 +148,7 @@ These are extension points, not a plugin roadmap. Implementations should remain 
 ## Trust and known debt
 
 - Renderer sandboxing is still disabled and must be hardened before untrusted plugin or autonomous execution.
-- Memory indexing is lexical and can create duplicates; canonical path/content-hash upsert is pending.
+- Memory indexing now upserts by canonical workspace-relative path; content-hash change detection and chunk-level deduplication remain pending.
 - Embedding-backed hybrid retrieval and a persisted search index are not yet implemented. Clear/New semantics already reserve them as durable workspace intelligence.
 - Context selection is bounded and test-covered but will need token-aware budgeting and evaluation against real repositories.
 - A live model-list or completion check requires a user-supplied provider key and is not part of automated tests.

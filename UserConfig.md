@@ -86,6 +86,8 @@ The automated request uses Chat Completions. FORGE sends `max_completion_tokens`
 
 AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation history is not: threads, the selected thread, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all three without changing the API credentials.
 
+The Settings build diagnostic is intentionally separate from user configuration. It contains only application version, build commit/date, runtime and renderer modes, platform, and architecture; it never includes saved secrets or private local paths.
+
 ## GitHub Release integration
 
 The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to attach DMG, ZIP, blockmap, and `latest-mac.yml` assets to version-tag releases.
@@ -102,8 +104,8 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## Version and release procedure
 
-1. Change the root and desktop package versions.
-2. Run `npm install --package-lock-only` so the lockfile versions match.
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree.
+2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
 3. Run `npm run typecheck`, `npm test`, and `npm run package:mac:universal`.
 4. Commit and push `main`.
 5. Create and push `vX.Y.Z`.

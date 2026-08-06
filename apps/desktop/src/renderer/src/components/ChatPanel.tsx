@@ -75,6 +75,12 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
   }, [conversation, input, loadState, loading]);
 
   const activeThread = conversation?.threads.find((thread) => thread.id === conversation.activeConversationId);
+  const sourceGroups = (contextSources ?? []).reduce<Array<{ kind: string; sources: NonNullable<AgentResponse['contextSources']> }>>((groups, source) => {
+    const kind = ({ architecture: 'Architecture', documentation: 'Documentation', source: 'Project Files', configuration: 'Configuration', git: 'Git', metadata: 'Goals & Tasks', memory: 'Memory', conversation: 'Conversation' } as Record<string, string>)[source.kind] ?? 'Other Evidence';
+    const group = groups.find((entry) => entry.kind === kind);
+    if (group) group.sources.push(source); else groups.push({ kind, sources: [source] });
+    return groups;
+  }, []);
   return <section className="chat-panel" aria-label="Workspace conversations">
     <div className="chat-header">
       <div><strong>Workspace AI</strong><small>{activeThread?.title ?? 'Loading conversation…'}</small></div>
@@ -89,7 +95,7 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
       {!conversation?.messages.length ? <div className="chat-empty"><strong>Begin a workspace-grounded conversation.</strong><span>FORGE will assemble architecture, project memory, Git history, documentation, goals, and current implementation context automatically.</span></div> : conversation.messages.map((message) => <article key={message.id} className={`chat-msg ${message.role}`}><b>{message.role === 'user' ? 'You' : 'FORGE'}</b><p>{message.content}</p></article>)}
       {loading && <div className="chat-thinking">Assembling workspace context…</div>}
     </div>
-    {contextSources?.length ? <details className="context-sources"><summary>{contextSources.length} workspace context sources used</summary>{contextSources.map((source) => <span key={source.id}>{source.title}</span>)}</details> : null}
+    {contextSources?.length ? <details className="context-sources"><summary>Relevant context ({contextSources.length})</summary>{sourceGroups.map((group) => <section key={group.kind}><strong>{group.kind}</strong>{group.sources.map((source) => <span key={source.id}><b>{source.title}</b>{source.relevance ? <em>{source.relevance}% relevance</em> : null}{source.reason ? <small>{source.reason}</small> : null}</span>)}</section>)}</details> : null}
     {error && <div className="chat-error">{error}</div>}
     <div className="chat-input"><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about this workspace…" rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} /><button disabled={loading || !input.trim() || !conversation} onClick={() => void send()}>{loading ? 'Thinking…' : 'Send'}</button></div>
   </section>;

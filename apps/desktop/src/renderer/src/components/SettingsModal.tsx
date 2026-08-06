@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import type { ModelValidationResult, ProviderModel, UserSettings } from '@forge/ipc';
+import { formatAppBuildInfo, type AppBuildInfo, type ModelValidationResult, type ProviderModel, type UserSettings } from '@forge/ipc';
 import { forgeInvoke } from '../forge';
 import './settings.css';
 
@@ -11,6 +11,7 @@ const getData = async <T,>(channel: Parameters<typeof forgeInvoke>[0], request?:
 
 export default function SettingsModal({ onClose, initialSection = 'api' }: { onClose: () => void; initialSection?: 'api' | 'github' }): JSX.Element {
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null);
   const [apiBaseUrl, setApiBaseUrl] = useState('https://api.openai.com/v1');
   const [apiModel, setApiModel] = useState('gpt-5.6-sol');
   const [apiKey, setApiKey] = useState('');
@@ -30,6 +31,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
     getData<UserSettings>('settings.get').then((value) => {
       setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername);
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    getData<AppBuildInfo>('app.build.info').then(setBuildInfo).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
 
   useEffect(() => {
@@ -80,10 +82,24 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
     finally { setBusy(false); }
   };
 
+  const copyBuildInfo = async (): Promise<void> => {
+    setError(null);
+    try {
+      const copied = await getData<AppBuildInfo>('app.build.info.copy');
+      setBuildInfo(copied);
+      setMessage('Build diagnostic copied.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  };
+
   return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header className="settings-heading"><div><p>FORGE CONFIGURATION</p><h2 id="settings-title">Settings</h2></div><button onClick={onClose} aria-label="Close settings">×</button></header>
       {!settings ? <div className="settings-loading">Loading secure settings…</div> : <div className="settings-body">
+        {buildInfo && <section className="settings-section build-diagnostic">
+          <div className="settings-section-title"><div><span>ABOUT THIS BUILD</span><h3>FORGE v{buildInfo.version}</h3></div><em className={buildInfo.runtime === 'packaged' ? 'configured' : ''}>{buildInfo.runtime}</em></div>
+          <pre>{formatAppBuildInfo(buildInfo)}</pre>
+          <button onClick={copyBuildInfo}>Copy build diagnostic</button>
+        </section>}
         {!settings.secureStorageAvailable && <div className="settings-warning">OS secure storage is unavailable. FORGE will not save new secrets.</div>}
         <section className="settings-section" ref={apiSection}>
           <div className="settings-section-title"><div><span>AI ASSISTANT</span><h3>API integration</h3></div><em className={settings.apiKeyConfigured ? 'configured' : ''}>{settings.apiKeyConfigured ? 'Key saved' : 'Not configured'}</em></div>
