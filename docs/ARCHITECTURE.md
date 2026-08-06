@@ -25,7 +25,8 @@ Electron main process
 ├── TerminalService         user-controlled PTY lifecycle and streaming
 ├── WebService              permissioned external HTTP research
 ├── SettingsService         app-global encrypted credentials and preference
-└── UpdaterService          GitHub Release update lifecycle
+├── ReleaseDiscovery       bounded logical-channel GitHub Release selection
+└── UpdaterService          checksum-verified download/install lifecycle
           │
           ▼
 Typed, allowlisted Electron IPC
@@ -68,6 +69,15 @@ The model cannot invoke renderer IPC and the renderer cannot turn a model call i
 | `@forge/tool-policy` | Risk tiers, schema registry, exact-scope session permissions, expiry, and fail-closed authorization |
 | `@forge/shell` | Argument-array process execution, environment filtering, limits/cancellation, and macOS PTY sessions |
 | `@forge/web` | External URL/DNS/redirect/content/timeout controls and cited results |
+| `@forge/updater` | Bounded GitHub Release discovery, logical-channel filtering, strict SemVer selection, and safe metadata-feed validation |
+
+## Update discovery boundary
+
+Stable and Preview are FORGE-owned logical channels. The updater does not pass the word `preview` to GitHub as if it were a prerelease identifier. `GitHubReleaseDiscovery` retrieves at most 50 published GitHub Releases through the public API, applies a timeout and response-size cap, validates the response schema, excludes drafts and unpublished or malformed entries, and accepts only release assets hosted under this repository's HTTPS release-download path.
+
+Stable selects only a strictly newer normal semantic version. Preview selects only a strictly newer normal version or a prerelease whose first identifier is `alpha`, `beta`, or `rc`. The highest compatible version is selected independently of API ordering. Only after selection does `UpdaterService` give Electron Updater the exact release directory and `latest-mac.yml` or `preview-mac.yml` metadata channel. Electron Updater retains checksum verification, progress, download, and install handling; FORGE resets downgrade permission after every provider configuration and independently revalidates the returned version before download.
+
+Versions 1.1.0-alpha.1 and 1.1.0-alpha.2 predate this boundary and mapped logical Preview directly to a provider channel. Their immutable clients therefore require a one-time manual installation of alpha.3. This migration defect is isolated to release discovery; it does not invalidate their packaged app, assets, annotated tags, or local semantic-version guard.
 
 ## Workspace boundary and persistence
 

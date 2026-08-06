@@ -1,9 +1,12 @@
 import { app, shell } from 'electron';
 import electronUpdater from 'electron-updater';
 import { buildUpdatePolicy, isUpdateVersionEligible, type AppUpdateStatus } from '@forge/ipc';
+import { GitHubReleaseDiscovery } from '@forge/updater';
 
 const { autoUpdater } = electronUpdater;
-const releasesUrl = 'https://github.com/kaeganscott26/FORGE/releases/latest';
+const releasesUrl = 'https://github.com/kaeganscott26/FORGE/releases';
+const releaseDiscovery = new GitHubReleaseDiscovery({ owner: 'kaeganscott26', repo: 'FORGE' });
+type ReleaseDiscovery = Pick<GitHubReleaseDiscovery, 'discover'>;
 
 export class UpdaterService {
   private channel: 'stable' | 'preview' = 'stable';
@@ -13,10 +16,7 @@ export class UpdaterService {
     message: 'Ready to check for updates.'
   };
 
-  constructor() {
-    if (app.isPackaged) {
-      autoUpdater.setFeedURL({ provider: 'github', owner: 'kaeganscott26', repo: 'FORGE', releaseType: 'release' });
-    }
+  constructor(private readonly discovery: ReleaseDiscovery = releaseDiscovery) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
@@ -31,9 +31,6 @@ export class UpdaterService {
     this.channel = channel;
     const policy = buildUpdatePolicy(channel);
     autoUpdater.allowPrerelease = policy.allowPrerelease;
-    autoUpdater.channel = policy.feedChannel;
-    // electron-updater enables downgrade checks when its channel changes.
-    // FORGE channels select feeds; they never authorize a version downgrade.
     autoUpdater.allowDowngrade = policy.allowDowngrade;
   }
 
@@ -48,9 +45,21 @@ export class UpdaterService {
     }
     try {
       this.setStatus('checking', 'Checking GitHub Releases for an update…');
+      const policy = buildUpdatePolicy(this.channel);
+      const selected = await this.discovery.discover(app.getVersion(), this.channel);
+      if (!selected) {
+        this.setStatus('not-available', 'FORGE is up to date. Older versions and releases outside the selected channel are never installed.');
+        return this.status();
+      }
+      autoUpdater.setFeedURL({ provider: 'generic', url: selected.feedBaseUrl, channel: selected.feedChannel });
+      autoUpdater.allowPrerelease = policy.allowPrerelease;
+      autoUpdater.channel = selected.feedChannel;
+      // electron-updater enables downgrade checks when its channel changes.
+      // Provider feed selection never authorizes a version downgrade.
+      autoUpdater.allowDowngrade = false;
       const result = await autoUpdater.checkForUpdates();
       const candidateVersion = result?.updateInfo.version;
-      if (!candidateVersion || !isUpdateVersionEligible(app.getVersion(), candidateVersion, this.channel)) {
+      if (!candidateVersion || candidateVersion !== selected.version || !isUpdateVersionEligible(app.getVersion(), candidateVersion, this.channel)) {
         this.setStatus('not-available', 'FORGE is up to date. Older versions and releases outside the selected channel are never installed.');
         return this.status();
       }

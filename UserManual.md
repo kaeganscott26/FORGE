@@ -82,9 +82,11 @@ The user terminal is separate from model-requested `shell.run`. The model cannot
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current 1.1 preview reports `1.1.0-alpha.2`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.2-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current 1.1 preview reports `1.1.0-alpha.3`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.3-dev` and `development`.
 
-Stable is the default update channel and excludes every prerelease. Preview must be selected explicitly and permits newer alpha, beta, release-candidate, and stable versions. Both channels reject equal or older versions, so changing channels never authorizes a downgrade. A candidate is downloaded only after FORGE validates its semantic version and channel eligibility.
+Stable is the default update channel and excludes every prerelease. Preview must be selected explicitly and permits newer alpha, beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
+
+Alpha.1 and alpha.2 stored an incompatible mapping between FORGE's logical Preview choice and Electron Updater's provider channel. Those immutable clients cannot discover ordinary `alpha`, `beta`, or `rc` tags and will not update automatically to alpha.3. Install alpha.3 once from the [`v1.1.0-alpha.3` GitHub Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v1.1.0-alpha.3) or its exact DMG. Future Preview updates then use the corrected discovery layer. This is a preview-channel migration issue, not a failure of the alpha.1/alpha.2 app packages, assets, tag provenance, or semantic-version comparison.
 
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 
