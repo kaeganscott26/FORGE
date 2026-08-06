@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, normalizeUpdateChannel } from '../src';
+import { buildReleaseIdentity, buildUpdatePolicy, formatAppBuildInfo, IPC_CHANNELS, normalizeUpdateChannel } from '../src';
 
 describe('IPC contract', () => {
   it('exposes agent channels', () => {
@@ -28,5 +28,7 @@ describe('IPC contract', () => {
     expect(buildReleaseIdentity('1.1.0-alpha.1', true)).toEqual({ version: '1.1.0-alpha.1', channel: 'preview' });
     expect(buildReleaseIdentity('1.1.0', true)).toEqual({ version: '1.1.0', channel: 'stable' });
     expect(normalizeUpdateChannel('preview')).toBe('preview'); expect(normalizeUpdateChannel('anything-else')).toBe('stable');
+    expect(buildUpdatePolicy('stable')).toEqual({ feedChannel: 'latest', allowPrerelease: false, allowDowngrade: false });
+    expect(buildUpdatePolicy('preview')).toEqual({ feedChannel: 'preview', allowPrerelease: true, allowDowngrade: false });
   });
 });

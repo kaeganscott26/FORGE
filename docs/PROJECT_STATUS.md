@@ -10,7 +10,9 @@
 
 ## Release state
 
-FORGE 1.1 tool runtime and terminal implementation was merged through PR #9 at `0c73ba8`. Synchronized `main` has passed the complete source and macOS packaging suite. The preview has not yet been tagged, published, or installed from the final release commit. The existing v1.0.1 tag/release is unchanged.
+FORGE 1.1 tool runtime and terminal implementation was merged through PR #9 at `0c73ba8`. Release commit `6d9037f` was tagged as `v1.1.0-alpha.1`; the GitHub Pre-release workflow and assets passed, and the exact source was installed at `/Applications/FORGE.app`. The existing v1.0.1 tag/release remains GitHub Latest and is unchanged.
+
+Installed-runtime verification then found that changing Electron Updater to the persisted Stable channel re-enabled downgrade checks and offered v1.0.1 to the alpha. The downloaded unsigned update failed signature validation and was not installed. Follow-up branch `agent/updater-downgrade-guard` now reapplies `allowDowngrade=false` after every channel selection; its packaged Stable-channel check correctly reports no update. The immutable alpha.1 tag and assets have not been rewritten, so a new preview version is required to ship this guard.
 
 The preview remains unsigned/ad-hoc because no Apple Developer ID signing identity or notarization credentials are configured. Automatic update detection can be exercised, but trusted unattended installation requires a consistently signed and notarized chain.
 
@@ -51,9 +53,9 @@ The preview remains unsigned/ad-hoc because no Apple Developer ID signing identi
 
 ## Remaining delivery gates
 
-1. Commit and push the final release metadata on synchronized `main`.
-2. Rebuild and reverify that exact commit, create annotated `v1.1.0-alpha.1`, publish the GitHub Pre-release and universal assets, and verify stable users are not offered it.
-3. Run `npm run install:mac` from the exact release commit, identify duplicates without deleting them, and verify the launched installed diagnostics.
+1. Merge the verified updater downgrade guard without rewriting `v1.1.0-alpha.1`.
+2. Choose and publish a new immutable preview version for the guard, then rerun the exact release-commit, feed, asset, and installed-runtime gates.
+3. Keep v1.0.1 as GitHub Latest; do not expose a preview to Stable-channel v1.0.1 users.
 
 ## Known risks and debt
 
@@ -64,6 +66,7 @@ The preview remains unsigned/ad-hoc because no Apple Developer ID signing identi
 5. Retrieval remains lexical; concept graph, embeddings, and persisted hybrid search are future work.
 6. OAuth device flow is not implemented; GitHub uses a user-created encrypted token.
 7. Live provider-native tool calling requires user credentials; one packaged configured-provider path was verified manually, while provider-safe name adaptation, normalization, and policy paths are also unit-tested.
+8. Published alpha.1 can offer a stable-version downgrade after channel selection. The verified guard exists only after the alpha.1 tag and requires a new preview release; the public tag is intentionally immutable.
 
 ## Repository authority
 

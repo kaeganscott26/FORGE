@@ -51,6 +51,10 @@ export function buildReleaseIdentity(baseVersion: string, packaged: boolean): Pi
 
 export function normalizeUpdateChannel(value: unknown): 'stable' | 'preview' { return value === 'preview' ? 'preview' : 'stable'; }
 
+export function buildUpdatePolicy(channel: 'stable' | 'preview'): { feedChannel: 'latest' | 'preview'; allowPrerelease: boolean; allowDowngrade: false } {
+  return { feedChannel: channel === 'preview' ? 'preview' : 'latest', allowPrerelease: channel === 'preview', allowDowngrade: false };
+}
+
 export function formatAppBuildInfo(info: AppBuildInfo): string {
   return [
     `FORGE v${info.version}`,
