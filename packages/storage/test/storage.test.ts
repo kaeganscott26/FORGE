@@ -42,7 +42,28 @@ describe('workspace-owned conversation storage', () => {
     const second = await storage();
     const foreign = await first.conversationState();
     await expect(second.conversationState(foreign.activeConversationId)).rejects.toThrow('does not belong to the active workspace');
+    await expect(second.selectConversation(foreign.activeConversationId)).rejects.toThrow('does not belong to the active workspace');
+    await expect(second.appendConversation(foreign.activeConversationId, 'user', 'leak attempt')).rejects.toThrow('does not belong to the active workspace');
+    await expect(second.clearConversation(foreign.activeConversationId)).rejects.toThrow('does not belong to the active workspace');
     await first.close(); await second.close();
+  });
+
+  it('persists the active conversation and layout inside its workspace database', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-persisted-workspace-'));
+    temporaryDirectories.push(directory);
+    const firstRun = new StorageService();
+    await firstRun.init(directory);
+    const original = await firstRun.conversationState();
+    await firstRun.createConversation('Secondary');
+    await firstRun.selectConversation(original.activeConversationId);
+    await firstRun.saveWorkspaceLayout({ explorerWidth: 318, intelligenceWidth: 477, bottomHeight: 211, contextHeight: 266 });
+    await firstRun.close();
+
+    const secondRun = new StorageService();
+    await secondRun.init(directory);
+    expect((await secondRun.conversationState()).activeConversationId).toBe(original.activeConversationId);
+    expect(await secondRun.getWorkspaceLayout()).toEqual({ explorerWidth: 318, intelligenceWidth: 477, bottomHeight: 211, contextHeight: 266 });
+    await secondRun.close();
   });
 
   it('migrates legacy unthreaded messages without deleting history', async () => {

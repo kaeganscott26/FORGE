@@ -1,7 +1,8 @@
 :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #0b0d10; color: #dce3eb; }
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; }
-body.resizing { cursor: col-resize; user-select: none; }
+body.resizing-x { cursor: col-resize; user-select: none; }
+body.resizing-y { cursor: row-resize; user-select: none; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; border: 0; border-radius: 5px; color: #dce3eb; background: #242a32; padding: 7px 10px; }
 button:hover { background: #35404c; }
@@ -32,7 +33,7 @@ h1 { font-size: clamp(48px, 7vw, 86px); line-height: .93; letter-spacing: -.07em
 .git-panel { grid-column: 3 / 6; grid-row: 3; min-width: 0; }
 .resize-handle { position: relative; z-index: 3; background: #1d252d; touch-action: none; }
 .resize-handle::after { content: ''; position: absolute; inset: 0; background: #b8ff4d; opacity: 0; transition: opacity .12s; }
-.resize-handle:hover::after, body.resizing .resize-handle::after { opacity: .55; }
+.resize-handle:hover::after, body.resizing-x .resize-handle::after, body.resizing-y .resize-handle::after { opacity: .55; }
 .resize-handle.vertical { cursor: col-resize; }
 .resize-handle.horizontal { cursor: row-resize; }
 .explorer-resizer { grid-column: 2; grid-row: 1 / 4; }

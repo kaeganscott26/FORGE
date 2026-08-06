@@ -13,10 +13,14 @@ export class UpdaterService {
   };
 
   constructor() {
+    if (app.isPackaged) {
+      autoUpdater.setFeedURL({ provider: 'github', owner: 'kaeganscott26', repo: 'FORGE', releaseType: 'release' });
+    }
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowPrerelease = false;
     autoUpdater.on('checking-for-update', () => this.setStatus('checking', 'Checking GitHub Releases for an update…'));
-    autoUpdater.on('update-available', (info) => this.setStatus('downloading', `FORGE ${info.version} is available and is downloading.`, info.version));
+    autoUpdater.on('update-available', (info) => this.setStatus('available', `FORGE ${info.version} is newer and will download now.`, info.version));
     autoUpdater.on('update-not-available', () => this.setStatus('not-available', 'FORGE is up to date.'));
     autoUpdater.on('download-progress', (progress) => this.setStatus('downloading', `Downloading update: ${Math.round(progress.percent)}%.`, this.updateStatus.availableVersion));
     autoUpdater.on('update-downloaded', (info) => this.setStatus('downloaded', `FORGE ${info.version} is ready. Restart to apply it.`, info.version));

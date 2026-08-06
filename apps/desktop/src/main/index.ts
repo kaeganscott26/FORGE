@@ -1,7 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { is } from '@electron-toolkit/utils';
-import { IPC_CHANNELS, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult } from '@forge/ipc';
+import { formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult } from '@forge/ipc';
 import { WorkspaceService } from '@forge/workspace';
 import { GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
@@ -10,11 +10,27 @@ import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
 
+declare const __FORGE_BUILD_COMMIT__: string;
+declare const __FORGE_BUILD_DATE__: string;
+
 const workspace = new WorkspaceService();
 const settings = new SettingsService();
 const git = new GitService(() => settings.githubCredentials());
 const storage = new StorageService();
 const updater = new UpdaterService();
+let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
+
+function appBuildInfo(): AppBuildInfo {
+  return {
+    version: app.getVersion(),
+    commit: __FORGE_BUILD_COMMIT__,
+    buildDate: __FORGE_BUILD_DATE__,
+    runtime: app.isPackaged ? 'packaged' : 'development',
+    rendererSource,
+    platform: process.platform,
+    architecture: process.arch
+  };
+}
 
 // AI/core instances (provider-agnostic wiring)
 const aiProvider = new OpenAIProvider();
@@ -54,6 +70,12 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.appUpdateCheck, async () => updater.check());
   register(IPC_CHANNELS.appUpdateInstall, async () => updater.install());
   register(IPC_CHANNELS.appReleaseOpen, async () => updater.openLatestRelease());
+  register(IPC_CHANNELS.appBuildInfo, async () => appBuildInfo());
+  register(IPC_CHANNELS.appBuildInfoCopy, async () => {
+    const info = appBuildInfo();
+    clipboard.writeText(formatAppBuildInfo(info));
+    return info;
+  });
   register(IPC_CHANNELS.settingsGet, async () => settings.publicSettings());
   register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); return result; });
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
@@ -144,11 +166,11 @@ function createWindow(): void {
   window.on('ready-to-show', () => window.show());
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    rendererSource = 'development URL';
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    const rendererIndex = join(__dirname, '../renderer/src/renderer/index.html');
-    const fallbackIndex = join(__dirname, '../renderer/index.html');
-    window.loadFile(existsSync(rendererIndex) ? rendererIndex : fallbackIndex);
+    rendererSource = app.isPackaged ? 'file:// packaged app.asar' : 'file:// development build';
+    window.loadFile(join(__dirname, '../renderer/index.html'));
   }
 }
 

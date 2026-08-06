@@ -58,13 +58,19 @@ Memory is separate from conversation history. Deleting a memory is an explicit d
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
+Open **Settings → About this build** to see or copy the application version, exact source commit, build date, runtime mode, renderer source, platform, and architecture. A packaged 1.0.1 installation must report `FORGE v1.0.1` and `file:// packaged app.asar`.
+
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 
 ## 9. Troubleshooting
 
 ### macOS blocks the first launch
 
-Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.0 is unsigned.
+Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.1 is unsigned.
+
+### The old UI still opens after replacement
+
+Check both `/Applications/FORGE.app` and `~/Applications/FORGE.app`. macOS can retain two apps with the same bundle identifier and launch the older user-level copy. Open the system Applications copy explicitly, then verify **Settings → About this build** before removing any duplicate.
 
 ### Electron reports that it is uninstalled
 

@@ -2,15 +2,15 @@
 
 **Updated:** August 6, 2026
 
-**Version:** 1.0.0
+**Version:** 1.0.1
 
 **Platform:** macOS (Apple Silicon local packaging and universal release workflow)
 
 ## Release state
 
-FORGE 1.0.0 is published. Its macOS release assets were refreshed from the feature branch with workspace-owned multi-conversation state, persistent resizable layout, automatic project-context assembly, model discovery/validation, and future workspace-intelligence contracts. The source remains under pull-request review until merged.
+PR #7 is merged into `main`, and Issues #5 and #6 were closed by that merge. FORGE 1.0.1 packages the merged workspace-intelligence source as a real patch release and adds runtime build diagnostics so the installed binary can be tied to an exact source commit.
 
-The v1.0.0 binaries are unsigned because no Apple Developer ID identity is installed or configured. The DMG can be installed manually, but unattended in-app automatic installation requires consistently signed and notarized builds.
+The v1.0.1 binaries remain unsigned because no Apple Developer ID identity or GitHub signing/notarization secrets are installed or configured. The app and update feed can recognize 1.0.1 as newer than 1.0.0, but unattended in-app installation still requires a consistently signed and notarized release chain.
 
 ## Capability matrix
 
@@ -29,22 +29,21 @@ The v1.0.0 binaries are unsigned because no Apple Developer ID identity is insta
 | OpenAI-compatible provider | Implemented with Keychain settings, free-form IDs, model listing/validation, and environment fallback |
 | GitHub credential settings | Implemented for encrypted HTTPS token-based pull/push |
 | Packaged macOS DMG and ZIP | Validated on Apple Silicon |
-| Local in-place rebuild/install | Implemented and validated for 1.0.0 |
-| GitHub version-tag release workflow | Implemented; v1.0.0 remote run passed |
+| Local in-place rebuild/install | Implemented; v1.0.1 validation is part of release verification |
+| GitHub version-tag release workflow | Implemented; v1.0.1 tag run is the release gate |
 | Developer ID signing and notarization | Not configured |
 | In-app update checks | Implemented; automatic installation requires signing |
+| Runtime build diagnostics | Implemented in Settings with safe copy action |
 | Plugin runtime and autonomous tools | Not implemented |
 
 ## Current verification
 
-- TypeScript typecheck, ESLint, 30 automated tests, and Electron production build pass for the current milestone.
-- Electron Builder produced the current ARM64 FORGE 1.0.0 DMG, ZIP, and blockmaps; signing was skipped because no Developer ID identity is configured.
-- Electron Builder also produced the universal v1.0.0 DMG/ZIP/update metadata, with `x86_64` and `arm64` architectures and a verified ZIP.
+- PR #7 is merged at `ad610fa`, with all three original feature commits represented by its reviewable squash merge; the remote feature branch was deleted after merge.
+- The uploaded v1.0.0 DMG exactly matches the refreshed local universal artifact, but the immutable v1.0.0 tag still points to pre-PR source. Version 1.0.1 restores an exact tag/source/artifact relationship.
+- `/Applications/FORGE.app` contains the refreshed v1.0.0 `app.asar`, while `~/Applications/FORGE.app` is an older duplicate with no packaged updater configuration. This duplicate explains how macOS could launch the old UI despite replacing another app copy.
 - The Electron development runtime now resolves the renderer root correctly: the local URL returned the FORGE document, Vite connected, React mounted, and the welcome UI rendered. This was verified after correcting a reproduced blank-window 404.
-- Package metadata contains the correct name, version, bundle ID, icon, and GitHub update feed.
-- All 14 test files and 30 tests pass, including legacy migration, conversation isolation, clear-chat preservation, layout persistence, context framing/source selection, arbitrary model IDs, model validation, and unsupported-model errors.
-- `npm audit --omit=dev` reports zero production dependency vulnerabilities.
-- The installed settings-enabled app launches successfully and initializes its Keychain-backed credential path without writing a project-local secret.
+- v1.0.1 TypeScript typecheck, ESLint, all 14 test files/33 tests, production Electron build, diff checks, and production dependency audit pass; the audit reports zero vulnerabilities.
+- Final universal packaging, packaged runtime, artifact, updater-metadata, installed-app, and GitHub release results are recorded at release completion.
 
 ## Known risks
 
@@ -55,7 +54,7 @@ The v1.0.0 binaries are unsigned because no Apple Developer ID identity is insta
 5. OAuth device flow is not implemented; GitHub integration accepts a user-created token.
 6. Live model-list/completion validation requires user credentials and is not automated.
 7. Automatic macOS updates cannot be trusted or applied until every release uses the same Developer ID signature.
-8. The user-requested same-version v1.0.0 asset refresh requires manual DMG replacement for existing 1.0.0 installs; future automatic updates must increment the version.
+8. A stale duplicate under `~/Applications` can still be opened explicitly; use the build diagnostic to confirm the running copy and remove the duplicate manually only after preserving anything intentionally stored there.
 
 ## Repository authority
 

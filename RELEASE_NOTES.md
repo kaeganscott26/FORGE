@@ -1,67 +1,38 @@
-# FORGE 1.0.0 — Workspace intelligence refresh
+# FORGE 1.0.1 — Verifiable workspace intelligence
 
-The v1.0.0 macOS assets were refreshed on August 6, 2026. This build turns chat into workspace-owned intelligence while preserving FORGE's local-first architecture.
+FORGE 1.0.1 is the patch release that makes the workspace-intelligence update numerically newer than 1.0.0 and makes the running build immediately identifiable.
 
-## Added
+## Workspace intelligence
 
-- Per-workspace, named conversation threads with automatic first-prompt titles
-- New Chat, Rename, thread selection, and Clear Chat controls
-- Hard workspace ownership checks preventing cross-project conversation access
-- Drag-resizable Explorer, editor, workspace intelligence, AI chat, and Source Control regions
-- Per-workspace layout and active-thread persistence in schema-versioned SQLite storage
-- Automatic architecture-first system context for every prompt
-- Bounded evidence assembly from documentation, goals/tasks, Git state/history, source snapshots, file inventory, and durable memory
-- Context-source disclosure in the chat UI
-- Provider model discovery and exact model validation from the Settings UI
-- Vendor-neutral contracts for architectural memory, project timeline, diff review, context inspection, and intent navigation
-- Working ESLint 9 flat configuration and lint validation in the macOS release workflow
+- Workspace-owned named conversations with per-workspace active-thread persistence
+- Conversation selector plus New Chat, Rename, and narrowly scoped Clear controls
+- Conversation ownership validation at every storage and IPC operation to prevent cross-workspace history leakage
+- Safe import of legacy unthreaded messages into an `Imported conversation`
+- Per-workspace drag-resizable Explorer, editor, workspace-intelligence/chat, and Source Control regions
+- Architecture-first system context assembled before every user message
+- Bounded evidence from workspace identity, architecture and documentation, Git status/history, goals/tasks, durable memory, relevant source snapshots, file inventory, and active conversation history
+- Context-source disclosure after AI turns
+- Free-form model IDs, provider model discovery, and exact model validation
+- `gpt-5.6-sol` as the default for new configurations while preserving existing saved model values
 
-## Changed
+## Update and build identity repairs
 
-- The default OpenAI model for new configurations is `gpt-5.6-sol`; saved and environment model preferences remain unchanged.
-- Model IDs are free-form and no longer require a FORGE source change.
-- OpenAI Chat Completions uses `max_completion_tokens` with a legacy compatible-provider fallback.
-- Clear Chat now has an explicit narrow data boundary: it removes messages only from the active thread.
+- Version increased to 1.0.1 in every workspace package and generated lockfile metadata
+- Packaged update feed configured both by Electron Builder and explicitly at runtime
+- Update UI continues polling through check, discovery, download, and ready-to-install states
+- Packaged renderer loads the compiled `index.html` directly through `file://` from `app.asar`
+- Settings now exposes and copies a non-secret build diagnostic containing version, exact build commit, build date, packaged/development runtime, renderer source mode, platform, and architecture
 
-## Validation
+## Install or update
 
-- Typecheck, lint, automated tests, production Electron build, and macOS desktop packaging
-- Live model discovery/completion remains user-key dependent and is not exercised by automated tests
+Download `FORGE-1.0.1-universal.dmg`, open it, and drag FORGE into `/Applications`, replacing the existing copy.
 
-The universal executable contains Apple Silicon and Intel architectures, the ZIP passed integrity validation, and the packaged renderer was verified at its `file://` path inside `app.asar`. FORGE is not distributed as a localhost web application.
+If macOS still opens an older-looking build, check both `/Applications/FORGE.app` and `~/Applications/FORGE.app`; duplicate bundles can coexist. Open **Settings → About this build** and confirm that the running app reports `FORGE v1.0.1` and `file:// packaged app.asar`.
 
-## Updating an existing 1.0.0 install
+This release remains unsigned because the repository has no Apple Developer ID or notarization credentials. Version detection and update download metadata work, but macOS cannot be relied on to apply an unattended in-place update without a consistently signed and notarized release chain. The in-app **Releases** control remains the supported manual fallback.
 
-Download the refreshed universal DMG and drag FORGE over the existing Applications copy. No uninstall is required. Because this refresh intentionally retains version 1.0.0, an existing 1.0.0 app cannot identify it as a numerically newer automatic update; future update-feed releases must increment the version.
+## Security and data boundaries
 
----
-
-## Original 1.0.0 release (August 5, 2026)
-
-FORGE 1.0.0 is the first packaged macOS release of the local-first AI-native development workspace.
-
-## Highlights
-
-- Native universal macOS app for Apple Silicon and Intel Macs
-- Custom FORGE icon representing code, project memory, and the forge/build metaphor
-- Project explorer, Monaco editor, and sanitized Markdown preview
-- Git status, diffs, staging, commits, pull, and push
-- SQLite-backed goals, tasks, conversations, and project memories
-- OpenAI-compatible API settings for key, base URL, and model
-- Keychain-backed settings UI for AI and GitHub credentials
-- GitHub Release update checks and manual release access inside the app
-- `npm run install:mac` for no-uninstall local rebuilds and in-place updates
-
-## Installation
-
-Download `FORGE-1.0.0-universal.dmg`, open it, and drag FORGE into Applications.
-
-This first release is unsigned because Developer ID credentials are not configured. macOS may require Control-click → **Open** or approval in **System Settings → Privacy & Security**. Automatic in-app installation will require consistently signed and notarized future releases; the **Releases** button remains available for manual updates.
-
-## Historical 1.0.0 verification
-
-- 12 test files and 21 tests pass
-- TypeScript typecheck and production build pass
-- Universal binary contains `x86_64` and `arm64`
-- DMG checksum and ZIP integrity pass
-- Production dependency audit reports zero vulnerabilities
+- API keys and GitHub tokens remain encrypted outside workspaces through Electron `safeStorage`
+- Build diagnostics contain no secrets, private local paths, credentials, or workspace names
+- New Chat and Clear Chat do not remove durable memory, indexed files, Git state, goals, tasks, settings, layouts, or other conversations

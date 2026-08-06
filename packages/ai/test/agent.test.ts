@@ -38,6 +38,7 @@ describe('Agent', () => {
     const result = await agent.askWithContext('What should I build next?', [{ role: 'user', content: 'Architecture first' }]);
     expect(result.content).toBe('grounded');
     expect(sent[0]).toEqual({ role: 'system', content: 'FORGE workspace context' });
+    expect(sent[1]).toEqual({ role: 'user', content: 'Architecture first' });
     expect(sent.at(-1)?.content).toBe('What should I build next?');
   });
 });

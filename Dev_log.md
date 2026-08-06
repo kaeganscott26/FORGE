@@ -1,5 +1,24 @@
 # FORGE Developer Log
 
+## 2026-08-06 — Version 1.0.1 release repair
+
+### Release and installed-binary audit
+
+- Confirmed PR #7 is merged, Issues #5 and #6 are closed through it, and the remote feature branch was deleted after merge.
+- Confirmed the three feature-branch commits are represented on `main` by squash merge `ad610fa`.
+- Confirmed the annotated `v1.0.0` tag points to pre-PR commit `86ed05c`, while the five v1.0.0 release assets were replaced afterward from the workspace-intelligence build.
+- Matched the uploaded universal DMG, ZIP, and `latest-mac.yml` SHA-256 digests to the local refreshed artifacts.
+- Matched `/Applications/FORGE.app` to the refreshed universal `app.asar` and found a second stale `~/Applications/FORGE.app` with the same bundle identifier, old renderer code, and no `app-update.yml`.
+
+### v1.0.1 repair scope
+
+- Bumped the root, desktop, and every workspace package through npm so generated lockfile workspace versions remain consistent.
+- Added non-secret build diagnostics for version, exact Git commit, build date, runtime, renderer source, platform, and architecture, with a Settings copy action.
+- Made packaged renderer loading target the compiled `index.html` directly through `file://` inside `app.asar`.
+- Added an explicit GitHub updater feed and kept renderer polling active between update discovery and download completion.
+- Expanded automated coverage for cross-workspace operation rejection, active-thread/layout persistence, required context evidence classes, prompt ordering, and diagnostic formatting.
+- Final validation, package hashes, installed-runtime evidence, GitHub tag, workflow, and release results will be recorded after publication.
+
 ## 2026-08-06 — Workspace UX and AI context architecture milestone
 
 ### Why this milestone exists

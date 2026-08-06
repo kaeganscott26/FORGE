@@ -30,6 +30,7 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 - In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, provider model discovery, and availability validation
 - In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
 - GitHub Release update checks in packaged builds
+- Copyable Settings build diagnostic with version, source commit, build date, runtime mode, renderer source, platform, and architecture
 - One-command local rebuild and in-place app refresh
 
 ## Install FORGE on macOS
@@ -39,7 +40,7 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
-Version 1.0.0 is distributed without an Apple Developer ID because this repository does not yet have Apple signing credentials. On first launch, macOS may require Control-clicking the app and choosing **Open**, or approving it in **System Settings → Privacy & Security**. Signing and notarization are required before macOS can apply unattended automatic updates.
+Version 1.0.1 is distributed without an Apple Developer ID because this repository does not yet have Apple signing credentials. On first launch, macOS may require Control-clicking the app and choosing **Open**, or approving it in **System Settings → Privacy & Security**. Signing and notarization are required before macOS can apply unattended automatic updates.
 
 ## Update an installed app from local source
 
@@ -60,7 +61,9 @@ The packaged app includes **Check for updates** and **Releases** controls. Signe
 
 Every release must use a version greater than the previous release. The update feed is produced from the ZIP asset and `latest-mac.yml`.
 
-The August 6 workspace-intelligence build was published as a user-requested refresh of the existing v1.0.0 assets. Existing 1.0.0 installs must use the DMG replacement path once because an updater cannot treat the same version as newer. Subsequent releases should resume increasing the version so in-app update detection can work.
+The August 6 workspace-intelligence build was first published as a same-version v1.0.0 asset refresh, which an existing 1.0.0 app could not recognize as newer. Version 1.0.1 corrects that release identity and includes the merged source plus build diagnostics. Because the release remains unsigned, use the DMG replacement path if macOS refuses unattended installation.
+
+Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. A packaged 1.0.1 build reports `FORGE v1.0.1` and `file:// packaged app.asar`. The diagnostic intentionally omits credentials, API keys, tokens, workspace names, and private local paths.
 
 ## Development
 

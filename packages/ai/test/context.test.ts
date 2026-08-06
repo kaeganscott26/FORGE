@@ -78,4 +78,23 @@ describe('ContextBuilder', () => {
     const result = await builder.assemble('How does context assembly work?');
     expect(result.artifacts.some((artifact) => artifact.id === 'source:packages/ai/src/context.ts')).toBe(true);
   });
+
+  it('assembles every required workspace evidence class before the user turn', async () => {
+    const ws = new MockWorkspace({
+      'README.md': '# Product documentation',
+      'docs/ARCHITECTURE.md': '# Architecture decisions',
+      'package.json': '{"name":"repo"}',
+      'packages/ai/src/context.ts': 'export const architectureFirst = true;'
+    });
+    const builder = new ContextBuilderImpl(ws as any, new MockGit() as any, new MockStorage() as any);
+    const result = await builder.assemble('How does context architecture work?', [{
+      id: 'memory-1', workspaceId: 'p1', type: 'decision', title: 'Durable decision', content: 'Keep project memory durable.', createdAt: 1, updatedAt: 1
+    }]);
+    const kinds = new Set(result.artifacts.map((artifact) => artifact.kind));
+    expect(result.systemPrompt).toContain('repository "repo"');
+    expect(result.systemPrompt).toContain('Core philosophy:');
+    expect([...kinds]).toEqual(expect.arrayContaining(['architecture', 'documentation', 'source', 'git', 'memory', 'metadata']));
+    expect(result.artifacts.some((artifact) => artifact.id === 'workspace-inventory')).toBe(true);
+    expect(result.artifacts.some((artifact) => artifact.id === 'git-history')).toBe(true);
+  });
 });

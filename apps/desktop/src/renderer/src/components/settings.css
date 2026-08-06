@@ -16,6 +16,7 @@
 .settings-section-title h3 { margin: 3px 0 0; color: #edf3f8; font-size: 16px; letter-spacing: 0; text-transform: none; }
 .settings-section-title em { padding: 4px 7px; border-radius: 20px; background: #2b3036; color: #8996a3; font-size: 10px; font-style: normal; }
 .settings-section-title em.configured { background: #203a26; color: #9bedaa; }
+.build-diagnostic pre { margin: 0 0 13px; padding: 12px; overflow: auto; border: 1px solid #2c3742; border-radius: 6px; background: #090d11; color: #b9c7d4; font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .settings-section label { display: block; margin: 12px 0; color: #a9b5c1; font-size: 12px; font-weight: 650; }
 .settings-section input { width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #374451; border-radius: 6px; outline: none; background: #090d11; color: #e5ebf1; }
 .settings-section input:focus { border-color: #51bde9; box-shadow: 0 0 0 2px rgba(81, 189, 233, .14); }
