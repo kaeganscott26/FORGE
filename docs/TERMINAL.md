@@ -16,7 +16,7 @@ Keyboard data is bound to the current session through a stable renderer referenc
 
 User-entered terminal commands are labeled **USER TERMINAL**. Model-requested commands appear separately under **Agent Actions** as `shell.run`, show the exact executable/arguments and working directory, and always require Run once approval. The agent cannot type into a user terminal session.
 
-Normal terminal working-directory selection is relative to the active workspace. Absolute paths and `..` escapes are rejected. A future outside-workspace flow would require a distinct Tier 2 policy and approval; it is not implemented in this preview.
+Normal terminal working-directory selection is relative to the active workspace. Absolute paths and `..` escapes are rejected. A future outside-workspace flow would require a distinct Tier 2 policy and approval; it is not implemented in this beta.
 
 Terminal output is retained only in a bounded in-memory session buffer. It may be copied or explicitly used as evidence, but is not automatically written to conversation context, the action log, or durable memory. Sensitive output should be cleared and the session terminated.
 

@@ -38,7 +38,7 @@ AI and GitHub secrets remain encrypted by `safeStorage`; Git HTTPS uses the exis
 
 ## Known limitations
 
-- The preview is ad-hoc/unsigned and not notarized. It does not provide a trusted unattended-update chain.
+- The beta is ad-hoc/unsigned and not notarized unless final workflow evidence proves otherwise. It does not currently provide a trusted unattended-update chain.
 - External AI providers necessarily receive the bounded context selected for a user prompt; users must configure and trust their chosen provider.
 - Web search currently parses a simple public HTML endpoint rather than a contracted search API, so result quality can vary.
 - Rollback backups are local recovery aids, not a transactional filesystem or backup system.

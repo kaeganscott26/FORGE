@@ -40,35 +40,29 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 
 ## Install FORGE on macOS
 
-1. Open the [latest FORGE release](https://github.com/kaeganscott26/FORGE/releases/latest).
-2. Download the macOS `.dmg` asset.
+1. Open the [`v1.1.0-beta.1` FORGE Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v1.1.0-beta.1).
+2. Download `FORGE-1.1.0-beta.1-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
-Version 1.0.1 is distributed without an Apple Developer ID because this repository does not yet have Apple signing credentials. On first launch, macOS may require Control-clicking the app and choosing **Open**, or approving it in **System Settings → Privacy & Security**. Signing and notarization are required before macOS can apply unattended automatic updates.
+The beta is distributed without an Apple Developer ID unless the release workflow reports configured signing credentials. On first launch, macOS may require Control-clicking the app and choosing **Open**, or approving it in **System Settings → Privacy & Security**. Signing and notarization are required before macOS can apply unattended automatic updates.
 
 ## Update an installed app from local source
 
-After changing the local code, run:
+After creating a verified universal package, run:
 
 ```sh
-npm install
+npm run package:mac:universal
 npm run install:mac
 ```
 
-`install:mac` builds the current architecture, finds an existing `/Applications/FORGE.app`, `/Applications/Forge.app`, or user Applications install, updates that bundle in place, and reopens it. You do not need to uninstall the previous version.
-
-If `/Applications` is not writable by your account, move the app to `~/Applications` once and rerun the command.
+`install:mac` verifies `dist_electron/build-manifest.json`, selects the universal bundle recorded there, refuses duplicate alternate installations, moves an existing `/Applications/FORGE.app` to a timestamped Trash backup, installs exactly `/Applications/FORGE.app`, and launches that path. It never falls back to `~/Applications` or wildcard-first-match selection.
 
 ## Update from GitHub Releases
 
-The packaged app includes **Check for updates** and **Releases** controls. Signed future releases can download and apply through the app. Until Developer ID signing is configured, use **Releases** to download the newest DMG and drag FORGE over the existing application; macOS replaces the app without a separate uninstall.
+The packaged app includes **Check for updates** and **Releases** controls. Stable is the default. Beta accepts strictly newer beta, release-candidate, or stable versions after explicit selection; a legacy Preview preference migrates to Beta. Until Developer ID signing is configured, use the verified DMG for manual replacement.
 
-Every release must use a version greater than the previous release. The update feed is produced from the ZIP asset and `latest-mac.yml`.
-
-The August 6 workspace-intelligence build was first published as a same-version v1.0.0 asset refresh, which an existing 1.0.0 app could not recognize as newer. Version 1.0.1 corrects that release identity and includes the merged source plus build diagnostics. Because the release remains unsigned, use the DMG replacement path if macOS refuses unattended installation.
-
-Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. A packaged 1.0.1 build reports `FORGE v1.0.1` and `file:// packaged app.asar`. The diagnostic intentionally omits credentials, API keys, tokens, workspace names, and private local paths.
+Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. The beta reports `FORGE v1.1.0-beta.1`, `Channel: beta`, the exact commit, and `file:// packaged app.asar`. Diagnostics omit credentials, workspace names, and private local paths.
 
 ## Development
 
@@ -103,24 +97,25 @@ npm test
 npm run build
 npm run package:mac
 npm run package:mac:universal
+npm run package:mac:all
 ```
 
 Useful packaging commands:
 
 | Command | Result |
 | --- | --- |
-| `npm run package:mac` | DMG and ZIP for the current Mac architecture |
-| `npm run package:mac:universal` | Universal Intel + Apple Silicon DMG and ZIP |
-| `npm run install:mac` | Build and refresh the installed local app in place |
-| `npm run release:preview` | Publish a universal prerelease through the configured GitHub provider |
-| `npm run release:stable` | Publish a normal universal release through the configured GitHub provider |
+| `npm run clean:dist` | Remove packaging output only |
+| `npm run package:mac` | Clean, then create ARM64 DMG/ZIP/blockmaps and a manifest |
+| `npm run package:mac:universal` | Clean, then create universal DMG/ZIP/blockmaps and a manifest |
+| `npm run package:mac:all` | Clean once, then create both beta build families and one manifest |
+| `npm run install:mac` | Verify the manifest and install its universal app at `/Applications/FORGE.app` |
 | `npm run clean` | Remove generated build and package output |
 
-Generated packages are written to `dist_electron/` and are intentionally excluded from Git. Release binaries belong on GitHub Releases.
+Generated packages are written to `dist_electron/`, excluded from Git and memory indexing, and represented by `build-manifest.json`. Read the [Build Artifact Policy](docs/BUILD_ARTIFACT_POLICY.md).
 
 ## Release automation
 
-Pushing an annotated version tag runs `.github/workflows/package-mac.yml`, validates the source, creates or reuses a draft release, packages a universal app, uploads and hash-verifies assets serially, publishes updater metadata last, then publishes the release. A prerelease tag such as `v1.1.0-alpha.3` creates a GitHub Pre-release and does not become Latest. A manual workflow run creates a downloadable Actions artifact without publishing a release. Preview clients from alpha.1 and alpha.2 require one manual alpha.3 installation because their immutable provider-channel mapping cannot discover normal alpha/beta/rc tags; alpha.3 and later use bounded logical-channel release discovery. Read [Releasing FORGE](RELEASING.md) and [Release Channels](docs/RELEASE_CHANNELS.md).
+Pushing annotated tag `v1.1.0-beta.1` runs `.github/workflows/package-mac.yml`, validates source, creates or reconciles a draft, packages a universal app, selects assets from the manifest, uploads and hash-verifies them serially, publishes `beta-mac.yml` last, then publishes a GitHub Pre-release. A manual workflow run creates a downloadable Actions artifact without publishing. Read [Releasing FORGE](RELEASING.md), [Release Channels](docs/RELEASE_CHANNELS.md), and [Beta Verification](docs/V1.1.0_BETA_VERIFICATION.md).
 
 For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 
@@ -176,6 +171,8 @@ Tier 0 read-only tools may run automatically. Tier 1 reversible changes require 
 - [Releasing FORGE](RELEASING.md)
 - [Persistent Tasks](docs/PERSISTENT_TASKS.md)
 - [Task Recovery](docs/TASK_RECOVERY.md)
+- [Build Artifact Policy](docs/BUILD_ARTIFACT_POLICY.md)
+- [1.1.0 Beta Verification](docs/V1.1.0_BETA_VERIFICATION.md)
 
 ## Security notes
 

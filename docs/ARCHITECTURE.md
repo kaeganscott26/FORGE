@@ -78,11 +78,11 @@ The model cannot invoke renderer IPC and the renderer cannot turn a model call i
 
 ## Update discovery boundary
 
-Stable and Preview are FORGE-owned logical channels. The updater does not pass the word `preview` to GitHub as if it were a prerelease identifier. `GitHubReleaseDiscovery` retrieves at most 50 published GitHub Releases through the public API, applies a timeout and response-size cap, validates the response schema, excludes drafts and unpublished or malformed entries, and accepts only release assets hosted under this repository's HTTPS release-download path.
+Stable and Beta are FORGE-owned logical channels. A stored legacy `preview` value normalizes to Beta rather than becoming a third authority. `GitHubReleaseDiscovery` retrieves at most 50 published GitHub Releases through the public API, applies a timeout and response-size cap, validates the response schema, excludes drafts and unpublished or malformed entries, and accepts only release assets hosted under this repository's HTTPS release-download path.
 
-Stable selects only a strictly newer normal semantic version. Preview selects only a strictly newer normal version or a prerelease whose first identifier is `alpha`, `beta`, or `rc`. The highest compatible version is selected independently of API ordering. Only after selection does `UpdaterService` give Electron Updater the exact release directory and `latest-mac.yml` or `preview-mac.yml` metadata channel. Electron Updater retains checksum verification, progress, download, and install handling; FORGE resets downgrade permission after every provider configuration and independently revalidates the returned version before download.
+Stable selects only a strictly newer normal semantic version. Beta selects only a strictly newer normal version or a prerelease whose first identifier is `beta` or `rc`; it does not accept alpha. The highest compatible version is selected independently of API ordering. Only after selection does `UpdaterService` give Electron Updater the exact release directory and `latest-mac.yml` or `beta-mac.yml` metadata channel. Electron Updater retains checksum verification, progress, download, and install handling; FORGE resets downgrade permission after every provider configuration and independently revalidates the returned version before download.
 
-Versions 1.1.0-alpha.1 and 1.1.0-alpha.2 predate this boundary and mapped logical Preview directly to a provider channel. Their immutable clients therefore require a one-time manual installation of alpha.3. This migration defect is isolated to release discovery; it does not invalidate their packaged app, assets, annotated tags, or local semantic-version guard.
+The final beta consolidates former preview semantics into an explicit Beta channel. Old alpha binaries are historical evidence, not supported current release identities.
 
 ## Workspace boundary and persistence
 
@@ -196,7 +196,7 @@ These are extension points, not a plugin roadmap. Implementations should remain 
 ## Trust and known debt
 
 - Renderer sandboxing is enabled and verified in development and packaged runtime. Executable plugin tools remain disabled; future extensions must pass through the same registry/policy/approval/audit path.
-- The preview remains unsigned and unnotarized, so it does not provide trusted unattended macOS installation or automatic update application.
+- The beta remains unsigned and unnotarized unless final workflow evidence proves configured credentials, so it does not currently provide trusted unattended macOS installation or automatic update application.
 - External web search uses a bounded HTML endpoint rather than a contracted provider API; results may vary.
 - Rollback backups under `.forge/backups/` aid recovery but are not a transactional filesystem.
 - Memory indexing now upserts by canonical workspace-relative path; content-hash change detection and chunk-level deduplication remain pending.

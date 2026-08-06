@@ -1,5 +1,13 @@
 # FORGE Developer Log
 
+## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
+
+The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable updater choices. Stored Preview settings migrate to Beta; Beta permits newer beta, rc, or stable versions and rejects alpha. Packaging now cleans stale output, writes an exact hash-bearing build manifest, and makes installation and serial upload select artifacts from that manifest.
+
+Before the conversion, the complete repair/task-engine source gate passed 21 files / 78 tests, typecheck, lint, and production build. The beta conversion then passed focused IPC, updater, and task checks (3 files / 20 tests). The 4.5 GB historical local packaging tree was fully hashed in `docs/archive/PRE_BETA_RELEASE_AUDIT.md` and moved recoverably to Trash. Installed applications and all GitHub Releases/tags remain untouched pending final beta acceptance.
+
+This is preparation evidence, not release proof. Exact final-main packaging, local installed runtime checks, public workflow/assets, downloaded hash equality, public installation, updater behavior, and post-verification historical cleanup remain open.
+
 ## 2026-08-06 — Persistent task engine and active runtime repair
 
 ### Why

@@ -95,19 +95,19 @@ The user terminal is separate from model-requested `shell.run`. The model cannot
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current 1.1 preview reports `1.1.0-alpha.3`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.3-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The beta reports `1.1.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-beta.1-dev` and `development`.
 
-Stable is the default update channel and excludes every prerelease. Preview must be selected explicitly and permits newer alpha, beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
+Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 
-Alpha.1 and alpha.2 stored an incompatible mapping between FORGE's logical Preview choice and Electron Updater's provider channel. Those immutable clients cannot discover ordinary `alpha`, `beta`, or `rc` tags and will not update automatically to alpha.3. Install alpha.3 once from the [`v1.1.0-alpha.3` GitHub Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v1.1.0-alpha.3) or its exact DMG. Future Preview updates then use the corrected discovery layer. This is a preview-channel migration issue, not a failure of the alpha.1/alpha.2 app packages, assets, tag provenance, or semantic-version comparison.
+Existing settings that contain the former Preview preference migrate to Beta. This supports the alpha.3-to-beta.1 transition but does not permit future alpha builds on the Beta channel.
 
-For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
+For a local source build, first run `npm run package:mac:universal`, then `npm run install:mac`. Installation verifies `build-manifest.json`, requires duplicates to be resolved, backs up the old system bundle to Trash, and installs exactly `/Applications/FORGE.app`.
 
 ## 12. Troubleshooting
 
 ### macOS blocks the first launch
 
-Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.1 is unsigned.
+Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. The beta remains ad-hoc/unsigned unless the published workflow proves a Developer ID signature and notarization.
 
 ### The old UI still opens after replacement
 
@@ -137,7 +137,7 @@ Open **GitHub**, save a fine-grained token, and test the connection. Confirm the
 
 ### Local install cannot update `/Applications`
 
-Move FORGE to `~/Applications`, or give your user write access through Finder. The update script intentionally does not invoke `sudo`.
+Resolve permissions through Finder or the account that owns `/Applications/FORGE.app`. The install script intentionally does not invoke `sudo` and does not fall back to `~/Applications`.
 
 ### Agent tool request is pending
 

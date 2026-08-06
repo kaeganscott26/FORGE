@@ -2,57 +2,62 @@
 
 ## Release philosophy
 
-Release integrity matters because an updater connects source code, a Git tag, a CI runner, downloadable binaries, an installed application, and future update behavior. A green CI check proves only that a job reported success. It does not prove which source produced the installed binary or that every public asset matches the artifacts that were validated.
+Release integrity matters because an updater connects source, a tag, a CI runner, public binaries, an installed application, and future update behavior. CI success alone does not prove which source produced a binary or whether the public artifact is the one that was validated.
 
-A verified FORGE release proves:
+A verified release proves:
 
-- the authoritative source commit;
-- the annotated tag and the commit it resolves to;
-- the workflow run that built the artifacts;
-- the published DMG, ZIP, blockmaps, and updater metadata;
-- local and remote SHA-256 equality for validated artifacts;
-- the installed bundle's version, commit, renderer source, architecture, and runtime mode;
-- logical Stable/Preview updater behavior.
+- which source commit created the binary;
+- which annotated tag resolves to that commit;
+- which workflow built it;
+- which assets were published and whether their remote hashes match validated local artifacts;
+- whether the installed app embeds the same commit and version;
+- whether packaged runtime diagnostics, terminal behavior, task persistence, AI tool routing, and updater behavior are correct.
 
-The workspace-owned release task is the durable record. Conversation text is not authoritative.
+The workspace-owned release task and its observed checkpoints are authoritative. Conversation claims are not.
 
 ## Channels and semantic versions
 
-- Development is an unpackaged `-dev` identity and is never published.
-- Preview accepts only strictly newer normal SemVer or prereleases whose first identifier is `alpha`, `beta`, or `rc`.
+- Development uses an unpackaged `-dev` identity and is never published.
+- Beta accepts only strictly newer normal SemVer or prereleases whose first identifier is `beta` or `rc`.
 - Stable accepts only strictly newer normal SemVer.
-- Drafts, malformed versions, unsupported prerelease identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`, for example `v1.1.0-alpha.4`. Never move or republish a tag to different source.
+- A legacy stored `preview` preference migrates to Beta.
+- Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
+- Tags use `v<package-version>`; the current beta tag is `v1.1.0-beta.1`.
 
-Preview is FORGE's logical channel name, not a required provider prerelease identifier. See [Release Channels](docs/RELEASE_CHANNELS.md).
+Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 
-## Branch, pull request, and version strategy
+## Branch and pull request strategy
 
 1. Start from synchronized `main` on a named feature or release-preparation branch.
-2. Preserve and review the existing worktree before editing.
-3. Make the version bump and release notes on the branch. `package.json` and `package-lock.json` must agree.
-4. Validate the exact diff and commit in logical units.
-5. Push the branch and open a pull request to `main`.
-6. Merge only after required checks and review pass.
-7. Synchronize local `main`; prove local `main`, `origin/main`, and the intended release commit are identical.
-8. Create an annotated tag at that exact commit and verify both the tag object and dereferenced commit.
+2. Preserve and inspect the existing worktree before editing.
+3. Update root/workspace manifests, lockfile, diagnostics, workflow, release notes, and documentation together.
+4. Validate the exact diff and commit logical units.
+5. Push the feature branch and open a pull request to `main`.
+6. Merge only after checks pass.
+7. Synchronize local `main` and prove it equals `origin/main`.
+8. Build and accept the exact final main commit.
+9. Create one annotated tag at that commit and verify its object and dereferenced target.
 
-Useful read-only checks include:
+Commit, push, merge, tag, upload, publication, installation, and remote cleanup remain explicit Tier 2 operations.
+
+## Version bump and authoritative source
+
+Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` must report `1.1.0-beta.1`. The public tag is `v1.1.0-beta.1`, and diagnostics report the Beta channel.
+
+Read-only provenance checks include:
 
 ```sh
 git status --short --branch
 git diff --check
 git rev-parse HEAD
 git rev-parse origin/main
-git rev-parse v1.1.0-alpha.4^{}
-git cat-file -t v1.1.0-alpha.4
+git cat-file -t v1.1.0-beta.1
+git rev-parse v1.1.0-beta.1^{}
 ```
 
-Creating commits, pushing, merging, and tagging are Tier 2 actions and require explicit approval.
+## Local source and package validation
 
-## Local validation before the tag
-
-From the authoritative source commit, run:
+From the intended source commit run:
 
 ```sh
 npm ci
@@ -64,72 +69,82 @@ npm run package:mac
 npm run package:mac:universal
 ```
 
-Record command results, test totals, artifact paths, architectures, signing state, and hashes as task checkpoints. Generated `dist_electron/`, app bundles, `.forge/`, and `.obsidian/` content must not enter the source commit.
+For one clean directory containing both families, use `npm run package:mac:all`. Standalone package commands run `clean:dist` first. `dist_electron/build-manifest.json` records the version, commit, build date, channel, architectures, exact paths, sizes, and hashes. Installation and upload scripts select from it instead of choosing the first wildcard match.
 
-The ARM64 package verifies the native host architecture. The universal package verifies both `arm64` and `x86_64`, including `pty.node` and `spawn-helper`. Verify DMG mountability and ZIP integrity before upload.
+The ARM64 package verifies the native host. The universal package must contain both `arm64` and `x86_64` in the application executable and relevant PTY binaries. Verify ZIP integrity and DMG mountability.
 
-## Workflow and authoritative provenance
+Generated binaries, `.forge/`, `.obsidian/`, updater caches, local databases, and temporary logs never enter a source commit.
 
-Pushing an annotated `v*` tag triggers `.github/workflows/package-mac.yml`. The workflow checks out the tag, installs with Node 22, runs typecheck/lint/tests, creates or reuses a draft GitHub Release, packages a universal app, uploads assets serially, verifies retry collisions by SHA-256, and publishes only after uploads succeed.
+## GitHub Actions workflow
 
-If signing secrets are present, the workflow enables hardened runtime and uses the configured Apple certificate/notarization credentials. Without them it explicitly disables identity auto-discovery and produces an unsigned/ad-hoc preview. Never describe the latter as trusted unattended installation.
+Pushing the annotated `v1.1.0-beta.1` tag triggers `.github/workflows/package-mac.yml`. It checks out the tag, installs Node 22 dependencies, runs typecheck/lint/tests, creates or reconciles a draft, packages a universal app, uploads assets serially, and publishes only after upload verification.
 
-Record the workflow run ID, URL, checked-out SHA, conclusion, and release URL. A queued runner is waiting, not failure. A rerun must use the same immutable tag and must reconcile the existing draft/assets before doing work.
+A queued runner is waiting, not failed. A GitHub 502 or network interruption is reconciled against the existing workflow, release, and assets; it is not permission to retag or restart the release blindly.
 
-## Assets and serial upload policy
+Record the workflow run ID, URL, head SHA, conclusion, and release URL.
 
-Artifacts are named `FORGE-<version>-<arch>.<ext>`. Their roles are:
+## Assets, blockmaps, and updater YAML
 
-- DMG: human installation and mounted-bundle inspection;
-- ZIP: Electron Updater payload on macOS;
-- DMG/ZIP blockmaps: differential-update data paired with their artifact;
-- `preview-mac.yml`: Preview updater metadata;
+- DMG: manual installation and mounted-bundle inspection.
+- ZIP: Electron Updater payload for macOS.
+- DMG blockmap: differential data paired with the DMG.
+- ZIP blockmap: differential data paired with the ZIP.
+- `beta-mac.yml`: Beta updater metadata.
 - `latest-mac.yml`: Stable updater metadata.
 
-`scripts/upload-release-assets.sh` uploads one DMG, then one ZIP, then blockmaps, then updater YAML. Publishing metadata last prevents an updater from seeing a payload before its assets are present. On retry, an existing byte-identical asset is downloaded, hash-verified, and skipped. An existing same-name asset with a different hash stops the workflow; the script never uses `--clobber`.
+For `v1.1.0-beta.1`, upload the universal DMG, universal ZIP, both blockmaps, then `beta-mac.yml`. Uploads are serial. Metadata is last so no updater can discover an incomplete payload set.
 
-Do not upload DMG and ZIP concurrently. Do not replace a public asset merely to make a retry pass. Do not publish a duplicate compatibility tag.
+On retry, `scripts/upload-release-assets.sh` downloads an existing same-name asset, compares SHA-256, and skips it only when byte-identical. A wrong hash is a failed integrity condition; never use `--clobber` to hide it.
 
-## Hash and provenance verification
+## Local and remote hash verification
 
-Compute local SHA-256 values after packaging and before installation:
+Verify the generated manifest first:
 
 ```sh
-shasum -a 256 dist_electron/FORGE-*.dmg
-shasum -a 256 dist_electron/FORGE-*.zip
-shasum -a 256 dist_electron/*.blockmap
-shasum -a 256 dist_electron/*-mac.yml
+node scripts/verify-build-manifest.mjs
+shasum -a 256 dist_electron/FORGE-1.1.0-beta.1-*.dmg
+shasum -a 256 dist_electron/FORGE-1.1.0-beta.1-*.zip
+shasum -a 256 dist_electron/FORGE-1.1.0-beta.1-*.blockmap
+shasum -a 256 dist_electron/beta-mac.yml
 ```
 
-After upload, obtain each remote asset independently and compare its SHA-256 with the recorded local value. Verify updater YAML URLs, sizes, and hashes point to the same version/tag. Verify source/tag/binary provenance as a chain, not isolated facts:
+After publication, independently download every public asset and compare size and SHA-256 with the validated manifest. Inspect updater YAML filenames, URLs, sizes, and hashes. Provenance is a connected chain:
 
 ```text
-merged source SHA
-  = annotated tag dereference
-  = workflow checkout SHA
-  → locally validated artifact hashes
-  = remote release asset hashes
+main SHA
+  = annotated tag target
+  = workflow head SHA
+  = embedded binary commit
+  → local artifact hashes
+  = remote artifact hashes
   → installed diagnostic commit/version
 ```
 
-A release with a missing ZIP, wrong blockmap, stale YAML, wrong remote hash, or tag/source mismatch is not verified even if CI succeeded.
+A missing ZIP, wrong blockmap, stale YAML, remote mismatch, or tag/source mismatch means the release is not verified.
 
-## Installation and packaged runtime
+## Installation and duplicate detection
 
-Before installation, check both `/Applications/FORGE.app` and `~/Applications/FORGE.app` plus any renamed copies. Same-version replacement and duplicate bundles can leave a stale app running.
+Audit `/Applications`, `~/Applications`, the repository, mounted volumes, running executables, and reasonable indexed locations. Classify build artifacts separately from installed apps. Quit all FORGE processes and eject mounted FORGE DMGs before replacement.
 
-Mount the verified DMG or use the explicit local install script. Record the chosen bundle path. Inspect executable architecture and signing/notarization state. Launch that exact bundle against a safe workspace and verify:
+Move stale installed bundles to Trash; do not permanently delete them before acceptance. Install exactly `/Applications/FORGE.app`, launch that exact path, and verify the executable originates from `/Applications/FORGE.app/Contents/MacOS/FORGE`. Never keep a duplicate under `~/Applications`.
 
-- diagnostics show the expected version, channel, source commit, packaged runtime, and `file://` renderer;
-- workspace open/read and SQLite state work;
-- terminal accepts manually typed `pwd` and returns the workspace path;
-- PTY exit rejects input and Restart creates a writable session;
-- GPT-5.6 tool calls use `/v1/responses` while other compatible models retain provider-neutral routing;
-- root-first file discovery and structured missing-path recovery work;
-- a persistent task survives renderer reload, conversation switch/deletion, and application restart;
-- completed steps are not repeated and task/audit references remain connected.
+Diagnostics must report `FORGE v1.1.0-beta.1`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
 
-The safe persistence task is:
+## Packaged runtime acceptance
+
+Verify all of the following against the installed beta:
+
+- manually focus the terminal, type `pwd`, and observe the command plus active workspace path;
+- type `printf "forge-terminal-ok\\n"` and observe the output;
+- exit, confirm input rejection, restart, and type successfully again;
+- confirm GPT-5.6 tool requests use `/v1/responses` and a direct non-tool response succeeds;
+- confirm Tier 0 execution, Tier 1 approval, Tier 2 explicit approval, rejection without execution, and audit records;
+- confirm root-first workspace discovery and structured missing-path recovery;
+- create `Persistent Task Verification`, complete steps, restart the app, switch/delete the originating conversation, and resume without repeating verified work;
+- verify task isolation across FORGE, AIFRED, and INTERVENTION;
+- inspect packaged `app.asar`, architecture, version, commit, and absence of a localhost renderer dependency.
+
+The safe task shape is:
 
 ```text
 Persistent Task Verification
@@ -139,45 +154,40 @@ Persistent Task Verification
 □ Generate handoff
 ```
 
-Restart the packaged app between steps, then resume from the first unfinished step.
-
 ## Updater verification
 
-Select Stable and Preview independently. Record discovery result and candidate version. Stable must ignore prereleases; Preview may select a strictly newer supported prerelease or stable version. Both must reject equal versions and downgrades. Verify that the downloaded candidate matches the validated public release and that installation behavior is not confused by duplicate bundles or stale caches.
+Test Stable and Beta independently. Stable ignores prereleases. Beta permits only newer beta, rc, or stable versions and rejects alphas. Both reject equal/older versions. Verify the selected public release, metadata feed, downloaded payload, and installed result are the same release.
 
-Unsigned/ad-hoc builds cannot establish a trusted unattended macOS replacement chain. Discovery and checksum gates may pass while installation still requires explicit human handling.
+An ad-hoc/unsigned build cannot establish trusted unattended replacement. Discovery and hashes may pass while installation still requires explicit manual handling.
 
-## Recovery
+## Recovery and rollback
 
-### Network interruption
+After a network or AI interruption, load the persistent release task and audit current Git, process, workflow, release, asset, installation, and hash state. Continue from the first genuinely unfinished step. Never rebuild, retag, reupload, recreate a pull request, or republish because a conversation ended.
 
-Do not restart the release. Inspect the existing workflow, draft release, and remote assets. The serial uploader skips identical completed assets. Resume at the first missing asset. A wrong hash is a failed integrity condition, not permission to overwrite.
+If an upload process disappeared but the remote asset exists and matches, reconcile it to completed. If the hash differs, mark failure and preserve both pieces of evidence. If a release exists without a ZIP, upload only the missing verified asset and metadata in order.
 
-### AI or application interruption
+Before publication, leave a failed release draft and correct source with a new commit/tag when required. After publication, never move the tag or silently replace assets. Prepare a strictly newer corrective release. Installation rollback is manual while unsigned; updater downgrades remain forbidden.
 
-Resume the workspace-owned release task. Reconcile Git, tag, workflow, PIDs, draft/published state, asset hashes, installed bundles, and updater behavior. Do not reconstruct state from chat and do not repeat verified build, tag, PR, upload, or publication steps.
+## Historical release cleanup policy
 
-### Rollback
+Git history preserves source development. GitHub Releases contain only currently supported public binaries. Local packaging output contains only the newest validated build.
 
-Before publication, leave the release draft and correct the source on a new commit/tag if required. After publication, never move the tag or silently replace assets. Mark a bad release appropriately, preserve evidence, prepare a strictly newer corrective version, and document the defect. Installation rollback is manual while releases are unsigned; verify which bundle is launched and never permit an updater downgrade to bypass policy.
+Delete old GitHub Releases and their exact audited release tags only after the public beta has been downloaded, hash-verified, installed, and smoke-tested. Do not delete branches, source commits, early non-release development tags, Actions history, pull requests, issues, or repository history. Deleting a Release and tag removes convenient public access to its historical binary even though the source commit remains recoverable in Git.
 
-## Final release checklist
+## Final checklist
 
-- [ ] Version and channel are valid.
-- [ ] Feature/release PR is reviewed and merged.
-- [ ] Local `main` equals `origin/main`.
-- [ ] Clean source tree and authoritative SHA are recorded.
-- [ ] `npm ci`, typecheck, lint, tests, build, ARM64 package, and universal package pass.
-- [ ] DMG/ZIP/blockmaps/YAML exist and local hashes are recorded.
-- [ ] Annotated tag resolves to the authoritative SHA.
-- [ ] Workflow run checks out that SHA and succeeds.
-- [ ] Remote assets exist and match local hashes.
-- [ ] Release state and channel are correct.
-- [ ] Duplicate app installations are resolved deliberately.
-- [ ] Installed diagnostics match version/tag/source/runtime.
-- [ ] Manual terminal input and PTY restart pass.
-- [ ] GPT-5.6 tool route and filesystem recovery pass.
-- [ ] Persistent task survives application/conversation turnover without repeating work.
-- [ ] Stable and Preview updater behavior is verified.
-- [ ] Signing/notarization status is stated accurately.
-- [ ] Final handoff is generated from SQLite task state.
+- [ ] Version, tag, Beta channel, manifests, lockfile, workflow, and docs agree.
+- [ ] Feature PR is merged; local `main` equals `origin/main`.
+- [ ] Dependency install, typecheck, lint, tests, build, ARM64, and universal packages pass.
+- [ ] Build manifest, ZIP, DMG, architectures, signing, and local hashes pass.
+- [ ] Exactly one installed app exists at `/Applications/FORGE.app`.
+- [ ] Installed diagnostics and critical runtime acceptance pass.
+- [ ] Persistent task survives application and conversation turnover without repeated work.
+- [ ] Annotated tag resolves to final main and the workflow builds that SHA.
+- [ ] Public DMG, ZIP, blockmaps, and beta YAML match local hashes.
+- [ ] Public artifact reinstall and critical smoke tests pass.
+- [ ] Stable/Beta updater behavior is verified.
+- [ ] Old Releases/tags are removed only after public acceptance.
+- [ ] GitHub exposes only `v1.1.0-beta.1`; obsolete local output and caches are cleaned.
+- [ ] Signing/notarization status and all unresolved limitations are reported.
+- [ ] Final handoff is generated from authoritative task state.
