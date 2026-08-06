@@ -93,6 +93,34 @@ function registerHandlers(): void {
   });
 }
 
-function createWindow(): void { const window = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: 'Forge', webPreferences: { preload: join(__dirname, '../preload/index.mjs'), contextIsolation: true, nodeIntegration: false, sandbox: false } }); window.on('ready-to-show', () => window.show()); if (is.dev && process.env.ELECTRON_RENDERER_URL) window.loadURL(`${process.env.ELECTRON_RENDERER_URL}/src/renderer/index.html`); else window.loadFile(join(__dirname, '../renderer/src/renderer/index.html')); }
+import { existsSync } from 'node:fs';
+
+function createWindow(): void {
+  const window = new BrowserWindow({
+    width: 1500,
+    height: 950,
+    minWidth: 1100,
+    minHeight: 700,
+    show: false,
+    title: 'Forge',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  window.on('ready-to-show', () => window.show());
+
+  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+    window.loadURL(process.env.ELECTRON_RENDERER_URL);
+  } else {
+    const rendererIndex = join(__dirname, '../renderer/src/renderer/index.html');
+    const fallbackIndex = join(__dirname, '../renderer/index.html');
+    window.loadFile(existsSync(rendererIndex) ? rendererIndex : fallbackIndex);
+  }
+}
+
 app.whenReady().then(() => { registerHandlers(); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
 app.on('window-all-closed', async () => { await storage.close(); if (process.platform !== 'darwin') app.quit(); });
