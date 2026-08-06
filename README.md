@@ -26,7 +26,8 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 - Resizable Explorer, editor, workspace-intelligence, AI chat, and source-control regions with per-workspace layout persistence
 - SQLite-backed goals, tasks, conversation threads, active-thread state, layout, and memories per workspace
 - New Chat and Clear Chat controls that reset conversation state without deleting project intelligence
-- Workspace indexing, lexical memory retrieval, and architecture-first prompt assembly from documentation, Git, metadata, source snapshots, and memory
+- Classified workspace-knowledge indexing, confidence-filtered lexical retrieval, and architecture-first prompt assembly from documentation, Git, metadata, source snapshots, and durable memory
+- Context disclosure grouped by evidence class with relevance scores and selection reasons
 - In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, provider model discovery, and availability validation
 - In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
 - GitHub Release update checks in packaged builds

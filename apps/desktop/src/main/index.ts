@@ -102,7 +102,14 @@ function registerHandlers(): void {
       contextUsed: turn.context.artifacts.length > 0,
       conversationId: state.activeConversationId,
       memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
-      contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path }))
+      contextSources: turn.context.artifacts.map((artifact) => ({
+        id: artifact.id,
+        kind: artifact.kind,
+        title: artifact.title,
+        path: artifact.path,
+        relevance: typeof artifact.metadata?.relevance === 'number' ? artifact.metadata.relevance : undefined,
+        reason: typeof artifact.metadata?.reason === 'string' ? artifact.metadata.reason : undefined
+      }))
     };
   };
   register(IPC_CHANNELS.agentAsk, async (request) => {

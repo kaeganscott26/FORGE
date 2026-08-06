@@ -17,6 +17,11 @@
 - Made packaged renderer loading target the compiled `index.html` directly through `file://` inside `app.asar`.
 - Added an explicit GitHub updater feed and kept renderer polling active between update discovery and download completion.
 - Expanded automated coverage for cross-workspace operation rejection, active-thread/layout persistence, required context evidence classes, prompt ordering, and diagnostic formatting.
+- Replaced the flat, noisy durable-memory inventory with classified Architecture, Documentation, Source Code, Memory, and Configuration groups.
+- Excluded machine-specific `.obsidian` and generated state from default indexing, made reindexing idempotent by path, and filtered retrieval to actual query matches.
+- Added heuristic relevance scores and selection reasons to grouped context disclosure.
+- Replaced ambiguous **Delete** controls with **Remove indexed copy** and **Forget memory** confirmations that explicitly preserve project files.
+- Documented concept extraction and cross-document relationship traversal as the next knowledge-graph layer; v1.0.1 does not misrepresent that larger semantic graph as complete.
 - Final validation, package hashes, installed-runtime evidence, GitHub tag, workflow, and release results will be recorded after publication.
 
 ## 2026-08-06 — Workspace UX and AI context architecture milestone

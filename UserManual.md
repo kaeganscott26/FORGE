@@ -50,7 +50,13 @@ When asking “What should I build next?”, expect FORGE to reason from the cur
 
 ## 7. Use durable memory
 
-**Reindex workspace** creates searchable memory records from supported project files. Repeated indexing can currently produce duplicate entries; review the memory list after reindexing.
+**Reindex workspace** creates classified, searchable knowledge records from supported project files. Reindexing updates existing records by source path instead of creating duplicates. Machine-specific `.obsidian` state and generated output are excluded by default.
+
+The panel separates Architecture, Documentation, Source Code, Memory, and Configuration so a file-derived context record is not mislabeled as a personal or durable memory. Source and configuration groups are collapsed by default to keep the panel concise.
+
+**Remove indexed copy** deletes only FORGE's derived retrieval record; it never changes the source file, and a later reindex can restore it. **Forget memory** applies only to a durable memory record and also never deletes a project file. Both actions require confirmation.
+
+After an AI turn, context disclosure groups the evidence used and shows a heuristic relevance score plus the reason each item was selected. Memory retrieval requires an actual query-concept match, so recency alone cannot pull unrelated content into a request.
 
 Memory is separate from conversation history. Deleting a memory is an explicit durable-data action and asks for confirmation. Clear Chat and New Chat never delete memory.
 

@@ -12,6 +12,11 @@ FORGE 1.0.1 is the patch release that makes the workspace-intelligence update nu
 - Architecture-first system context assembled before every user message
 - Bounded evidence from workspace identity, architecture and documentation, Git status/history, goals/tasks, durable memory, relevant source snapshots, file inventory, and active conversation history
 - Context-source disclosure after AI turns
+- Classified workspace knowledge grouped as Architecture, Documentation, Source Code, Memory, and Configuration
+- Relevance scoring plus selection reasons in context disclosure, with zero-match memory records removed from retrieval results
+- Machine-specific `.obsidian` state excluded from default knowledge indexing and retrieval unless Obsidian is explicitly requested
+- Idempotent reindexing that updates derived records and removes duplicate indexed copies
+- Explicit **Remove indexed copy** and **Forget memory** actions that state project source files are never deleted
 - Free-form model IDs, provider model discovery, and exact model validation
 - `gpt-5.6-sol` as the default for new configurations while preserving existing saved model values
 

@@ -119,6 +119,18 @@ export interface ContextSourceSummary {
   kind: string;
   title: string;
   path?: string;
+  relevance?: number;
+  reason?: string;
+}
+
+export interface WorkspaceKnowledgeRecord {
+  id: string;
+  type: string;
+  title?: string | null;
+  content: string;
+  metadata?: unknown;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type AgentAskRequest = { prompt: string; conversationId: string };
@@ -166,7 +178,7 @@ export interface IPCResponseMap {
   'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;
   'agent.conversations.state': ConversationState; 'agent.conversations.list': ConversationEntry[]; 'agent.conversations.append': void;
   'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState;
-  'agent.memories.list': Array<{ id: string; type: string; title?: string | null; content: string; metadata?: unknown; createdAt: number; updatedAt: number }>; 'agent.memories.delete': void; 'agent.memories.reindex': void;
+  'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.delete': void; 'agent.memories.reindex': void;
 }
 
 export type IPCChannel = keyof IPCRequestMap;

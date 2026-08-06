@@ -15,7 +15,7 @@ export interface ProjectContext {
   readme?: { path: string; content: string } | null;
   packageJson?: { path: string; content: string } | null;
   documents: Array<{ path: string; content: string }>;
-  sourceFiles: Array<{ path: string; content: string; changed: boolean }>;
+  sourceFiles: Array<{ path: string; content: string; changed: boolean; relevance: number; reason: string }>;
   gitStatus?: unknown | null;
   recentCommits?: Array<{ hash: string; message: string; author?: string; timestamp?: number }> | null;
   metadata?: unknown | null;
@@ -128,12 +128,19 @@ export class ContextBuilderImpl {
         changed: changedPaths.has(file.path),
         score: (changedPaths.has(file.path) ? 100 : 0) + [...queryTokens].reduce((score, token) => score + (file.path.toLowerCase().includes(token) ? 10 : 0), 0)
       }))
+      .filter((candidate) => candidate.changed || candidate.score > 0)
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
       .slice(0, 6);
     for (const candidate of sourceCandidates) {
       try {
         const file = await this.workspace.readFile(candidate.path);
-        context.sourceFiles.push({ path: candidate.path, content: file.content, changed: candidate.changed });
+        context.sourceFiles.push({
+          path: candidate.path,
+          content: file.content,
+          changed: candidate.changed,
+          relevance: candidate.changed ? 96 : 84,
+          reason: candidate.changed ? 'Changed implementation file.' : 'Source path matches the current question.'
+        });
       } catch { /* skip unreadable source evidence */ }
     }
 
@@ -147,28 +154,43 @@ export class ContextBuilderImpl {
 
     add({
       id: 'workspace-inventory', kind: 'source', title: 'Workspace inventory', priority: 60,
-      content: `${context.files.length} indexed entries\n${context.files.slice(0, 180).map((file) => `${file.type === 'directory' ? 'dir' : 'file'}: ${file.path}`).join('\n')}`
+      content: `${context.files.length} indexed entries\n${context.files.slice(0, 180).map((file) => `${file.type === 'directory' ? 'dir' : 'file'}: ${file.path}`).join('\n')}`,
+      metadata: { relevance: 70, reason: 'Workspace identity and file inventory.' }
     });
     for (const document of context.documents) {
+      const architectureDocument = /(?:architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes)/i.test(document.path);
       add({
-        id: `document:${document.path}`, kind: /architecture/i.test(document.path) ? 'architecture' : 'documentation',
-        title: document.path, path: document.path, content: document.content, priority: /architecture/i.test(document.path) ? 100 : /^readme/i.test(document.path) ? 90 : 80
+        id: `document:${document.path}`, kind: architectureDocument ? 'architecture' : 'documentation',
+        title: document.path, path: document.path, content: document.content, priority: architectureDocument ? 100 : /^readme/i.test(document.path) ? 90 : 80,
+        metadata: architectureDocument
+          ? { relevance: 100, reason: 'Primary architecture evidence.' }
+          : /^readme/i.test(document.path)
+            ? { relevance: 96, reason: 'Primary project overview.' }
+            : { relevance: 86, reason: 'Project documentation selected by architecture-first policy.' }
       });
     }
     for (const sourceFile of context.sourceFiles) add({
       id: `source:${sourceFile.path}`, kind: 'source', title: sourceFile.path, path: sourceFile.path,
-      content: sourceFile.content, priority: sourceFile.changed ? 92 : 70
+      content: sourceFile.content, priority: sourceFile.changed ? 92 : 70,
+      metadata: { relevance: sourceFile.relevance, reason: sourceFile.reason }
     });
-    if (context.packageJson) add({ id: 'package-json', kind: 'source', title: 'package.json', path: context.packageJson.path, content: context.packageJson.content, priority: 72 });
-    if (context.gitStatus) add({ id: 'git-status', kind: 'git', title: 'Current Git state', content: JSON.stringify(context.gitStatus, null, 2), priority: 88 });
+    if (context.packageJson) add({ id: 'package-json', kind: 'configuration', title: 'package.json', path: context.packageJson.path, content: context.packageJson.content, priority: 72, metadata: { relevance: 78, reason: 'Authoritative project configuration.' } });
+    if (context.gitStatus) add({ id: 'git-status', kind: 'git', title: 'Current Git state', content: JSON.stringify(context.gitStatus, null, 2), priority: 88, metadata: { relevance: 94, reason: 'Current repository state.' } });
     if (context.recentCommits?.length) add({
       id: 'git-history', kind: 'git', title: 'Recent Git history', priority: 86,
-      content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}${commit.author ? ` — ${commit.author}` : ''}`).join('\n')
+      content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}${commit.author ? ` — ${commit.author}` : ''}`).join('\n'),
+      metadata: { relevance: 90, reason: 'Recent project chronology.' }
     });
-    if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Project goals and metadata', content: JSON.stringify(context.metadata, null, 2), priority: 94 });
+    if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Project goals and metadata', content: JSON.stringify(context.metadata, null, 2), priority: 94, metadata: { relevance: 96, reason: 'Active goals, tasks, and workspace identity.' } });
     for (const memory of context.memories ?? []) add({
       id: `memory:${memory.id}`, kind: 'memory', title: memory.title || memory.type, content: memory.content,
-      priority: memory.type === 'decision' ? 98 : 84, updatedAt: memory.updatedAt, metadata: typeof memory.metadata === 'object' && memory.metadata ? memory.metadata as Record<string, unknown> : undefined
+      priority: memory.type === 'decision' ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)),
+      updatedAt: memory.updatedAt,
+      metadata: {
+        ...(typeof memory.metadata === 'object' && memory.metadata ? memory.metadata as Record<string, unknown> : {}),
+        relevance: memory.relevance ?? 80,
+        reason: memory.reasons?.join(' · ') ?? 'Relevant durable workspace knowledge.'
+      }
     });
 
     const budgeted = this.budgetPolicy.select(artifacts, characterBudget);

@@ -79,6 +79,14 @@ describe('ContextBuilder', () => {
     expect(result.artifacts.some((artifact) => artifact.id === 'source:packages/ai/src/context.ts')).toBe(true);
   });
 
+  it('does not disclose unrelated source snapshots and classifies package metadata as configuration', async () => {
+    const ws = new MockWorkspace({ 'package.json': '{"name":"repo"}', 'src/unrelated.ts': 'export const unrelated = true;' });
+    const builder = new ContextBuilderImpl(ws as any, new MockGit() as any, new MockStorage() as any);
+    const result = await builder.assemble('Explain ripple theory');
+    expect(result.artifacts.some((artifact) => artifact.id === 'source:src/unrelated.ts')).toBe(false);
+    expect(result.artifacts.find((artifact) => artifact.id === 'package-json')?.kind).toBe('configuration');
+  });
+
   it('assembles every required workspace evidence class before the user turn', async () => {
     const ws = new MockWorkspace({
       'README.md': '# Product documentation',

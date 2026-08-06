@@ -1,5 +1,5 @@
 /** A typed boundary for every artifact that can contribute to an AI turn. */
-export type WorkspaceArtifactKind = 'identity' | 'architecture' | 'documentation' | 'source' | 'git' | 'memory' | 'metadata' | 'conversation';
+export type WorkspaceArtifactKind = 'identity' | 'architecture' | 'documentation' | 'source' | 'configuration' | 'git' | 'memory' | 'metadata' | 'conversation';
 
 export interface WorkspaceArtifact {
   id: string;

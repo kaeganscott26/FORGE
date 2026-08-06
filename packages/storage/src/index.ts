@@ -231,10 +231,11 @@ export class StorageService {
     }));
   }
 
-  async updateMemory(memoryId: string, fields: { title?: string | null; content?: string; metadata?: unknown }): Promise<void> {
+  async updateMemory(memoryId: string, fields: { type?: string; title?: string | null; content?: string; metadata?: unknown }): Promise<void> {
     const projectId = await this.projectId();
     const set: string[] = [];
     const params: SqlValue[] = [];
+    if (fields.type !== undefined) { set.push('type = ?'); params.push(fields.type); }
     if (fields.title !== undefined) { set.push('title = ?'); params.push(fields.title); }
     if (fields.content !== undefined) { set.push('content = ?'); params.push(fields.content); }
     if (fields.metadata !== undefined) { set.push('metadata = ?'); params.push(fields.metadata ? JSON.stringify(fields.metadata) : null); }
