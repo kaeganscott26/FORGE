@@ -1,3 +1,4 @@
+cat > .gitignore <<'EOF'
 # Dependencies
 node_modules/
 
@@ -5,14 +6,19 @@ node_modules/
 dist/
 dist_electron/
 out/
+apps/desktop/out/
+apps/desktop/dist/
 .vite/
 coverage/
 release/
 
 # Electron Builder
 *.dmg
+*.pkg
 *.zip
 *.blockmap
+builder-debug.yml
+builder-effective-config.yaml
 
 # Logs
 *.log
@@ -27,12 +33,16 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
 
 # macOS
 .DS_Store
 
-# Obsidian local state (machine-specific)
+# Obsidian machine-local state
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache/
-.obsidian/cache
+EOF
