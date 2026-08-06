@@ -2,7 +2,9 @@
 
 ## System intent
 
-FORGE is a local-first development workspace whose AI lives alongside a project rather than replacing it. The project folder is the source of truth. Markdown, source code, architecture, Git, project metadata, durable memory, and workspace-owned conversations are treated as evidence in one evolving knowledge graph.
+FORGE is a local-first development workspace whose AI lives alongside a project rather than replacing it. The project folder is the source of truth. Markdown, source code, architecture, Git, project metadata, durable memory, persistent tasks, and workspace-owned conversations are treated as evidence in one evolving knowledge graph.
+
+Traditional IDEs manage files. AI assistants manage conversations. FORGE manages project understanding and durable workspace execution. The model is a replaceable worker; conversation continuity is not an execution primitive.
 
 Features are accepted when they strengthen that relationship. Generic IDE parity is not an architectural goal.
 
@@ -23,6 +25,7 @@ Electron main process
 ├── PolicyEngine            risk, approval, and scoped-session decisions
 ├── ShellService            approved argument-array child processes
 ├── TerminalService         user-controlled PTY lifecycle and streaming
+├── TaskRuntime             persistent steps, reconciliation, processes, handoffs
 ├── WebService              permissioned external HTTP research
 ├── SettingsService         app-global encrypted credentials and preference
 ├── ReleaseDiscovery       bounded logical-channel GitHub Release selection
@@ -37,6 +40,7 @@ React renderer
 ├── Monaco editor / Markdown preview
 ├── resizable workspace-intelligence and memory context
 ├── workspace-owned multi-conversation chat
+├── persistent Tasks workspace view
 ├── resizable source control
 ├── integrated xterm.js terminal
 └── agent approval and audit inspector
@@ -61,6 +65,7 @@ The model cannot invoke renderer IPC and the renderer cannot turn a model call i
 | `@forge/workspace` | Open a project and perform root-confined file operations |
 | `@forge/git` | Status, history, diffs, staging, commits, pull, and push |
 | `@forge/storage` | Project metadata, schema migration, conversations, active thread, layout, and memory persistence |
+| `@forge/tasks` | Persistent task templates, dependency/retry state, reality reconciliation, background-process tracking, and Markdown handoffs |
 | `@forge/memory` | Create, retrieve, delete, and index durable project memory |
 | `@forge/ai` | Provider adapter, evidence budgeting, system context, prompt assembly, and future intelligence contracts |
 | `@forge/ipc` | Shared renderer/main request and response contracts |
@@ -91,9 +96,10 @@ directory selection
   → renderer loads that workspace's files, layout, metadata, memories, and active conversation
 ```
 
-`metadata.sqlite` schema version 3 contains:
+`metadata.sqlite` schema version 4 contains:
 
-- `projects`, `goals`, and `tasks`;
+- `projects`, `goals`, and rich workspace-owned `tasks`;
+- `task_steps`, task/step dependency edges, checkpoints, artifacts, external references, approvals, and append-only task events;
 - `conversation_threads`;
 - `conversations`, linked to a thread;
 - `memories`;
@@ -114,7 +120,17 @@ Each workspace can contain multiple named threads. The active thread ID is store
 - **Clear chat** deletes message rows for only the selected thread.
 - Memory, indexed project content, metadata, layout, Git state, and other threads are not touched by New or Clear.
 
-The storage and IPC APIs keep conversations separate from memory by design so later embedding/search backends cannot be accidentally erased by a chat-control action.
+The storage and IPC APIs keep conversations separate from memory and tasks by design so later embedding/search backends cannot be accidentally erased by a chat-control action. Originating and last-active conversation IDs are provenance fields, not ownership foreign keys.
+
+## Persistent task lifecycle
+
+Persistent tasks are typed workspace state, not renamed chat messages. The task runtime loads a task, inspects Git and known PIDs, accepts bounded verified external observations, reconciles stale state, preserves completed dependencies, and selects the first genuinely unfinished step. A foreign-workspace snapshot fails closed.
+
+Tool results linked through `taskContext` create task evidence and action-log references. A successful tool call proves that call succeeded but does not automatically satisfy a step's verification criteria. Step completion requires a verified checkpoint. Resumed Tier 1 and Tier 2 steps always return through policy; a saved approval is history, not durable authority.
+
+`task.process.start` can detach an approved argument-array process and persist its PID and bounded output path. A later session inspects the PID instead of polling continuously. A disappeared process with no completion evidence blocks the step. Exit-status supervision across application restarts and event-driven GitHub reconciliation remain planned orchestration and are not described as autonomous operation.
+
+The dedicated Tasks renderer presents task state independently of chat. `.forge/handoffs/` contains atomic human-readable projections; SQLite remains authoritative. See [Persistent Tasks](PERSISTENT_TASKS.md) and [Task Recovery](TASK_RECOVERY.md).
 
 ## Prompt and context assembly
 
@@ -157,7 +173,7 @@ This is a trust foundation, not yet the full knowledge graph. Concept entities, 
 
 `OpenAIProvider` uses a free-form model ID. `gpt-5.6-sol` is the default only when a user has not saved a preference. The Settings UI can query the provider's `/models` endpoint and validate an exact ID, but saving is not constrained to a compiled allowlist; this supports future model IDs and OpenAI-compatible endpoints.
 
-Unsupported models produce an actionable error and do not overwrite the preference automatically. Chat Completions uses `max_completion_tokens`, with a compatibility retry using `max_tokens` for older OpenAI-compatible providers.
+Unsupported models produce an actionable error and do not overwrite the preference automatically. GPT-5.6 tool-capable turns use the Responses API with flat function definitions and provider aliases mapped back to FORGE's stable dotted tool names. Other compatible models retain Chat Completions with `max_completion_tokens` and a compatibility retry using `max_tokens`. Registry, policy, approval, executor, audit, and internal messages remain provider-neutral.
 
 ## Layout architecture
 
@@ -188,6 +204,7 @@ These are extension points, not a plugin roadmap. Implementations should remain 
 - Context selection is bounded and test-covered but will need token-aware budgeting and evaluation against real repositories.
 - A live model-list or completion check requires a user-supplied provider key and is not part of automated tests.
 - Signed, notarized releases are required for trusted unattended macOS updates.
+- Persistent tasks do not yet provide unattended multi-step orchestration, a durable process supervisor, or scheduled GitHub watchers. All executable and remote steps remain approval controlled.
 
 ## Source authority
 

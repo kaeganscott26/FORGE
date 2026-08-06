@@ -1,5 +1,13 @@
 # FORGE 1.1.0-alpha.3
 
+## Unreleased repair and persistent-task milestone
+
+The current source branch adds workspace-owned structured tasks, task steps/checkpoints/events, dependency-aware reality reconciliation, approval/audit linkage, detached PID/output tracking, a dedicated Tasks view, durable Markdown handoffs, and a reusable 26-step release template. Task state survives conversation deletion and storage restart; no persisted task grants permanent execution approval.
+
+It also repairs root-first workspace discovery and structured missing-path recovery, keeps terminal keyboard input bound to a writable workspace-owned PTY across restart, and routes GPT-5.6 function tools through the Responses API while preserving provider-neutral internal messages and tool policy.
+
+Release automation now creates a draft, packages without provider-side parallel publication, uploads DMG/ZIP/blockmaps serially, publishes updater metadata last, skips byte-identical retry assets, and fails on a same-name hash conflict. These changes are not a published release yet. Source tests/build, ARM64/universal packaging, archive integrity, packaged terminal input/restart, and packaged task persistence/restart pass at the uncommitted checkpoint. Exact committed-source provenance, live provider use, installation over the existing app, remote workflow/assets, trusted signing/notarization, and updater verification remain required before publishing the next preview.
+
 This preview preserves the policy-controlled agent tools and integrated terminal while correcting Preview update discovery. Alpha.1 and alpha.2 remain immutable; no compatibility release or replacement asset is published.
 
 ## Corrected Preview discovery

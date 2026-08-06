@@ -24,7 +24,7 @@ Markdown files open in preview mode. Use **Edit** and **Preview** to switch view
 
 The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. The context-health number is a lightweight readiness indicator, not a code-quality score.
 
-Goals and tasks are stored only in the workspace's local FORGE database.
+Goals and persistent tasks are stored only in the workspace's local FORGE database.
 
 ## 5. Use source control
 
@@ -72,13 +72,26 @@ Running operations can be cancelled. Completed requests retain their state; loca
 
 Web research is disabled by default. Enable it in Settings only if you want requests to external services. The approval card names the exact query/URL and any project data declared for transfer.
 
-## 9. Use the integrated terminal
+## 9. Use persistent tasks
+
+Choose **TASKS** in the bottom panel. Tasks remain in the opened workspace even when you switch conversations, providers, or models, reload the renderer, or restart FORGE.
+
+- Select a task to inspect its structured steps, dependencies, progress, verification criteria, approvals, events, Git/release references, and active PID/output path.
+- **Resume** audits current Git and known local processes before selecting unfinished work.
+- **Pause** records an interruption without erasing history.
+- **Cancel tracking** stops FORGE from advancing the record; it does not silently kill a process, cancel a GitHub workflow, remove an upload, or undo remote state.
+- **Retry step** is available only for a failed or blocked step within its retry policy and requires fresh approval when the tool is Tier 1 or Tier 2.
+- **Copy handoff** creates `.forge/handoffs/<task>.md` from the authoritative SQLite record and copies its concise resume context.
+
+A successful tool result is recorded as evidence but does not by itself satisfy every verification criterion. The step completes only after a verified checkpoint. If a saved PID disappears without completion evidence, FORGE blocks the step and asks you to inspect its bounded output/artifacts before retrying.
+
+## 10. Use the integrated terminal
 
 Choose **Terminal** in the bottom panel and select **New**. A user terminal starts at the active workspace and shows the exact working directory. Create or switch multiple sessions, resize the panel, copy output, clear only the visible screen, cancel a process, restart a session, and inspect exit state.
 
 The user terminal is separate from model-requested `shell.run`. The model cannot type into a user session. Agent shell requests appear under Agent Actions and require one-time approval. FORGE rejects normal terminal working directories outside the workspace, and terminal output is not automatically indexed into memory.
 
-## 10. Update FORGE
+## 11. Update FORGE
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
@@ -90,7 +103,7 @@ Alpha.1 and alpha.2 stored an incompatible mapping between FORGE's logical Previ
 
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### macOS blocks the first launch
 
@@ -116,6 +129,8 @@ Open **Settings** and save an API key. If macOS Keychain is unavailable, FORGE r
 
 Open **Settings**, refresh the provider model list, and validate the exact model ID. Availability can differ by API key and compatible provider. FORGE keeps a manually entered ID for future compatibility but reports unsupported-model responses clearly.
 
+GPT-5.6 tool-capable requests use the Responses API. If a compatible provider implements only Chat Completions, choose a model/path that provider supports; FORGE does not disable reasoning or silently drop tools to conceal an incompatible endpoint.
+
 ### Git actions fail
 
 Open **GitHub**, save a fine-grained token, and test the connection. Confirm the workspace is a Git repository and the `origin` remote is an HTTPS `github.com` URL. SSH and non-GitHub remotes continue to use system Git credentials.
@@ -132,6 +147,10 @@ Open **Agent Actions**, inspect the exact scope, and choose Run once, the offere
 
 Confirm the app was packaged with `node-pty` unpacked and that its `spawn-helper` is executable. From source, rerun `npm install`; FORGE's postinstall repairs the helper permission and missing Electron vendor app.
 
-## 12. Data safety
+### A task says a process disappeared
 
-Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, layouts, conversation threads, and durable memories.
+Open the task and inspect its saved output path, expected artifacts, and external references. Resume does not rerun it automatically. Record a verified checkpoint if reality proves completion, or retry only after confirming the action is safe and approving its exact tool request.
+
+## 13. Data safety
+
+Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, persistent tasks/checkpoints/events, layouts, conversation threads, audit history, and durable memories.

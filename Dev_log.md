@@ -1,5 +1,30 @@
 # FORGE Developer Log
 
+## 2026-08-06 — Persistent task engine and active runtime repair
+
+### Why
+
+Long-running work was recoverable only from conversation transcripts. Terminal input could be detached from the current renderer session, workspace scanning could stop after a guessed missing path, and GPT-5.6 tool calls used a Chat Completions combination the provider rejects. The repair treats the workspace database and observed runtime state as authority.
+
+### Implemented architecture
+
+- Added schema-v4 tasks, steps, task/step dependencies, checkpoints, artifacts, external references, approvals, and events without replacing conversations, memory, layouts, projects, goals, or action logs.
+- Added `@forge/tasks` with dependency-aware reconciliation, provider/model-independent persistence, PID/Git inspection, no-repeat completion rules, retry/cancellation semantics, safe handoffs, and a 26-step release template.
+- Added Tier 0/1/2 task tools through the existing registry/policy/audit runtime and a dedicated renderer Tasks view.
+- Added detached background process start with workspace-contained output. Process start remains distinct from verified step completion; missing PIDs fail closed for evidence review.
+- Added root-first context/file discovery and structured `ENOENT` recovery.
+- Kept xterm mounted across session changes, routed input through the active-session reference, enforced PTY workspace ownership, rejected writes after exit, and restored writable restart behavior.
+- Routed GPT-5.6 tool turns through `/v1/responses` while retaining Chat Completions compatibility for other provider models.
+- Changed tag CI to draft-first, serial hash-safe uploads and updater-metadata-last publication.
+
+### Validation status
+
+`npm ci` completed with zero reported vulnerabilities. Typecheck, lint, all 21 test files/78 tests, and the production build pass. ARM64 and universal DMG/ZIP packaging completed; both DMGs pass `hdiutil verify`, both ZIPs pass archive testing, and the packaged native PTY is ARM64 in the ARM build and x86_64/ARM64 in the universal build.
+
+An isolated real packaged universal app reported Preview `1.1.0-alpha.3`, `runtime: packaged`, and `file:// packaged app.asar`. Trusted renderer keyboard events sent `pwd` through xterm/preload/IPC to the PTY, `exit` produced code 0, exited input was rejected, and Restart produced a writable PTY in the canonical workspace. A `Persistent Task Verification` record and Markdown handoff survived renderer reload, conversation switching, and a full packaged-application stop/start while retaining the originating conversation and first unfinished step.
+
+The package is ad-hoc signed with no TeamIdentifier; Gatekeeper rejects it as having no usable signature. A live user-configured GPT-5.6 request, remote GitHub workflow/release checks, installation over `/Applications/FORGE.app`, and updater behavior remain unverified. Exact source-commit provenance must be rebuilt after the feature commits; these uncommitted packages embed baseline `d3c34d9` and are validation artifacts only.
+
 ## 2026-08-06 — FORGE 1.1.0-alpha.3 logical Preview discovery
 
 ### Why

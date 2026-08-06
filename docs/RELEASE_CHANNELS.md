@@ -40,7 +40,9 @@ This is a preview-channel migration defect. It is not a failure of the packaged 
 
 ## Publication behavior
 
-A prerelease tag creates a GitHub Pre-release and emits `preview-mac.yml`; a normal tag creates a stable release and emits `latest-mac.yml`. GitHub Pre-releases are never marked Latest. v1.0.1 remains Latest until a newer intentional stable release is published. The logical Preview label remains FORGE UI vocabulary; metadata filenames and Electron Updater provider configuration are internal implementation details.
+An annotated prerelease tag creates a draft that becomes a GitHub Pre-release and emits `preview-mac.yml`; a normal tag creates a draft that becomes a stable release and emits `latest-mac.yml`. GitHub Pre-releases are never marked Latest. v1.0.1 remains Latest until a newer intentional stable release is published. The logical Preview label remains FORGE UI vocabulary; metadata filenames and Electron Updater provider configuration are internal implementation details.
+
+The tag workflow packages without direct provider publication. It uploads the DMG, ZIP, blockmaps, then updater YAML serially and publishes the draft only afterward. Retry logic downloads and verifies an existing named asset, skips it when SHA-256 matches, and fails without replacement when bytes differ. See [Releasing FORGE](../RELEASING.md).
 
 ## Local development and install
 
@@ -70,4 +72,4 @@ npm run release:stable
 
 Generated DMG/ZIP/blockmap/YAML output is ignored under `dist_electron/`. Preview publication is allowed only from merged, synchronized `main` at an annotated prerelease tag such as `v1.1.0-alpha.3`. The workflow marks prerelease tags as GitHub Pre-releases and does not mark them Latest. Stable publication uses a normal version/tag and GitHub Latest.
 
-Before tagging, rerun dependency installation, typecheck, lint, tests, production build, both package commands, packaged runtime probes, architecture checks, hashes, signing inspection, and update-channel tests. Do not overwrite v1.0.1, alpha.1, or alpha.2, and never republish a tag for different source.
+Before tagging, create a workspace-owned release task and rerun dependency installation, typecheck, lint, tests, production build, both package commands, packaged runtime probes, architecture checks, hashes, signing inspection, task persistence, terminal input, provider routing, and update-channel tests. Each executable step still requires approval. Do not overwrite v1.0.1, alpha.1, or alpha.2, and never republish a tag for different source.

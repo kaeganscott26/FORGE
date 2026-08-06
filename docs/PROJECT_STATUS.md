@@ -18,6 +18,14 @@ Alpha.3 adds bounded GitHub Release discovery. Stable filters to strictly newer 
 
 The preview remains ad-hoc signed/unsigned because no Apple Developer ID or notarization credentials are configured. Discovery and download are testable, but trusted unattended replacement is unavailable.
 
+## Unreleased source state
+
+The current feature work adds schema-v4 workspace-owned persistent tasks, dependency-aware checkpoints/reconciliation, task-linked approvals and audit events, background PID/output tracking, a dedicated Tasks view, handoff export, and a release workflow template. It also repairs terminal input/session ownership, root-first missing-path recovery, and GPT-5.6 Responses API tool routing.
+
+`npm ci` completed with zero reported vulnerabilities. Typecheck, lint, 21 test files/78 tests, production build, ARM64 packaging, and universal packaging pass for the uncommitted implementation checkpoint. Both DMGs and ZIPs pass integrity checks, and native PTY architectures match their package targets.
+
+An isolated real packaged universal application verified renderer keyboard input through xterm/preload/IPC to a workspace PTY, exited-session rejection, writable restart across `/tmp` to `/private/tmp` canonicalization, renderer reload, conversation replacement, task/handoff persistence, and task recovery after a full application stop/start. Live configured GPT-5.6 provider execution, installation over the user's `/Applications/FORGE.app`, remote workflow/release state, signing/notarization, and updater behavior remain unverified. The current validation packages embed baseline `d3c34d9`; exact post-commit provenance must be rebuilt before publication.
+
 ## Capability matrix
 
 | Area | Verified implementation |
@@ -29,6 +37,7 @@ The preview remains ad-hoc signed/unsigned because no Apple Developer ID or nota
 | Agent shell | Argument-array spawn, workspace cwd, filtered environment, timeout/output/cancellation/process-tree controls |
 | External web | Search/fetch/open; disabled by default; URL, DNS, redirect, local-network, size, timeout, and disclosure controls |
 | Approval and audit | Retained request/result/history UI plus schema-v3 per-workspace SQLite log with filtering and secret redaction |
+| Persistent tasks | Schema-v4 typed tasks/steps/dependencies/checkpoints/artifacts/references/approvals/events, reality-first resume, task/audit linking, Tasks UI, and handoff projection |
 | Integrated terminal | Main-process `node-pty`, renderer xterm.js, multiple sessions, resize/input/output/terminate/restart/copy/clear/exit state |
 | Renderer boundary | Context isolation, no Node integration, sandbox, web security, fixed allowlisted preload, navigation denial |
 | Update discovery | Fixed GitHub endpoint, bounded validated response, logical Stable/Preview filtering, strict forward SemVer, safe selected feed |
@@ -55,6 +64,7 @@ The preview remains ad-hoc signed/unsigned because no Apple Developer ID or nota
 6. Tool-result context bounds are character-based rather than tokenizer-aware.
 7. Retrieval remains lexical; concept graph, embeddings, and persisted hybrid search remain future work.
 8. OAuth device flow is not implemented; GitHub uses a user-created Keychain-backed encrypted token.
+9. Persistent tasks do not yet include unattended multi-step execution, a durable cross-restart supervisor, or scheduled GitHub watchers; remote and executable work remains approval controlled.
 
 ## Repository authority
 
