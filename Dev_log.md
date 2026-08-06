@@ -60,6 +60,16 @@
 - Character budgeting is deterministic and provider neutral but is not yet token aware.
 - Memory reindex deduplication, embeddings, persisted hybrid search, signed update validation, and renderer sandbox hardening remain deferred.
 
+### GitHub delivery and v1.0.0 asset refresh
+
+- Committed the implementation as `d5458db` and the synchronized documentation/tooling as `7f8bd85` on `agent/workspace-context-architecture`.
+- Pushed the feature branch and opened draft pull request #7 against `main`.
+- Built the universal DMG and ZIP and verified the executable contains `x86_64` and `arm64`; ZIP integrity passed.
+- Verified the universal packaged app reaches a complete document, mounts React, and renders FORGE from a `file://` URL inside `app.asar`. Vite remains a compile-time tool only; the release does not use localhost.
+- Replaced all five assets on the existing GitHub v1.0.0 Release at the user's direction: DMG, ZIP, both blockmaps, and `latest-mac.yml`.
+- Confirmed every remote asset SHA-256 digest matches the corresponding local artifact and updated the published release notes.
+- Documented the same-version limitation: existing 1.0.0 installs require one manual DMG replacement because update comparison cannot treat another 1.0.0 build as newer. Future automatic-update releases must increment the version.
+
 ## 2026-08-05 — Version 1.0.0 release preparation
 
 ### Repository audit

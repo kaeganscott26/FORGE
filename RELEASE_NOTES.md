@@ -1,6 +1,6 @@
-# FORGE — Next milestone (unreleased)
+# FORGE 1.0.0 — Workspace intelligence refresh
 
-This milestone turns chat into workspace-owned intelligence while preserving FORGE's local-first architecture.
+The v1.0.0 macOS assets were refreshed on August 6, 2026. This build turns chat into workspace-owned intelligence while preserving FORGE's local-first architecture.
 
 ## Added
 
@@ -23,14 +23,20 @@ This milestone turns chat into workspace-owned intelligence while preserving FOR
 - OpenAI Chat Completions uses `max_completion_tokens` with a legacy compatible-provider fallback.
 - Clear Chat now has an explicit narrow data boundary: it removes messages only from the active thread.
 
-## Validation target
+## Validation
 
 - Typecheck, lint, automated tests, production Electron build, and macOS desktop packaging
 - Live model discovery/completion remains user-key dependent and is not exercised by automated tests
 
+The universal executable contains Apple Silicon and Intel architectures, the ZIP passed integrity validation, and the packaged renderer was verified at its `file://` path inside `app.asar`. FORGE is not distributed as a localhost web application.
+
+## Updating an existing 1.0.0 install
+
+Download the refreshed universal DMG and drag FORGE over the existing Applications copy. No uninstall is required. Because this refresh intentionally retains version 1.0.0, an existing 1.0.0 app cannot identify it as a numerically newer automatic update; future update-feed releases must increment the version.
+
 ---
 
-# FORGE 1.0.0 (released August 5, 2026)
+## Original 1.0.0 release (August 5, 2026)
 
 FORGE 1.0.0 is the first packaged macOS release of the local-first AI-native development workspace.
 

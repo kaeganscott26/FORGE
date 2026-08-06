@@ -8,7 +8,7 @@
 
 ## Release state
 
-FORGE 1.0.0 is published. The next milestone is implemented on a feature branch and adds workspace-owned multi-conversation state, persistent resizable layout, automatic project-context assembly, model discovery/validation, and future workspace-intelligence contracts.
+FORGE 1.0.0 is published. Its macOS release assets were refreshed from the feature branch with workspace-owned multi-conversation state, persistent resizable layout, automatic project-context assembly, model discovery/validation, and future workspace-intelligence contracts. The source remains under pull-request review until merged.
 
 The v1.0.0 binaries are unsigned because no Apple Developer ID identity is installed or configured. The DMG can be installed manually, but unattended in-app automatic installation requires consistently signed and notarized builds.
 
@@ -39,6 +39,7 @@ The v1.0.0 binaries are unsigned because no Apple Developer ID identity is insta
 
 - TypeScript typecheck, ESLint, 30 automated tests, and Electron production build pass for the current milestone.
 - Electron Builder produced the current ARM64 FORGE 1.0.0 DMG, ZIP, and blockmaps; signing was skipped because no Developer ID identity is configured.
+- Electron Builder also produced the universal v1.0.0 DMG/ZIP/update metadata, with `x86_64` and `arm64` architectures and a verified ZIP.
 - The Electron development runtime now resolves the renderer root correctly: the local URL returned the FORGE document, Vite connected, React mounted, and the welcome UI rendered. This was verified after correcting a reproduced blank-window 404.
 - Package metadata contains the correct name, version, bundle ID, icon, and GitHub update feed.
 - All 14 test files and 30 tests pass, including legacy migration, conversation isolation, clear-chat preservation, layout persistence, context framing/source selection, arbitrary model IDs, model validation, and unsupported-model errors.
@@ -54,6 +55,7 @@ The v1.0.0 binaries are unsigned because no Apple Developer ID identity is insta
 5. OAuth device flow is not implemented; GitHub integration accepts a user-created token.
 6. Live model-list/completion validation requires user credentials and is not automated.
 7. Automatic macOS updates cannot be trusted or applied until every release uses the same Developer ID signature.
+8. The user-requested same-version v1.0.0 asset refresh requires manual DMG replacement for existing 1.0.0 installs; future automatic updates must increment the version.
 
 ## Repository authority
 

@@ -60,6 +60,8 @@ The packaged app includes **Check for updates** and **Releases** controls. Signe
 
 Every release must use a version greater than the previous release. The update feed is produced from the ZIP asset and `latest-mac.yml`.
 
+The August 6 workspace-intelligence build was published as a user-requested refresh of the existing v1.0.0 assets. Existing 1.0.0 installs must use the DMG replacement path once because an updater cannot treat the same version as newer. Subsequent releases should resume increasing the version so in-app update detection can work.
+
 ## Development
 
 Requirements:
@@ -76,13 +78,13 @@ npm install
 npm run dev
 ```
 
-The renderer-only Vite server remains available for UI work:
+The renderer-only Vite server remains available for UI development:
 
 ```sh
 npm run start-renderer
 ```
 
-It is not the distributed application and cannot provide all Electron IPC features.
+It is not the distributed application and cannot provide all Electron IPC features. Packaged releases load the compiled renderer from inside `FORGE.app` through `file://`; users do not run a localhost server.
 
 ## Build and package
 
