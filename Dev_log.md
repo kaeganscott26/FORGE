@@ -75,4 +75,5 @@ Create a premium macOS icon for a local-first AI-native developer workspace. Com
 - Published the universal DMG, ZIP, update feed, and blockmaps to the public GitHub Release.
 - Electron Builder's parallel publishers initially created two release records for the same new tag. Consolidated the assets into release `365969109`, removed only the accidental duplicate record, regenerated the DMG blockmap from the exact published DMG, and applied `RELEASE_NOTES.md`.
 - Changed the workflow to create or update one tag release before Electron Builder starts parallel asset publication, preventing the race on future tags and making reruns idempotent.
+- Committed the serialized release fix as `eb71e05`, reran the original tag workflow, and confirmed attempt 2 completed successfully with all five assets replaced as one matching publication set.
 - Confirmed the first release is public at `https://github.com/kaeganscott26/FORGE/releases/tag/v1.0.0`.
