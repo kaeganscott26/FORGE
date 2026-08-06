@@ -15,7 +15,7 @@ built_app="$(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync
 built_app="$project_root/$built_app"
 installed_app="/Applications/FORGE.app"
 
-if [[ -d "$HOME/Applications/FORGE.app" || -d "$HOME/Applications/Forge.app" || -d "/Applications/Forge.app" ]]; then
+if [[ -d "$HOME/Applications/FORGE.app" ]]; then
   echo "A stale alternate FORGE installation exists. Move it to Trash before installing." >&2
   exit 1
 fi
