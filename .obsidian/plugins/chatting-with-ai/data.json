@@ -1,7 +1,0 @@
-{
-  "provider": "chatgpt-oauth",
-  "apiKey": "",
-  "model": "gpt-5.5",
-  "maxIterations": 20,
-  "enableWebSearch": true
-}

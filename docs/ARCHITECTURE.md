@@ -47,9 +47,9 @@ ELECTRON DESKTOP APP
 | `@forge/memory` | Create, list, retrieve, delete, and index project memory |
 | `@forge/ai` | Provider interface, context assembly, and Agent behavior |
 | `@forge/ipc` | Shared renderer/main contracts and channel definitions |
-| `@forge/markdown` | Markdown parsing and document support |
-| `@forge/meta` | Project metadata domain abstractions |
-| `@forge/search` | Future keyword, semantic, and hybrid retrieval layer |
+| `@forge/core` | Runtime-independent filesystem, Markdown, workspace, project, and keyword-search services |
+| `@forge/search` | Search package boundary for future hybrid retrieval |
+| `@forge/plugin-sdk` | Plugin contracts; a runtime host is not implemented |
 
 ---
 
@@ -104,7 +104,7 @@ Current BrowserWindow protections include:
 
 The preload bridge should expose only named, validated IPC actions. Request validation belongs in the main process even when TypeScript types exist, because runtime messages are not automatically type-safe.
 
-The production security review should revisit the current disabled Electron sandbox and sanitize rendered Markdown before distribution.
+Markdown preview output is sanitized in the renderer. The production security review should still revisit the current disabled Electron sandbox.
 
 ---
 
@@ -188,7 +188,7 @@ Current authority order:
 4. CI workflows,
 5. generated build output only as evidence—not authority.
 
-Obsidian workspace state is presentation metadata, not application architecture.
+Generated build output and local workspace databases are evidence or user state, not application architecture.
 
 ---
 
@@ -201,4 +201,4 @@ Obsidian workspace state is presentation metadata, not application architecture.
 5. Provider configuration UI and local-provider support.
 6. Agent tools with explicit permissions and verification loops.
 7. Production Electron sandboxing and Markdown sanitization.
-8. Signed packaging, notarization, release publishing, and updates.
+8. Developer ID signing, notarization, and end-to-end signed update validation.

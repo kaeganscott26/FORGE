@@ -1,2 +1,1 @@
-{ "name": "@forge/workspace", "version": "0.1.0", "private": true, "type": "module", "exports": "./src/index.ts", "dependencies": { "@forge/ipc": "*" } }
-
+{ "name": "@forge/workspace", "version": "1.0.0", "private": true, "type": "module", "exports": "./src/index.ts", "dependencies": { "@forge/ipc": "*" } }

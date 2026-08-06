@@ -2,17 +2,27 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 import { forgeInvoke } from './forge';
 import Editor from '@monaco-editor/react';
 import { marked } from 'marked';
-import type { DashboardData, FileNode, GitDiff, GitStatus, WorkspaceInfo } from '@forge/ipc';
+import DOMPurify from 'dompurify';
+import type { AppUpdateStatus, DashboardData, FileNode, GitDiff, GitStatus, WorkspaceInfo } from '@forge/ipc';
 import ChatPanel from './components/ChatPanel';
 import MemoryPanel from './components/MemoryPanel';
+import SettingsModal from './components/SettingsModal';
 
 const languageFor = (extension?: string) => ({ md: 'markdown', ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', json: 'json', py: 'python', cpp: 'cpp', c: 'c', css: 'css', html: 'html' }[extension ?? ''] ?? 'plaintext');
 const call = async <T,>(promiseFactory: Promise<{ success: boolean; data?: T; error?: { message: string } }>): Promise<T> => { const result = await promiseFactory; if (!result.success) throw new Error(result.error?.message ?? 'Request failed.'); return result.data as T; };
 
 export default function App(): JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null); const [files, setFiles] = useState<FileNode[]>([]); const [active, setActive] = useState<FileNode | null>(null); const [content, setContent] = useState(''); const [savedContent, setSavedContent] = useState(''); const [status, setStatus] = useState<GitStatus | null>(null); const [dashboard, setDashboard] = useState<DashboardData | null>(null); const [diff, setDiff] = useState<GitDiff | null>(null); const [commitMessage, setCommitMessage] = useState(''); const [error, setError] = useState<string | null>(null); const [preview, setPreview] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus | null>(null); const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState<'api' | 'github' | null>(null);
   const refresh = useCallback(async () => { if (!workspace) return; try { const [nextFiles, nextStatus, nextDashboard] = await Promise.all([call<FileNode[]>(forgeInvoke('file.list', {})), call<GitStatus>(forgeInvoke('git.status', undefined)).catch(() => null), call<DashboardData>(forgeInvoke('meta.dashboard', undefined))]); setFiles(nextFiles); setStatus(nextStatus); setDashboard(nextDashboard); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not refresh workspace.'); } }, [workspace]);
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!updateStatus || !['checking', 'downloading'].includes(updateStatus.state)) return undefined;
+    const timer = window.setInterval(() => { call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, 1500);
+    return () => window.clearInterval(timer);
+  }, [updateStatus?.state]);
   const openWorkspace = async () => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open', undefined)); setWorkspace(opened); setActive(null); setContent(''); setError(null); } catch (cause) { if ((cause as Error).message !== 'Workspace selection was cancelled.') setError((cause as Error).message); } };
   const openFile = async (node: FileNode) => { if (node.type === 'directory') return; try { const file = await call<{ content: string }>(forgeInvoke('file.read', { path: node.relativePath })); setActive(node); setContent(file.content); setSavedContent(file.content); setPreview(node.extension === 'md'); } catch (cause) { setError((cause as Error).message); } };
   const save = async () => { if (!active) return; try { await call(forgeInvoke('file.write', { path: active.relativePath, content })); setSavedContent(content); refresh(); } catch (cause) { setError((cause as Error).message); } };
@@ -22,9 +32,12 @@ export default function App(): JSX.Element {
   const createTask = async () => { const title = window.prompt('Task title:'); if (!title) return; try { await call(forgeInvoke('meta.task.create', { title })); refresh(); } catch (cause) { setError((cause as Error).message); } };
   const commit = async () => { try { await call(forgeInvoke('git.commit', { message: commitMessage })); setCommitMessage(''); refresh(); } catch (cause) { setError((cause as Error).message); } };
   const stage = async (file: string) => { try { await call(forgeInvoke('git.stage', { files: [file] })); setDiff(await call(forgeInvoke('git.diff', { staged: false }))); refresh(); } catch (cause) { setError((cause as Error).message); } };
-  const renderMarkdown = useMemo(() => ({ __html: marked.parse(content) as string }), [content]);
+  const checkForUpdates = async () => { try { setCheckingUpdate(true); const result = await call<AppUpdateStatus>(forgeInvoke('app.update.check', undefined)); setUpdateStatus(result); if (['error', 'development', 'not-available'].includes(result.state)) setError(result.message); } catch (cause) { setError((cause as Error).message); } finally { setCheckingUpdate(false); } };
+  const installUpdate = async () => { try { await call(forgeInvoke('app.update.install', undefined)); } catch (cause) { setError((cause as Error).message); } };
+  const renderMarkdown = useMemo(() => ({ __html: DOMPurify.sanitize(marked.parse(content) as string) }), [content]);
   return <main className="app-shell">
-    <header><div className="brand"><span>F</span> FORGE <small>{workspace?.name ?? 'No workspace'}</small></div><div className="toolbar"><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
+    <header><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '1.0.0'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button onClick={() => forgeInvoke('app.release.open', undefined)}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
+    {settingsOpen && <SettingsModal initialSection={settingsOpen} onClose={() => setSettingsOpen(null)} />}
     {error && <div className="notice"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
     {!workspace ? <section className="welcome"><div><p className="eyebrow">LOCAL-FIRST DEVELOPMENT WORKSPACE</p><h1>Think in files.<br />Build with context.</h1><p>Forge keeps your notes, source code, Git history, and project work in one private desktop workspace.</p><button className="primary" onClick={openWorkspace}>Open a project folder</button></div></section> : <section className="workspace-grid">
       <aside className="explorer"><div className="panel-title">EXPLORER <button onClick={refresh}>↻</button></div><FileTree nodes={files} active={active?.relativePath} onOpen={openFile} /></aside>

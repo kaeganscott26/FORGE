@@ -7,10 +7,14 @@ import { GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
 import { OpenAIProvider, ContextBuilderImpl, Agent } from '@forge/ai';
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
+import { UpdaterService } from './updater';
+import { SettingsService } from './settings';
 
 const workspace = new WorkspaceService();
-const git = new GitService();
+const settings = new SettingsService();
+const git = new GitService(() => settings.githubCredentials());
 const storage = new StorageService();
+const updater = new UpdaterService();
 
 // AI/core instances (provider-agnostic wiring)
 const aiProvider = new OpenAIProvider();
@@ -19,6 +23,10 @@ const memoryService = new MemoryService(storage as any);
 const memoryRetriever = new MemoryRetriever(memoryService as any);
 const memoryIndexer = new MemoryIndexer(memoryService as any, workspace as any);
 const agent = new Agent(aiProvider as any, contextBuilder as any, memoryRetriever as any);
+
+async function applyAISettings(): Promise<void> {
+  aiProvider.configure(await settings.apiConfiguration());
+}
 
 function register<C extends IPCChannel>(channel: C, action: (request: IPCRequestMap[C]) => Promise<IPCResponseMap[C]>): void {
   ipcMain.handle(channel, async (_event, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>> => {
@@ -40,6 +48,14 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.gitStatus, async () => git.status()); register(IPC_CHANNELS.gitBranches, async () => git.branches()); register(IPC_CHANNELS.gitLog, async (request) => git.log(request?.limit)); register(IPC_CHANNELS.gitDiff, async (request) => git.diff(request.staged)); register(IPC_CHANNELS.gitStage, async (request) => git.stage(request.files)); register(IPC_CHANNELS.gitUnstage, async (request) => git.unstage(request.files)); register(IPC_CHANNELS.gitCommit, async (request) => git.commit(request.message, request.files)); register(IPC_CHANNELS.gitPull, async () => git.pull()); register(IPC_CHANNELS.gitPush, async () => git.push());
   register(IPC_CHANNELS.metaDashboard, async () => { const project = await storage.dashboard(); const files = await workspace.list(); const all = (nodes: typeof files): typeof files => nodes.flatMap((node) => [node, ...(node.children ? all(node.children) : [])]); const flattened = all(files); return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { score: project ? (flattened.some((file) => /^readme\.md$/i.test(file.name)) ? 65 : 35) : 0, hasReadme: flattened.some((file) => /^readme\.md$/i.test(file.name)), noteCount: flattened.filter((file) => file.extension === 'md').length, codeFileCount: flattened.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } }; });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description)); register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
+  register(IPC_CHANNELS.appUpdateStatus, async () => updater.status());
+  register(IPC_CHANNELS.appUpdateCheck, async () => updater.check());
+  register(IPC_CHANNELS.appUpdateInstall, async () => updater.install());
+  register(IPC_CHANNELS.appReleaseOpen, async () => updater.openLatestRelease());
+  register(IPC_CHANNELS.settingsGet, async () => settings.publicSettings());
+  register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); return result; });
+  register(IPC_CHANNELS.settingsTestApi, async () => { await aiProvider.testConnection(); return { ok: true as const }; });
+  register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
   // Agent IPC handlers
   register(IPC_CHANNELS.agentAsk, async (request) => {
     if (!request || typeof (request as any).prompt !== 'string') throw new Error('Invalid agent.ask request');
@@ -122,5 +138,18 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => { registerHandlers(); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); });
+app.setName('FORGE');
+app.whenReady().then(() => {
+  const developmentIcon = join(process.cwd(), 'apps/desktop/resources/ForgeIcon-1024.png');
+  if (process.platform === 'darwin' && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
+  settings.init().then(async () => {
+    await applyAISettings();
+    registerHandlers();
+    createWindow();
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  }).catch((error) => {
+    dialog.showErrorBox('FORGE could not start', error instanceof Error ? error.message : String(error));
+    app.quit();
+  });
+});
 app.on('window-all-closed', async () => { await storage.close(); if (process.platform !== 'darwin') app.quit(); });

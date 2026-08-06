@@ -1,27 +1,79 @@
-name: Package macOS App
+name: Build and release macOS app
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forge-macos-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   package:
-    name: Build macOS App
+    name: Package universal macOS app
     runs-on: macos-latest
+    env:
+      HAS_SIGNING_CERTIFICATE: ${{ secrets.CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node.js 20
+
+      - name: Use Node.js 22
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: npm
+
       - name: Install dependencies
-        run: npm install
-      - name: Build and package app
-        run: npm run package:mac
-      - name: Upload artifact
+        run: npm ci
+
+      - name: Validate source
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build unsigned workflow artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run package:mac:universal
+
+      - name: Publish signed and notarized tag release
+        if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run release:mac -- --config.mac.hardenedRuntime=true
+
+      - name: Publish unsigned tag release
+        if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run release:mac
+
+      - name: Apply release notes
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
+
+      - name: Upload workflow artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: forge-macos-package
-          path: dist_electron/**
+          name: FORGE-macOS-universal
+          path: |
+            dist_electron/FORGE-*.dmg
+            dist_electron/FORGE-*.zip
+            dist_electron/*.blockmap
+            dist_electron/latest-mac.yml
+          if-no-files-found: error

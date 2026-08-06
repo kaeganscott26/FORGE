@@ -80,8 +80,25 @@ class NodeDirectoryWatcher implements DirectoryWatcher {
   }> = [];
   private closed = false;
   private terminalError: Error | null = null;
+  private pollingTimer: NodeJS.Timeout | null = null;
+  private polling = false;
 
   constructor(private readonly watcher: FSWatcher) {}
+
+  usePolling(poll: () => Promise<void>, persistent: boolean): void {
+    if (this.closed || this.pollingTimer) return;
+    this.watcher.close();
+    const run = async (): Promise<void> => {
+      if (this.closed || this.polling) return;
+      this.polling = true;
+      try { await poll(); }
+      catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
+      finally { this.polling = false; }
+    };
+    void run();
+    this.pollingTimer = setInterval(() => void run(), 250);
+    if (!persistent) this.pollingTimer.unref();
+  }
 
   publish(event: FileChange): void {
     if (this.closed) return;
@@ -94,6 +111,7 @@ class NodeDirectoryWatcher implements DirectoryWatcher {
   fail(error: Error): void {
     if (this.closed) return;
     this.terminalError = error;
+    if (this.pollingTimer) clearInterval(this.pollingTimer);
     for (const listener of this.errorListeners) listener(error);
     while (this.waiters.length > 0) this.waiters.shift()?.reject(error);
     this.listeners.clear();
@@ -121,6 +139,7 @@ class NodeDirectoryWatcher implements DirectoryWatcher {
     if (this.closed) return;
     this.closed = true;
     this.watcher.close();
+    if (this.pollingTimer) clearInterval(this.pollingTimer);
     this.listeners.clear();
     this.errorListeners.clear();
     while (this.waiters.length > 0) this.waiters.shift()?.resolve({ done: true, value: undefined });
@@ -237,10 +256,27 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
   const stats = await fs.stat(directoryPath);
   if (!stats.isDirectory()) throw new Error(`Cannot watch a non-directory path: ${directoryPath}`);
 
+  const recursive = options.recursive ?? false;
+  const persistent = options.persistent ?? true;
+  const takeSnapshot = async (): Promise<Map<string, string>> => {
+    const snapshot = new Map<string, string>();
+    const visit = async (currentPath: string): Promise<void> => {
+      for (const entry of await fs.readdir(currentPath, { withFileTypes: true })) {
+        const entryPath = path.join(currentPath, entry.name);
+        const entryStats = await fs.lstat(entryPath).catch(() => null);
+        if (!entryStats) continue;
+        snapshot.set(entryPath, `${entryStats.mtimeMs}:${entryStats.size}:${entryStats.mode}`);
+        if (recursive && entry.isDirectory()) await visit(entryPath);
+      }
+    };
+    await visit(directoryPath);
+    return snapshot;
+  };
+  let previousSnapshot = await takeSnapshot();
   let adapter: NodeDirectoryWatcher;
   const watcher = watchFs(directoryPath, {
-    recursive: options.recursive ?? false,
-    persistent: options.persistent ?? true,
+    recursive,
+    persistent,
     encoding: 'utf8'
   }, async (eventType, fileName) => {
     if (!fileName) return;
@@ -255,7 +291,23 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
     adapter.publish({ type, path: changedPath });
   });
   adapter = new NodeDirectoryWatcher(watcher);
-  watcher.on('error', (error) => adapter.fail(error));
+  watcher.on('error', (error) => {
+    if ('code' in error && error.code === 'EMFILE') {
+      adapter.usePolling(async () => {
+        const nextSnapshot = await takeSnapshot();
+        for (const [entryPath, signature] of nextSnapshot) {
+          if (!previousSnapshot.has(entryPath)) adapter.publish({ type: 'created', path: entryPath });
+          else if (previousSnapshot.get(entryPath) !== signature) adapter.publish({ type: 'changed', path: entryPath });
+        }
+        for (const entryPath of previousSnapshot.keys()) {
+          if (!nextSnapshot.has(entryPath)) adapter.publish({ type: 'deleted', path: entryPath });
+        }
+        previousSnapshot = nextSnapshot;
+      }, persistent);
+      return;
+    }
+    adapter.fail(error);
+  });
   return adapter;
 }
 

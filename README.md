@@ -1,220 +1,147 @@
 # FORGE
 
-**FORGE** is a local-first AI-native development workspace. It treats files, notes, source code, Git history, project metadata, conversations, and durable memory as parts of one project system rather than as context pasted into a chatbot.
+FORGE is a local-first macOS development workspace that brings project files, Markdown notes, source editing, Git operations, project metadata, AI conversations, and durable project memory into one desktop application.
 
-## Current Repository State
+The project folder remains the source of truth. FORGE helps you inspect and change that folder without uploading the whole workspace to a hosted editor or reducing the project to a chatbot transcript.
 
-FORGE is an early functional desktop prototype. The current application includes:
+## Purpose
 
-- Electron desktop runtime
-- React renderer
-- Monaco editor
+FORGE is designed for developers who want one place to:
+
+- navigate and edit a real project;
+- preview Markdown documentation;
+- review, stage, commit, pull, and push Git changes;
+- track project goals and tasks;
+- keep project-specific conversations and memories;
+- ask an AI assistant questions using workspace context.
+
+Privileged file, Git, storage, and AI work runs in Electron's main process. The React renderer uses an allowlisted preload bridge rather than direct Node.js access.
+
+## Main features
+
+- Native Electron application for macOS
+- Recursive project explorer and Monaco code editor
 - Markdown preview
-- Workspace explorer
-- Git status, staging, commits, pull, push, and diff display
-- SQLite-backed project metadata
-- Persistent conversations
-- Persistent project memories
-- Workspace reindexing
-- OpenAI provider wiring
-- Project-aware agent context
-- Memory and chat panels
-- macOS packaging work in active development
+- Git status, diff, staging, commit, pull, and push controls
+- SQLite-backed goals, tasks, conversations, and memories per workspace
+- Workspace indexing and lexical memory retrieval
+- In-app AI settings for an encrypted API key, compatible base URL, and model
+- In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
+- GitHub Release update checks in packaged builds
+- One-command local rebuild and in-place app refresh
 
-The repository is no longer only an architecture sketch. The core desktop workspace and first AI-memory loop are implemented, but the project is not production-ready yet.
+## Install FORGE on macOS
 
----
+1. Open the [latest FORGE release](https://github.com/kaeganscott26/FORGE/releases/latest).
+2. Download the macOS `.dmg` asset.
+3. Open the DMG and drag **FORGE** into **Applications**.
+4. Launch FORGE and choose **Open workspace**.
 
-## START HERE
+Version 1.0.0 is distributed without an Apple Developer ID because this repository does not yet have Apple signing credentials. On first launch, macOS may require Control-clicking the app and choosing **Open**, or approving it in **System Settings → Privacy & Security**. Signing and notarization are required before macOS can apply unattended automatic updates.
 
-Recommended first path:
+## Update an installed app from local source
 
-1. [Read the User Guide](docs/USER_GUIDE.md)
-2. [Read the Current Status](docs/PROJECT_STATUS.md)
-3. [Open the Architecture Map](docs/ARCHITECTURE.md)
-4. [Review the Repository Map](#repository-map)
-5. [Run FORGE locally](#development)
-
----
-
-## Product Principle
-
-FORGE is not designed as a chatbot with an editor attached.
-
-The AI belongs inside the application’s operating model. New features should assume that project files, documentation, conversations, source code, architecture decisions, goals, tasks, and Git history can become durable project context.
-
-The workspace remains the primary interface. AI should help the engineer understand and operate the workspace without replacing it.
-
----
-
-## Repository Map
-
-| Path | Role |
-| --- | --- |
-| `apps/desktop/` | Electron main process, preload bridge, React renderer, and desktop configuration |
-| `packages/ai/` | Provider abstraction, context builder, and Agent API |
-| `packages/git/` | Git status, branches, log, diff, staging, commit, pull, and push services |
-| `packages/ipc/` | Typed IPC channels and request/response contracts |
-| `packages/markdown/` | Markdown parsing support |
-| `packages/memory/` | Persistent memory service, retrieval, and workspace indexing |
-| `packages/meta/` | Project metadata abstractions |
-| `packages/search/` | Search-layer foundation |
-| `packages/storage/` | SQLite persistence for projects, goals, tasks, conversations, and memories |
-| `packages/workspace/` | Workspace opening, file operations, parsing, and file-tree access |
-| `docs/` | Current user, architecture, and status documentation |
-| `.github/workflows/` | CI and packaging workflows |
-| `.obsidian/` | Optional local documentation-vault presentation settings |
-
-Generated output, dependencies, workspace databases, and machine-local state are not repository authority.
-
----
-
-## Current Runtime Flow
-
-```text
-RENDERER
-  ↓
-PRELOAD BRIDGE
-  ↓
-TYPED IPC
-  ↓
-WORKSPACE / GIT / STORAGE
-  ↓
-MEMORY RETRIEVAL
-  ↓
-CONTEXT BUILDER
-  ↓
-AGENT
-  ↓
-MODEL PROVIDER
-```
-
-The renderer does not directly access Node.js APIs. Privileged operations are routed through Electron’s main process using the allowlisted IPC bridge.
-
----
-
-## Development
-
-### Requirements
-
-- Node.js 22 LTS recommended
-- npm
-- Git
-- macOS, Windows, or Linux for development
-
-### Install
+After changing the local code, run:
 
 ```sh
 npm install
+npm run install:mac
 ```
 
-### Run the desktop app
+`install:mac` builds the current architecture, finds an existing `/Applications/FORGE.app`, `/Applications/Forge.app`, or user Applications install, updates that bundle in place, and reopens it. You do not need to uninstall the previous version.
+
+If `/Applications` is not writable by your account, move the app to `~/Applications` once and rerun the command.
+
+## Update from GitHub Releases
+
+The packaged app includes **Check for updates** and **Releases** controls. Signed future releases can download and apply through the app. Until Developer ID signing is configured, use **Releases** to download the newest DMG and drag FORGE over the existing application; macOS replaces the app without a separate uninstall.
+
+Every release must use a version greater than the previous release. The update feed is produced from the ZIP asset and `latest-mac.yml`.
+
+## Development
+
+Requirements:
+
+- macOS 12 or newer for the packaged app
+- Node.js 22 LTS (see `.nvmrc`)
+- npm and Git
+
+Install dependencies and start the native desktop runtime:
 
 ```sh
+nvm use
+npm install
 npm run dev
 ```
 
-### Run only the renderer
+The renderer-only Vite server remains available for UI work:
 
 ```sh
 npm run start-renderer
 ```
 
-The renderer-only command is useful for layout work, but Electron-only IPC features require the desktop runtime or a browser fallback.
+It is not the distributed application and cannot provide all Electron IPC features.
 
-### Validate
+## Build and package
 
 ```sh
 npm run typecheck
 npm test
 npm run build
+npm run package:mac
 ```
 
-### Clean generated output
+Useful packaging commands:
 
-```sh
-npm run clean
-```
+| Command | Result |
+| --- | --- |
+| `npm run package:mac` | DMG and ZIP for the current Mac architecture |
+| `npm run package:mac:universal` | Universal Intel + Apple Silicon DMG and ZIP |
+| `npm run install:mac` | Build and refresh the installed local app in place |
+| `npm run release:mac` | Publish a universal build through the configured GitHub provider |
+| `npm run clean` | Remove generated build and package output |
 
----
+Generated packages are written to `dist_electron/` and are intentionally excluded from Git. Release binaries belong on GitHub Releases.
 
-## Electron Installation Note
+## Release automation
 
-Electron’s package metadata and its native application bundle are separate. If the package exists but the native binary is missing, verify:
+Pushing a version tag such as `v1.0.1` runs `.github/workflows/package-mac.yml`, validates the source, creates a universal package, and publishes the release assets. A manual workflow run creates a downloadable Actions artifact without publishing a release.
 
-```sh
-npm ls electron
-ls node_modules/electron/dist
-```
+For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 
-A valid macOS ARM64 installation should contain:
+- `CSC_LINK`
+- `CSC_KEY_PASSWORD`
+- `APPLE_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+- `APPLE_TEAM_ID`
 
-```text
-node_modules/electron/dist/Electron.app
-```
+Without them, the workflow intentionally creates an unsigned release and the user installs updates from the DMG.
 
-Do not commit `node_modules/`, extracted Electron binaries, `path.txt`, or other machine-specific repairs.
+## Configuration and local data
 
----
+Open **Settings** to configure the AI provider and **GitHub** to jump directly to repository credentials. Secret values are encrypted through Electron `safeStorage`, backed by macOS Keychain, and stored outside the project. Read [UserConfig.md](UserConfig.md) for credential scopes, development environment fallbacks, and signing configuration.
 
-## AI Configuration
-
-The current OpenAI provider reads:
-
-```sh
-OPENAI_API_KEY
-```
-
-ChatGPT subscriptions and OpenAI API access are separate products. Running FORGE’s current provider requires an API key available to the Electron process.
-
-The provider layer is intended to support additional local and hosted providers later.
-
----
-
-## Data and Privacy
-
-FORGE stores workspace metadata in:
+FORGE stores workspace-specific application data at:
 
 ```text
 <workspace>/.forge/metadata.sqlite
 ```
 
-That database can contain:
-
-- project metadata
-- goals
-- tasks
-- conversations
-- indexed memories
-
-The `.forge/` directory is local workspace state and should remain excluded from Git unless a future export format is explicitly designed for sharing.
-
----
-
-## Current Limitations
-
-- Relevant memories are retrieved, but the Agent prompt path still needs stronger verified use of memory content.
-- Workspace reindexing needs idempotent update behavior to prevent duplicate memories.
-- Existing databases need a formal migration path.
-- Deep relevant-file retrieval is not complete.
-- Local-model providers are not implemented in the pushed code.
-- Packaging, signing, notarization, and auto-update remain active work.
-- Markdown preview sanitization and production sandbox hardening still need review.
-
-See [Current Status](docs/PROJECT_STATUS.md) for the detailed milestone report.
-
----
+This directory is ignored by Git. It can contain goals, tasks, conversations, and indexed memories. Back it up before deleting it.
 
 ## Documentation
 
-- [User Guide](docs/USER_GUIDE.md)
-- [Project Status](docs/PROJECT_STATUS.md)
+- [User Manual](UserManual.md)
+- [User Configuration](UserConfig.md)
+- [Developer Log](Dev_log.md)
+- [Current Release Notes](RELEASE_NOTES.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Core Architecture](docs/Architecture/Core.md)
+- [Current Project Status](docs/PROJECT_STATUS.md)
 
----
+## Security notes
 
-## Repository Rule
-
-Prefer current source and current documentation over generated output or historical reports.
-
-When removing files, verify that they are not referenced by build scripts, package manifests, CI workflows, documentation links, or runtime imports before deletion.
+- Never commit API keys, GitHub tokens, Apple certificates, or `.env` files.
+- Review the exact Git diff before committing or pushing from FORGE.
+- Markdown preview output is sanitized; Electron sandbox settings still require hardening before opening untrusted workspaces.
+- Automatic macOS updates require a consistently signed application; an unsigned release cannot provide that guarantee.

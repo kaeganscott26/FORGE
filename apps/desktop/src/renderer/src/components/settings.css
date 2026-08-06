@@ -1,0 +1,27 @@
+.settings-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 32px; background: rgba(2, 5, 8, .78); backdrop-filter: blur(9px); }
+.settings-modal { width: min(760px, 94vw); max-height: min(860px, 92vh); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #35414c; border-radius: 14px; background: #10151b; box-shadow: 0 28px 90px rgba(0, 0, 0, .58); }
+.settings-heading { height: auto; padding: 20px 24px; border-bottom: 1px solid #2a333d; background: linear-gradient(135deg, #18212a, #10151b); }
+.settings-heading p { margin: 0 0 5px; color: #ff9f43; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
+.settings-heading h2 { margin: 0; font-size: 27px; letter-spacing: -.03em; }
+.settings-heading > button { margin-left: auto; padding: 2px 9px; background: transparent; font-size: 25px; }
+.settings-body { overflow: auto; padding: 22px 24px; }
+.settings-loading { padding: 54px; color: #93a1af; text-align: center; }
+.settings-warning, .settings-message { margin-bottom: 16px; padding: 11px 13px; border-radius: 6px; font-size: 13px; }
+.settings-warning, .settings-message.error { border: 1px solid #8c4c55; background: #3a2026; color: #ffc1c6; }
+.settings-message.success { border: 1px solid #426f4b; background: #172c1b; color: #b8ffbf; }
+.settings-section { padding: 19px; border: 1px solid #28323c; border-radius: 9px; background: #121920; }
+.settings-section + .settings-section { margin-top: 17px; }
+.settings-section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.settings-section-title span { color: #71d5ff; font-size: 9px; font-weight: 800; letter-spacing: .16em; }
+.settings-section-title h3 { margin: 3px 0 0; color: #edf3f8; font-size: 16px; letter-spacing: 0; text-transform: none; }
+.settings-section-title em { padding: 4px 7px; border-radius: 20px; background: #2b3036; color: #8996a3; font-size: 10px; font-style: normal; }
+.settings-section-title em.configured { background: #203a26; color: #9bedaa; }
+.settings-section label { display: block; margin: 12px 0; color: #a9b5c1; font-size: 12px; font-weight: 650; }
+.settings-section input { width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #374451; border-radius: 6px; outline: none; background: #090d11; color: #e5ebf1; }
+.settings-section input:focus { border-color: #51bde9; box-shadow: 0 0 0 2px rgba(81, 189, 233, .14); }
+.settings-help { margin: -3px 0 13px; color: #8594a3; font-size: 12px; line-height: 1.55; }
+.settings-link { padding-left: 0; background: transparent; font-size: 11px; }
+.settings-link:hover { background: transparent; text-decoration: underline; }
+.settings-footer { height: auto; padding: 14px 24px; border-top: 1px solid #2a333d; }
+.settings-footer > span { color: #748290; font-size: 11px; }
+.settings-footer > div { display: flex; gap: 8px; margin-left: auto; }
