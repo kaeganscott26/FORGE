@@ -86,11 +86,19 @@ The automated request uses Chat Completions. FORGE sends `max_completion_tokens`
 
 AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation history is not: threads, the selected thread, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all three without changing the API credentials.
 
-The Settings build diagnostic is intentionally separate from user configuration. It contains only application version, build commit/date, runtime and renderer modes, platform, and architecture; it never includes saved secrets or private local paths.
+The Settings build diagnostic is intentionally separate from user configuration. It contains only application version, release channel, build commit/date, runtime and renderer modes, platform, and architecture; it never includes saved secrets or private local paths.
+
+## Tool and update configuration
+
+External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabling web research does not approve a request: each `web.search`, `web.fetch`, or `web.open` remains Tier 2 and shows its exact query/URL and declared project-data transfer.
+
+The update channel defaults to **Stable**, including migrated settings that have no channel field. Choose **Preview** to allow alpha, beta, and release-candidate versions. Stable sets Electron Updater to `latest` with prereleases disallowed; Preview uses the preview channel with prereleases allowed. This preference contains no secret.
+
+Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. The persistent per-workspace action log is stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
 
 ## GitHub Release integration
 
-The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to attach DMG, ZIP, blockmap, and `latest-mac.yml` assets to version-tag releases.
+The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to attach DMG, ZIP, blockmap, and `latest-mac.yml` assets to version-tag releases. Prerelease tags create GitHub Pre-releases; stable tags create normal Latest releases.
 
 For signed and notarized releases, add these repository Actions secrets:
 
@@ -104,11 +112,11 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree.
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree. Use a prerelease version such as `1.1.0-alpha.1` for Preview.
 2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
-3. Run `npm run typecheck`, `npm test`, and `npm run package:mac:universal`.
+3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`.
 4. Commit and push `main`.
-5. Create and push `vX.Y.Z`.
+5. Create and push an annotated `vX.Y.Z` tag from the exact synchronized commit.
 6. Verify the GitHub Release assets and test the DMG on a clean macOS account.
 
 Versions must always increase. Reusing a version can strand clients on an older update payload.

@@ -19,6 +19,8 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const [githubToken, setGithubToken] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
   const [clearGithubToken, setClearGithubToken] = useState(false);
+  const [webResearchEnabled, setWebResearchEnabled] = useState(false);
+  const [updateChannel, setUpdateChannel] = useState<'stable' | 'preview'>('stable');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
 
   useEffect(() => {
     getData<UserSettings>('settings.get').then((value) => {
-      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername);
+      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername); setWebResearchEnabled(value.webResearchEnabled); setUpdateChannel(value.updateChannel);
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     getData<AppBuildInfo>('app.build.info').then(setBuildInfo).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
@@ -42,7 +44,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const save = async (): Promise<void> => {
     setBusy(true); setError(null); setMessage(null);
     try {
-      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken });
+      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken, webResearchEnabled, updateChannel });
       setSettings(saved); setApiKey(''); setGithubToken(''); setClearApiKey(false); setClearGithubToken(false); setMessage('Settings saved securely.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
@@ -120,6 +122,14 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
           <label>Personal access token<input type="password" autoComplete="off" value={githubToken} onChange={(event) => { setGithubToken(event.target.value); setClearGithubToken(false); }} placeholder={settings.githubTokenConfigured ? 'Saved — enter a new token to replace it' : 'github_pat_…'} /></label>
           {settings.githubTokenConfigured && <button className="settings-link danger" onClick={() => { setClearGithubToken(true); setGithubToken(''); }}>Remove saved GitHub token</button>}
           <button onClick={testGithub} disabled={busy || !settings.githubTokenConfigured}>Test saved GitHub connection</button>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-title"><div><span>TOOLS & UPDATES</span><h3>External research and release channel</h3></div><em className={webResearchEnabled ? 'configured' : ''}>{webResearchEnabled ? 'Web enabled' : 'Web disabled'}</em></div>
+          <label className="settings-check"><input type="checkbox" checked={webResearchEnabled} onChange={(event) => setWebResearchEnabled(event.target.checked)} /> Enable structured external web research</label>
+          <p className="settings-help">Web tools remain approval-gated, show the exact query or URL, block local networks, and never upload workspace files automatically.</p>
+          <label>Update channel<select value={updateChannel} onChange={(event) => setUpdateChannel(event.target.value as 'stable' | 'preview')}><option value="stable">Stable (default)</option><option value="preview">Preview (alpha, beta, release candidate)</option></select></label>
+          <p className="settings-help">Stable installations never receive preview builds unless Preview is selected explicitly.</p>
         </section>
 
         {message && <div className="settings-message success">{message}</div>}

@@ -27,6 +27,7 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
     setContextSources([]);
     void loadState();
   }, [workspaceKey, loadState]);
+  useEffect(() => { const refresh = (): void => { void loadState(); }; window.addEventListener('forge:conversation-updated', refresh); return () => window.removeEventListener('forge:conversation-updated', refresh); }, [loadState]);
 
   const createConversation = async (): Promise<void> => {
     try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.create', {}))); setContextSources([]); }
@@ -76,7 +77,7 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
 
   const activeThread = conversation?.threads.find((thread) => thread.id === conversation.activeConversationId);
   const sourceGroups = (contextSources ?? []).reduce<Array<{ kind: string; sources: NonNullable<AgentResponse['contextSources']> }>>((groups, source) => {
-    const kind = ({ architecture: 'Architecture', documentation: 'Documentation', source: 'Project Files', configuration: 'Configuration', git: 'Git', metadata: 'Goals & Tasks', memory: 'Memory', conversation: 'Conversation' } as Record<string, string>)[source.kind] ?? 'Other Evidence';
+    const kind = ({ architecture: 'Workspace Documentation', documentation: 'Workspace Documentation', source: 'Source Code', configuration: 'Workspace Documentation', git: 'Git', metadata: 'Goals & Tasks', memory: 'Durable Memory', conversation: 'Conversation', terminal: 'Terminal', tool: 'Tool Result', web: 'External Web', inference: 'Model Inference' } as Record<string, string>)[source.kind] ?? 'Other Evidence';
     const group = groups.find((entry) => entry.kind === kind);
     if (group) group.sources.push(source); else groups.push({ kind, sources: [source] });
     return groups;

@@ -19,6 +19,11 @@ Electron main process
 ├── ContextBuilderImpl      automatic evidence selection and framing
 ├── Agent                   conversation history + current prompt assembly
 ├── OpenAIProvider          model discovery, validation, and chat
+├── ToolRouter              provider-neutral validation and dispatch
+├── PolicyEngine            risk, approval, and scoped-session decisions
+├── ShellService            approved argument-array child processes
+├── TerminalService         user-controlled PTY lifecycle and streaming
+├── WebService              permissioned external HTTP research
 ├── SettingsService         app-global encrypted credentials and preference
 └── UpdaterService          GitHub Release update lifecycle
           │
@@ -31,10 +36,22 @@ React renderer
 ├── Monaco editor / Markdown preview
 ├── resizable workspace-intelligence and memory context
 ├── workspace-owned multi-conversation chat
-└── resizable source control
+├── resizable source control
+├── integrated xterm.js terminal
+└── agent approval and audit inspector
 ```
 
-The renderer has no direct Node.js access. `contextIsolation` is enabled and `nodeIntegration` is disabled. Runtime validation and workspace-ownership checks remain main-process responsibilities because TypeScript alone does not validate IPC messages.
+The renderer has no direct Node.js access. `contextIsolation`, Electron sandboxing, and `webSecurity` are enabled; `nodeIntegration` is disabled. The sandbox-compatible CommonJS preload exposes fixed IPC names and a fixed terminal event only. Runtime validation and workspace-ownership checks remain main-process responsibilities because TypeScript alone does not validate IPC messages.
+
+Agent execution uses a second authority boundary inside main:
+
+```text
+provider call → normalized tool request → schema registry → policy
+  → pending approval or automatic Tier 0 decision → executor
+  → sanitized audit record + structured result → bounded agent continuation
+```
+
+The model cannot invoke renderer IPC and the renderer cannot turn a model call into permission. Provider adapters may change without replacing registry, policy, approval, executor, or audit behavior.
 
 ## Package responsibilities
 
@@ -47,6 +64,10 @@ The renderer has no direct Node.js access. `contextIsolation` is enabled and `no
 | `@forge/ai` | Provider adapter, evidence budgeting, system context, prompt assembly, and future intelligence contracts |
 | `@forge/ipc` | Shared renderer/main request and response contracts |
 | `@forge/core` | Runtime-independent filesystem, Markdown, project, workspace, and search primitives |
+| `@forge/agent-tools` | Stable tool definitions, provider normalization, filesystem/Git adapters, routing, results, audit redaction, and context bounds |
+| `@forge/tool-policy` | Risk tiers, schema registry, exact-scope session permissions, expiry, and fail-closed authorization |
+| `@forge/shell` | Argument-array process execution, environment filtering, limits/cancellation, and macOS PTY sessions |
+| `@forge/web` | External URL/DNS/redirect/content/timeout controls and cited results |
 
 ## Workspace boundary and persistence
 
@@ -60,13 +81,14 @@ directory selection
   → renderer loads that workspace's files, layout, metadata, memories, and active conversation
 ```
 
-`metadata.sqlite` schema version 2 contains:
+`metadata.sqlite` schema version 3 contains:
 
 - `projects`, `goals`, and `tasks`;
 - `conversation_threads`;
 - `conversations`, linked to a thread;
 - `memories`;
 - `workspace_state`, containing active conversation and layout JSON.
+- `action_log`, containing sanitized per-workspace tool decisions and outcomes.
 
 Legacy unthreaded conversation rows are migrated into an **Imported conversation** without deleting content. Saved model preferences such as `gpt-4o` remain valid; the new default applies only when no saved or environment preference exists.
 
@@ -147,7 +169,10 @@ These are extension points, not a plugin roadmap. Implementations should remain 
 
 ## Trust and known debt
 
-- Renderer sandboxing is still disabled and must be hardened before untrusted plugin or autonomous execution.
+- Renderer sandboxing is enabled and verified in development and packaged runtime. Executable plugin tools remain disabled; future extensions must pass through the same registry/policy/approval/audit path.
+- The preview remains unsigned and unnotarized, so it does not provide trusted unattended macOS installation or automatic update application.
+- External web search uses a bounded HTML endpoint rather than a contracted provider API; results may vary.
+- Rollback backups under `.forge/backups/` aid recovery but are not a transactional filesystem.
 - Memory indexing now upserts by canonical workspace-relative path; content-hash change detection and chunk-level deduplication remain pending.
 - Embedding-backed hybrid retrieval and a persisted search index are not yet implemented. Clear/New semantics already reserve them as durable workspace intelligence.
 - Context selection is bounded and test-covered but will need token-aware budgeting and evaluation against real repositories.

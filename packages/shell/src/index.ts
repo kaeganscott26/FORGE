@@ -1,0 +1,151 @@
+import { randomUUID } from 'node:crypto';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import * as pty from 'node-pty';
+
+const SECRET_NAME = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(?:_|$)/i;
+const SAFE_PARENT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'] as const;
+
+export interface ShellRunInput {
+  command: string;
+  args: string[];
+  workingDirectory: string;
+  timeoutMs: number;
+  environment?: Record<string, string>;
+  environmentAllowlist?: string[];
+  reason: string;
+  expectedOutcome: string;
+}
+
+export interface ShellRunOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  cancelled: boolean;
+  truncated: boolean;
+}
+
+export async function resolveWorkspacePath(workspaceRoot: string, requested = '.'): Promise<string> {
+  if (path.isAbsolute(requested)) throw new Error('Absolute paths require a separate, explicitly approved policy.');
+  const root = await fs.realpath(workspaceRoot);
+  const candidate = path.resolve(root, requested);
+  const resolved = await fs.realpath(candidate);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw new Error('Working directory escapes the active workspace.');
+  const stat = await fs.stat(resolved);
+  if (!stat.isDirectory()) throw new Error('Working directory must be a directory.');
+  return resolved;
+}
+
+export function filteredEnvironment(requested: Record<string, string> = {}, allowlist: string[] = []): NodeJS.ProcessEnv {
+  const allowed = new Set(allowlist);
+  const environment: NodeJS.ProcessEnv = {};
+  for (const name of SAFE_PARENT_ENV) if (process.env[name]) environment[name] = process.env[name];
+  for (const [name, value] of Object.entries(requested)) {
+    if (!allowed.has(name)) continue;
+    if (SECRET_NAME.test(name)) throw new Error(`Secret-like environment variable is blocked: ${name}`);
+    environment[name] = value;
+  }
+  return environment;
+}
+
+export class ShellService {
+  private readonly running = new Map<string, ChildProcess>();
+  constructor(private readonly workspaceRoot: () => string | null, private readonly outputLimit = 1_000_000) {}
+
+  async run(input: ShellRunInput, requestId: string = randomUUID()): Promise<ShellRunOutput> {
+    const root = this.workspaceRoot();
+    if (!root) throw new Error('Open a workspace before running a shell tool.');
+    if (!input.command.trim() || input.command.includes('\0')) throw new Error('A valid executable is required.');
+    if (input.args.some((argument) => argument.includes('\0'))) throw new Error('Shell arguments may not contain null bytes.');
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.');
+    const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 10 * 60_000);
+    const environment = filteredEnvironment(input.environment, input.environmentAllowlist);
+
+    return new Promise((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let truncated = false;
+      let timedOut = false;
+      let cancelled = false;
+      let settled = false;
+      const child = spawn(input.command, input.args, { cwd, env: environment, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+      this.running.set(requestId, child);
+      const append = (current: string, chunk: Buffer): string => {
+        if (current.length >= this.outputLimit) { truncated = true; return current; }
+        const next = current + chunk.toString('utf8');
+        if (next.length > this.outputLimit) { truncated = true; return next.slice(0, this.outputLimit); }
+        return next;
+      };
+      child.stdout?.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+      child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+      const stopTree = (): void => {
+        if (!child.pid) return;
+        try { if (process.platform === 'win32') child.kill('SIGTERM'); else process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+      };
+      const timer = setTimeout(() => { timedOut = true; stopTree(); }, timeoutMs);
+      child.once('error', (error) => {
+        clearTimeout(timer); this.running.delete(requestId);
+        if (!settled) { settled = true; reject(error); }
+      });
+      child.once('close', (code, signal) => {
+        clearTimeout(timer); this.running.delete(requestId);
+        cancelled = cancelled || this.cancelled.has(requestId); this.cancelled.delete(requestId);
+        if (!settled) { settled = true; resolve({ stdout, stderr, exitCode: code, signal, timedOut, cancelled, truncated }); }
+      });
+    });
+  }
+
+  private readonly cancelled = new Set<string>();
+  cancel(requestId: string): boolean {
+    const child = this.running.get(requestId);
+    if (!child?.pid) return false;
+    this.cancelled.add(requestId);
+    try { if (process.platform === 'win32') child.kill('SIGTERM'); else process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+    return true;
+  }
+}
+
+export type TerminalState = 'running' | 'exited';
+export interface TerminalSessionInfo { id: string; cwd: string; pid: number; state: TerminalState; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
+export interface TerminalEvent { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
+
+interface TerminalSession { info: TerminalSessionInfo; process: pty.IPty; }
+
+export class TerminalService {
+  private readonly sessions = new Map<string, TerminalSession>();
+  constructor(private readonly workspaceRoot: () => string | null, private readonly publish: (event: TerminalEvent) => void, private readonly outputLimit = 120_000) {}
+
+  async create(requestedCwd = '.', columns = 100, rows = 30, requestedId?: string): Promise<TerminalSessionInfo> {
+    const root = this.workspaceRoot();
+    if (!root) throw new Error('Open a workspace before creating a terminal.');
+    const cwd = await resolveWorkspacePath(root, requestedCwd);
+    const id = requestedId ?? randomUUID();
+    if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
+    const shell = process.env.SHELL && path.isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
+    const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: filteredEnvironment() as Record<string, string> });
+    const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
+    const session = { info, process: terminal };
+    this.sessions.set(id, session);
+    terminal.onData((data) => {
+      info.recentOutput = `${info.recentOutput}${data}`.slice(-this.outputLimit);
+      this.publish({ sessionId: id, type: 'output', data });
+    });
+    terminal.onExit(({ exitCode }) => {
+      info.state = 'exited'; info.exitCode = exitCode;
+      this.publish({ sessionId: id, type: 'exit', exitCode });
+    });
+    return { ...info };
+  }
+
+  list(): TerminalSessionInfo[] { return [...this.sessions.values()].map(({ info }) => ({ ...info })); }
+  input(id: string, data: string): void { const session = this.required(id); if (session.info.state !== 'running') throw new Error('Terminal session is not running.'); session.process.write(data); }
+  resize(id: string, columns: number, rows: number): void { this.required(id).process.resize(Math.max(20, columns), Math.max(5, rows)); }
+  terminate(id: string): void { const session = this.required(id); if (session.info.state === 'running') session.process.kill(); }
+  async restart(id: string): Promise<TerminalSessionInfo> { const current = this.required(id); const relative = path.relative(this.workspaceRoot()!, current.info.cwd) || '.'; this.terminate(id); this.sessions.delete(id); return this.create(relative, 100, 30, id); }
+  remove(id: string): void { this.terminate(id); this.sessions.delete(id); }
+  dispose(): void { for (const id of [...this.sessions.keys()]) this.remove(id); }
+  private required(id: string): TerminalSession { const session = this.sessions.get(id); if (!session) throw new Error('Unknown terminal session.'); return session; }
+}

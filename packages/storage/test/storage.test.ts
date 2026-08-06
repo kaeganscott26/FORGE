@@ -87,4 +87,14 @@ describe('workspace-owned conversation storage', () => {
     expect(state.messages[0]?.content).toBe('Preserve this history');
     await service.close();
   });
+
+  it('persists action logs per workspace and filters without exposing other workspaces', async () => {
+    const first = await storage(); const second = await storage(); const firstId = await first.workspaceId(); const secondId = await second.workspaceId();
+    await first.appendAction({ id: 'action-1', timestamp: 10, workspaceId: firstId, conversationId: 'conversation-a', modelId: 'model', toolName: 'file.read', sanitizedInputs: { path: 'README.md' }, riskTier: 0, approvalDecision: 'automatic', executionDurationMs: 2, success: true, result: { success: true }, resultSummary: 'ok', affectedPaths: [] });
+    await second.appendAction({ id: 'action-2', timestamp: 20, workspaceId: secondId, conversationId: 'conversation-b', modelId: 'model', toolName: 'shell.run', sanitizedInputs: { command: 'pwd' }, riskTier: 2, approvalDecision: 'run-once', executionDurationMs: 3, success: false, result: { success: false }, resultSummary: 'rejected', affectedPaths: [] });
+    expect((await first.listActions()).map((entry) => entry.id)).toEqual(['action-1']);
+    expect(await first.listActions({ riskTier: 2 })).toEqual([]);
+    await expect(first.appendAction({ id: 'wrong', timestamp: 30, workspaceId: secondId, conversationId: 'x', modelId: 'm', toolName: 'file.read', sanitizedInputs: {}, riskTier: 0, approvalDecision: 'automatic', executionDurationMs: 0, success: true, result: { success: true }, resultSummary: 'x', affectedPaths: [] })).rejects.toThrow(/another workspace/);
+    await first.close(); await second.close();
+  });
 });

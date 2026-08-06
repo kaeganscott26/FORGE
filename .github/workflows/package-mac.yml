@@ -42,10 +42,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
+          release_flags=(--verify-tag --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            release_flags+=(--prerelease)
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
+            release_flags+=(--latest)
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" "${release_flags[@]:1}"
+          else
+            gh release create "$GITHUB_REF_NAME" "${release_flags[@]}"
           fi
 
       - name: Build unsigned workflow artifact
@@ -63,14 +69,24 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run release:mac -- --config.mac.hardenedRuntime=true
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            npm run release:preview -- --config.mac.hardenedRuntime=true
+          else
+            npm run release:stable -- --config.mac.hardenedRuntime=true
+          fi
 
       - name: Publish unsigned tag release
         if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run release:mac
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            npm run release:preview
+          else
+            npm run release:stable
+          fi
 
       - name: Upload workflow artifact
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -82,4 +98,5 @@ jobs:
             dist_electron/FORGE-*.zip
             dist_electron/*.blockmap
             dist_electron/latest-mac.yml
+            dist_electron/preview-mac.yml
           if-no-files-found: error

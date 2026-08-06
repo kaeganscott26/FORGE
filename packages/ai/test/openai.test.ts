@@ -31,4 +31,16 @@ describe('OpenAIProvider models', () => {
     const provider = new OpenAIProvider({ apiKey: 'test-key', model: 'missing-model' });
     await expect(provider.chat([{ role: 'user', content: 'hello' }])).rejects.toThrow('unsupported or unavailable');
   });
+
+  it('adapts dotted FORGE tool names to provider-safe aliases and restores them', async () => {
+    let body: any;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', function: { name: 'forge_0_file_read', arguments: '{"path":"README.md"}' } }] } }] }), { status: 200 });
+    }));
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    const response = await provider.chatWithTools([{ role: 'user', content: 'read it' }], [{ name: 'file.read', description: 'Read a workspace file', parameters: { type: 'object' } }]);
+    expect(body.tools[0].function.name).toBe('forge_0_file_read');
+    expect(response.toolCalls).toEqual([{ id: 'call-1', name: 'file.read', arguments: { path: 'README.md' }, provider: 'openai' }]);
+  });
 });

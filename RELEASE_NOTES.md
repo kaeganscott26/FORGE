@@ -1,43 +1,41 @@
-# FORGE 1.0.1 — Verifiable workspace intelligence
+# FORGE 1.1.0-alpha.1
 
-FORGE 1.0.1 is the patch release that makes the workspace-intelligence update numerically newer than 1.0.0 and makes the running build immediately identifiable.
+This preview makes the AI an authorized tool-using subsystem inside FORGE. A model tool call is now only a request: FORGE validates, authorizes, executes, audits, bounds, and returns the result.
 
-## Workspace intelligence
+## Agent tools and approval
 
-- Workspace-owned named conversations with per-workspace active-thread persistence
-- Conversation selector plus New Chat, Rename, and narrowly scoped Clear controls
-- Conversation ownership validation at every storage and IPC operation to prevent cross-workspace history leakage
-- Safe import of legacy unthreaded messages into an `Imported conversation`
-- Per-workspace drag-resizable Explorer, editor, workspace-intelligence/chat, and Source Control regions
-- Architecture-first system context assembled before every user message
-- Bounded evidence from workspace identity, architecture and documentation, Git status/history, goals/tasks, durable memory, relevant source snapshots, file inventory, and active conversation history
-- Context-source disclosure after AI turns
-- Classified workspace knowledge grouped as Architecture, Documentation, Source Code, Memory, and Configuration
-- Relevance scoring plus selection reasons in context disclosure, with zero-match memory records removed from retrieval results
-- Machine-specific `.obsidian` state excluded from default knowledge indexing and retrieval unless Obsidian is explicitly requested
-- Idempotent reindexing that updates derived records and removes duplicate indexed copies
-- Explicit **Remove indexed copy** and **Forget memory** actions that state project source files are never deleted
-- Free-form model IDs, provider model discovery, and exact model validation
-- `gpt-5.6-sol` as the default for new configurations while preserving existing saved model values
+- Adds provider-neutral tool calls with native structured-provider support and a strict validated fallback.
+- Adds allowlisted filesystem, Git, shell, and external-web tools with stable schemas and fail-closed unknown/malformed rejection.
+- Implements permanent Tier 0/1/2 risk policy, one-time decisions, narrowly scoped expiring Tier 1 session permissions, and no allow-everything mode.
+- Adds Agent Actions UI for exact scope, command/path, working directory, network disclosure, expected effect, file diff, approval, rejection, cancellation, copy, results, and history.
+- Adds a schema-v3 per-workspace SQLite action log with conversation/model/tool/risk/outcome/duration/path/exit/rollback metadata and secret redaction.
+- Returns bounded, redacted tool results to the agent and labels Tool Result, External Web, Terminal, workspace evidence, and inference separately.
 
-## Update and build identity repairs
+## Filesystem, Git, shell, and web security
 
-- Version increased to 1.0.1 in every workspace package and generated lockfile metadata
-- Packaged update feed configured both by Electron Builder and explicitly at runtime
-- Update UI continues polling through check, discovery, download, and ready-to-install states
-- Packaged renderer loads the compiled `index.html` directly through `file://` from `app.asar`
-- Settings now exposes and copies a non-secret build diagnostic containing version, exact build commit, build date, packaged/development runtime, renderer source mode, platform, and architecture
+- Enforces relative workspace paths, traversal rejection, realpath/symlink containment, atomic text writes, UTF-8 BOM preservation, generated diffs, rollback backups, and unsaved-editor protection.
+- Reuses the existing protected Git service; read operations are Tier 0, stage/unstage Tier 1, and commit/pull/push Tier 2. Pull stops on a dirty tree and force push is absent.
+- Runs agent commands as executable + argument array with workspace cwd, filtered environment, timeout/output caps, cancellation, and process-tree termination. Every shell execution is Tier 2.
+- Keeps external web research disabled by default and blocks credential/file/local/private-network URLs, unsafe redirects/DNS results, unsupported content, oversized responses, and ambient workspace upload.
 
-## Install or update
+## Integrated terminal
 
-Download `FORGE-1.0.1-universal.dmg`, open it, and drag FORGE into `/Applications`, replacing the existing copy.
+- Adds a real main-process `node-pty` terminal rendered by xterm.js.
+- Supports multiple sessions, workspace cwd display, resize, input/output streaming, terminate, restart, clear visible, copy output, running/exited state, and exit codes.
+- Visually separates user terminal input from agent `shell.run` requests and never automatically indexes terminal output.
+- Packages rebuilt universal `pty.node` and `spawn-helper` outside `app.asar`.
 
-If macOS still opens an older-looking build, check both `/Applications/FORGE.app` and `~/Applications/FORGE.app`; duplicate bundles can coexist. Open **Settings → About this build** and confirm that the running app reports `FORGE v1.0.1` and `file:// packaged app.asar`.
+## Release channels and diagnostics
 
-This release remains unsigned because the repository has no Apple Developer ID or notarization credentials. Version detection and update download metadata work, but macOS cannot be relied on to apply an unattended in-place update without a consistently signed and notarized release chain. The in-app **Releases** control remains the supported manual fallback.
+- Version: `1.1.0-alpha.1`.
+- Development diagnostics: `1.1.0-alpha.1-dev / development`.
+- Preview package diagnostics: `1.1.0-alpha.1 / preview`.
+- Stable remains the default updater channel; prereleases require explicit Preview opt-in.
+- Diagnostics include exact commit, build date, runtime, renderer source, platform, and architecture.
+- Adds `release:preview` and `release:stable`; prerelease tags publish GitHub Pre-releases instead of Latest.
 
-## Security and data boundaries
+## Verification and limitations
 
-- API keys and GitHub tokens remain encrypted outside workspaces through Electron `safeStorage`
-- Build diagnostics contain no secrets, private local paths, credentials, or workspace names
-- New Chat and Clear Chat do not remove durable memory, indexed files, Git state, goals, tasks, settings, layouts, or other conversations
+Typecheck, lint, 54 tests, production build, arm64 packaging, universal packaging, architecture inspection, and packaged runtime PTY/preload/workspace/file-URL probes pass on the feature branch. Packaged provider-native Tier 0 execution, Tier 1 diff/approval, Tier 2 rejection, audit retention, and three-workspace isolation also pass. Final merged-main rebuild, GitHub workflow, tag, Pre-release assets, local install, and installed-app diagnostics remain release gates.
+
+This preview is unsigned and not notarized. It cannot claim a trusted unattended installation or automatic-update chain. Do not treat the alpha as stable v1.1.0.

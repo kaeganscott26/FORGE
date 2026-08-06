@@ -60,15 +60,33 @@ After an AI turn, context disclosure groups the evidence used and shows a heuris
 
 Memory is separate from conversation history. Deleting a memory is an explicit durable-data action and asks for confirmation. Clear Chat and New Chat never delete memory.
 
-## 8. Update FORGE
+## 8. Review and approve agent tools
+
+When Workspace AI requests a tool, open **Agent Actions** in the bottom panel. The request remains visible and shows tool, risk tier, reason, exact target or command, working directory, network use, expected effect, predicted paths, and a file diff when applicable.
+
+- Tier 0 reads may complete automatically and return bounded evidence to the conversation.
+- Tier 1 changes offer **Run once**, an exact-scope session permission, or **Reject**. Session permissions expire and reset when the workspace changes.
+- Tier 2 actions offer only a one-time approval or rejection. Shell, delete, commit, pull, push, and web requests are always Tier 2.
+
+Running operations can be cancelled. Completed requests retain their state; local structured results can be inspected and copied. The persistent action log can be filtered by tool, risk, and outcome. Tool logs and conversations are stored in the active workspace database, so another workspace cannot see them.
+
+Web research is disabled by default. Enable it in Settings only if you want requests to external services. The approval card names the exact query/URL and any project data declared for transfer.
+
+## 9. Use the integrated terminal
+
+Choose **Terminal** in the bottom panel and select **New**. A user terminal starts at the active workspace and shows the exact working directory. Create or switch multiple sessions, resize the panel, copy output, clear only the visible screen, cancel a process, restart a session, and inspect exit state.
+
+The user terminal is separate from model-requested `shell.run`. The model cannot type into a user session. Agent shell requests appear under Agent Actions and require one-time approval. FORGE rejects normal terminal working directories outside the workspace, and terminal output is not automatically indexed into memory.
+
+## 10. Update FORGE
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, exact source commit, build date, runtime mode, renderer source, platform, and architecture. A packaged 1.0.1 installation must report `FORGE v1.0.1` and `file:// packaged app.asar`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The 1.1 preview reports `1.1.0-alpha.1`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.1-dev` and `development`.
 
 For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
 
-## 9. Troubleshooting
+## 11. Troubleshooting
 
 ### macOS blocks the first launch
 
@@ -102,6 +120,14 @@ Open **GitHub**, save a fine-grained token, and test the connection. Confirm the
 
 Move FORGE to `~/Applications`, or give your user write access through Finder. The update script intentionally does not invoke `sudo`.
 
-## 10. Data safety
+### Agent tool request is pending
+
+Open **Agent Actions**, inspect the exact scope, and choose Run once, the offered exact-scope session permission, or Reject. A model tool call never approves itself.
+
+### Terminal session will not start
+
+Confirm the app was packaged with `node-pty` unpacked and that its `spawn-helper` is executable. From source, rerun `npm install`; FORGE's postinstall repairs the helper permission and missing Electron vendor app.
+
+## 12. Data safety
 
 Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, layouts, conversation threads, and durable memories.

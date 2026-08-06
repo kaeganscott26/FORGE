@@ -15,7 +15,14 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 3;
+
+export interface StoredActionRecord {
+  id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string;
+  sanitizedInputs: unknown; riskTier: 0 | 1 | 2; executionDurationMs: number;
+  approvalDecision: 'automatic' | 'run-once' | 'session' | 'rejected' | 'cancelled' | 'validation-failed'; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null;
+  rollback?: { available: boolean; instructions?: string; backupPath?: string };
+}
 
 function normalizeTitle(value?: string): string {
   const title = value?.trim() || 'New conversation';
@@ -250,6 +257,32 @@ export class StorageService {
     await this.persist();
   }
 
+  async workspaceId(): Promise<string> { return this.projectId(); }
+
+  async appendAction(record: StoredActionRecord): Promise<void> {
+    const projectId = await this.projectId();
+    if (record.workspaceId !== projectId) throw new Error('Audit record belongs to another workspace.');
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, risk_tier, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.riskTier, record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    await this.persist();
+  }
+
+  async listActions(filters: { conversationId?: string; toolName?: string; riskTier?: 0 | 1 | 2; success?: boolean; from?: number; to?: number } = {}): Promise<StoredActionRecord[]> {
+    const clauses = ['project_id = ?']; const params: SqlValue[] = [await this.projectId()];
+    if (filters.conversationId) { clauses.push('conversation_id = ?'); params.push(filters.conversationId); }
+    if (filters.toolName) { clauses.push('tool_name = ?'); params.push(filters.toolName); }
+    if (filters.riskTier !== undefined) { clauses.push('risk_tier = ?'); params.push(filters.riskTier); }
+    if (filters.success !== undefined) { clauses.push('success = ?'); params.push(filters.success ? 1 : 0); }
+    if (filters.from !== undefined) { clauses.push('timestamp >= ?'); params.push(filters.from); }
+    if (filters.to !== undefined) { clauses.push('timestamp <= ?'); params.push(filters.to); }
+    params.push(500);
+    return this.all(`SELECT * FROM action_log WHERE ${clauses.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`, params).map((row) => ({
+      id: String(row.id), timestamp: Number(row.timestamp), workspaceId: String(row.project_id), conversationId: String(row.conversation_id), modelId: String(row.model_id), toolName: String(row.tool_name),
+      sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, riskTier: Number(row.risk_tier) as 0 | 1 | 2, approvalDecision: String(row.approval_decision) as StoredActionRecord['approvalDecision'], executionDurationMs: Number(row.execution_duration_ms),
+      success: Boolean(row.success), result: row.result_json ? JSON.parse(String(row.result_json)) : { success: Boolean(row.success) }, resultSummary: String(row.result_summary), affectedPaths: row.affected_paths ? JSON.parse(String(row.affected_paths)) as string[] : [], exitCode: row.exit_code === null ? null : Number(row.exit_code), rollback: row.rollback ? JSON.parse(String(row.rollback)) : undefined
+    }));
+  }
+
   private createSchema(): void {
     this.ready().run(`
       CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
@@ -259,12 +292,17 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, thread_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT, content TEXT NOT NULL, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, risk_tier INTEGER NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
+    const actionColumns = this.all('PRAGMA table_info(action_log)').map((row) => String(row.name));
+    if (!actionColumns.includes('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
     this.ready().run(`
       CREATE INDEX IF NOT EXISTS idx_conversations_thread_created ON conversations(thread_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_conversation_threads_project_updated ON conversation_threads(project_id, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_action_log_project_timestamp ON action_log(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_action_log_conversation ON action_log(project_id, conversation_id);
     `);
   }
 

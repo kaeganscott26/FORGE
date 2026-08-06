@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "1.0.1",
+  "version": "1.1.0-alpha.1",
   "private": true,
   "description": "Local-first AI-native development workspace",
   "author": "Kaegan Scott",
@@ -16,13 +16,15 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "node scripts/prepare-node-pty.mjs",
     "dev": "electron-vite dev apps/desktop",
     "start-renderer": "vite apps/desktop/src/renderer",
     "build": "npm run typecheck && electron-vite build apps/desktop",
     "package:mac": "npm run build && electron-builder --mac --publish never",
     "package:mac:universal": "npm run build && electron-builder --mac --universal --publish never",
     "install:mac": "bash scripts/install-mac.sh",
-    "release:mac": "npm run build && electron-builder --mac --universal --publish always",
+    "release:preview": "npm run build && electron-builder --mac --universal --publish always --config.publish.releaseType=prerelease --config.publish.channel=preview",
+    "release:stable": "npm run build && electron-builder --mac --universal --publish always --config.publish.releaseType=release --config.publish.channel=latest",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -41,15 +43,21 @@
     "files": [
       "apps/desktop/out/**/*",
       "node_modules/**/*",
+      "!node_modules/node-pty/prebuilds/**/*",
       "package.json"
     ],
     "asar": true,
+    "generateUpdatesFilesForAllChannels": true,
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
     "publish": [
       {
         "provider": "github",
         "owner": "kaeganscott26",
         "repo": "FORGE",
-        "releaseType": "release"
+        "releaseType": "release",
+        "channel": "preview"
       }
     ],
     "mac": {
@@ -98,20 +106,27 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "dompurify": "^3.4.13",
     "electron-updater": "^6.8.9",
     "marked": "^15.0.0",
     "monaco-editor": "0.53.0",
+    "node-pty": "^1.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "simple-git": "^3.27.0",
     "sql.js": "^1.12.0",
+    "undici": "^7.29.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.2",
     "zustand": "^5.0.0"
   },
   "allowScripts": {
     "electron@43.3.0": true,
     "fsevents@2.3.3": true,
     "esbuild@0.25.12": true,
-    "esbuild@0.21.5": true
+    "esbuild@0.21.5": true,
+    "node-pty@1.1.0": true
   }
 }

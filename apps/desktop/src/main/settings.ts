@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import type { SettingsSaveRequest, UserSettings } from '@forge/ipc';
+import { normalizeUpdateChannel, type SettingsSaveRequest, type UserSettings } from '@forge/ipc';
 import { DEFAULT_OPENAI_MODEL } from '@forge/ai';
 
 interface StoredSettings {
@@ -10,6 +10,8 @@ interface StoredSettings {
   apiKey?: string;
   githubUsername?: string;
   githubToken?: string;
+  webResearchEnabled?: boolean;
+  updateChannel?: 'stable' | 'preview';
 }
 
 export interface GitHubCredentials {
@@ -45,6 +47,8 @@ export class SettingsService {
       githubUsername: this.data.githubUsername ?? '',
       githubTokenConfigured: Boolean(this.data.githubToken),
       secureStorageAvailable: this.encryptionAvailable
+      , webResearchEnabled: this.data.webResearchEnabled === true
+      , updateChannel: normalizeUpdateChannel(this.data.updateChannel)
     };
   }
 
@@ -52,6 +56,8 @@ export class SettingsService {
     this.data.apiBaseUrl = this.validateUrl(request.apiBaseUrl || defaultBaseUrl);
     this.data.apiModel = request.apiModel.trim() || DEFAULT_OPENAI_MODEL;
     this.data.githubUsername = request.githubUsername.trim();
+    this.data.webResearchEnabled = request.webResearchEnabled === true;
+    this.data.updateChannel = normalizeUpdateChannel(request.updateChannel);
 
     if (request.clearApiKey) delete this.data.apiKey;
     else if (request.apiKey?.trim()) this.data.apiKey = await this.encrypt(request.apiKey.trim());
@@ -95,9 +101,15 @@ export class SettingsService {
     return { login: profile.login };
   }
 
+  webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
+  updateChannel(): 'stable' | 'preview' { return normalizeUpdateChannel(this.data.updateChannel); }
+
   private validateUrl(value: string): string {
     const parsed = new URL(value.trim());
     if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('API base URL must use HTTPS or HTTP.');
+    if (parsed.username || parsed.password) throw new Error('API base URL must not contain credentials.');
+    const loopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
+    if (parsed.protocol === 'http:' && !loopback) throw new Error('Remote API base URLs must use HTTPS. HTTP is allowed only for loopback providers.');
     return parsed.toString().replace(/\/$/, '');
   }
 

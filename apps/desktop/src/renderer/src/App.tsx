@@ -7,6 +7,8 @@ import { forgeInvoke } from './forge';
 import ChatPanel from './components/ChatPanel';
 import MemoryPanel from './components/MemoryPanel';
 import SettingsModal from './components/SettingsModal';
+import TerminalPanel from './components/TerminalPanel';
+import ToolPanel from './components/ToolPanel';
 
 const languageFor = (extension?: string) => ({ md: 'markdown', ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', json: 'json', py: 'python', cpp: 'cpp', c: 'c', css: 'css', html: 'html' }[extension ?? ''] ?? 'plaintext');
 const call = async <T,>(promise: Promise<{ success: boolean; data?: T; error?: { message: string } }>): Promise<T> => { const result = await promise; if (!result.success) throw new Error(result.error?.message ?? 'Request failed.'); return result.data as T; };
@@ -29,6 +31,7 @@ export default function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState<'api' | 'github' | null>(null);
   const [layout, setLayout] = useState<WorkspaceLayout>(DEFAULT_WORKSPACE_LAYOUT);
   const [layoutLoaded, setLayoutLoaded] = useState(false);
+  const [bottomView, setBottomView] = useState<'source' | 'terminal' | 'actions'>('source');
 
   const refresh = useCallback(async () => {
     if (!workspace) return;
@@ -43,6 +46,7 @@ export default function App(): JSX.Element {
   }, [workspace]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void call<WorkspaceInfo | null>(forgeInvoke('workspace.info', undefined)).then((info) => { if (info) setWorkspace(info); }).catch(() => undefined); }, []);
   useEffect(() => { void call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, []);
   useEffect(() => {
     if (!updateStatus || !['checking', 'available', 'downloading'].includes(updateStatus.state)) return undefined;
@@ -59,6 +63,7 @@ export default function App(): JSX.Element {
     const timer = window.setTimeout(() => { void call<WorkspaceLayout>(forgeInvoke('workspace.layout.save', layout)).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }, 250);
     return () => window.clearTimeout(timer);
   }, [layout, layoutLoaded, workspace]);
+  useEffect(() => { void forgeInvoke('editor.dirty.update', { paths: active && content !== savedContent ? [active.relativePath] : [] }); }, [active?.relativePath, content, savedContent]);
 
   const openWorkspace = async (): Promise<void> => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open', undefined)); setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setError(null); } catch (cause) { if ((cause as Error).message !== 'Workspace selection was cancelled.') setError((cause as Error).message); } };
   const openFile = async (node: FileNode): Promise<void> => { if (node.type === 'directory') return; try { const file = await call<{ content: string }>(forgeInvoke('file.read', { path: node.relativePath })); setActive(node); setContent(file.content); setSavedContent(file.content); setPreview(node.extension === 'md'); } catch (cause) { setError((cause as Error).message); } };
@@ -75,7 +80,7 @@ export default function App(): JSX.Element {
   const gridStyle = { '--explorer-width': `${layout.explorerWidth}px`, '--intelligence-width': `${layout.intelligenceWidth}px`, '--bottom-height': `${layout.bottomHeight}px`, '--context-height': `${layout.contextHeight}px` } as CSSProperties;
 
   return <main className="app-shell">
-    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '1.0.1'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'available', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'available' ? `Preparing v${updateStatus.availableVersion}…` : updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button onClick={() => void forgeInvoke('app.release.open', undefined)}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
+    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '1.1.0-alpha.1-dev'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'available', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'available' ? `Preparing v${updateStatus.availableVersion}…` : updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button onClick={() => void forgeInvoke('app.release.open', undefined)}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={createFile}>New file</button><button disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!active} className="danger" onClick={deleteActive}>Delete</button></div></header>
     {settingsOpen && <SettingsModal initialSection={settingsOpen} onClose={() => setSettingsOpen(null)} />}
     {error && <div className="notice"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
     {!workspace ? <section className="welcome"><div><p className="eyebrow">LOCAL-FIRST DEVELOPMENT WORKSPACE</p><h1>Think in files.<br />Build with context.</h1><p>FORGE keeps your notes, source code, Git history, conversations, and durable project memory in one private desktop workspace.</p><button className="primary" onClick={openWorkspace}>Open a project folder</button></div></section> : <section className="workspace-grid" style={gridStyle}>
@@ -89,7 +94,7 @@ export default function App(): JSX.Element {
         <ChatPanel workspaceKey={workspace.rootPath} />
       </aside>
       <ResizeHandle axis="y" label="Resize source control" className="git-resizer" onDelta={(delta) => setLayout((current) => ({ ...current, bottomHeight: clamp(current.bottomHeight - delta, 150, Math.max(150, window.innerHeight - 357)) }))} />
-      <section className="git-panel"><div className="panel-title">SOURCE CONTROL <span>{status?.branch ?? 'Not a Git repository'}</span><button onClick={() => void forgeInvoke('git.pull', undefined).then(refresh)}>Pull</button><button onClick={() => void forgeInvoke('git.push', undefined).then(refresh)}>Push</button></div><div className="git-content"><div className="changes">{status?.files.length ? status.files.map((file) => <button key={file.path} onClick={() => stage(file.path)}><b>{file.indexStatus}{file.workingStatus}</b>{file.path}</button>) : <p className="muted">Working tree clean.</p>}</div><div className="commit"><input value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="Commit message" /><button disabled={!commitMessage.trim()} onClick={commit}>Commit</button></div><pre className="diff">{diff?.files.flatMap((file) => file.lines.map((line) => `${line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' '} ${line.content}`)).join('\n') || 'Select a changed file to stage and inspect changes.'}</pre></div></section>
+      <section className="git-panel"><div className="panel-title"><button className={bottomView === 'source' ? 'active-tab' : ''} onClick={() => setBottomView('source')}>SOURCE CONTROL</button><button className={bottomView === 'terminal' ? 'active-tab' : ''} onClick={() => setBottomView('terminal')}>TERMINAL</button><button className={bottomView === 'actions' ? 'active-tab' : ''} onClick={() => setBottomView('actions')}>AGENT ACTIONS</button><span>{bottomView === 'source' ? status?.branch ?? 'Not a Git repository' : bottomView === 'terminal' ? 'User-entered commands' : 'Policy-controlled tools'}</span>{bottomView === 'source' && <><button onClick={() => void forgeInvoke('git.pull', undefined).then(refresh)}>Pull</button><button onClick={() => void forgeInvoke('git.push', undefined).then(refresh)}>Push</button></>}</div>{bottomView === 'source' ? <div className="git-content"><div className="changes">{status?.files.length ? status.files.map((file) => <button key={file.path} onClick={() => stage(file.path)}><b>{file.indexStatus}{file.workingStatus}</b>{file.path}</button>) : <p className="muted">Working tree clean.</p>}</div><div className="commit"><input value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="Commit message" /><button disabled={!commitMessage.trim()} onClick={commit}>Commit</button></div><pre className="diff">{diff?.files.flatMap((file) => file.lines.map((line) => `${line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' '} ${line.content}`)).join('\n') || 'Select a changed file to stage and inspect changes.'}</pre></div> : bottomView === 'terminal' ? <TerminalPanel workspaceKey={workspace.rootPath} /> : <ToolPanel workspaceKey={workspace.rootPath} />}</section>
     </section>}
   </main>;
 }

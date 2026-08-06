@@ -7,13 +7,18 @@ export interface SimpleAIProvider {
   id: string;
   isConfigured(): Promise<boolean>;
   chat(messages: AgentMessage[], model?: string): Promise<string>;
+  chatWithTools?(messages: AgentMessage[], tools: AgentToolDescriptor[], model?: string): Promise<AgentProviderResponse>;
 }
+
+export interface AgentToolDescriptor { name: string; description: string; parameters: Record<string, unknown>; }
+export interface AgentProviderResponse { content: string; toolCalls: Array<{ id: string; name: string; arguments: unknown; provider: string }>; modelId?: string; }
 
 export interface AgentTurnResult {
   content: string;
   memories: MemoryEntry[];
   context: ContextAssemblyResult;
 }
+export interface AgentToolTurnResult extends AgentTurnResult { toolCalls: AgentProviderResponse['toolCalls']; modelId?: string; }
 
 export class Agent {
   constructor(
@@ -23,6 +28,17 @@ export class Agent {
   ) {}
 
   async askWithContext(question: string, history: readonly AgentMessage[] = []): Promise<AgentTurnResult> {
+    const prepared = await this.prepare(question, history);
+    return { content: await this.provider.chat(prepared.messages), memories: prepared.memories, context: prepared.context };
+  }
+
+  async askWithTools(question: string, history: readonly AgentMessage[] = [], tools: AgentToolDescriptor[] = []): Promise<AgentToolTurnResult> {
+    const prepared = await this.prepare(question, history);
+    const response = this.provider.chatWithTools ? await this.provider.chatWithTools(prepared.messages, tools) : { content: await this.provider.chat(prepared.messages), toolCalls: [] };
+    return { content: response.content, toolCalls: response.toolCalls, modelId: response.modelId, memories: prepared.memories, context: prepared.context };
+  }
+
+  private async prepare(question: string, history: readonly AgentMessage[]): Promise<{ messages: AgentMessage[]; memories: MemoryEntry[]; context: ContextAssemblyResult }> {
     let memories: MemoryEntry[] = [];
     if (this.memoryRetriever) {
       try { memories = await this.memoryRetriever.search(question, 6); }
@@ -41,7 +57,7 @@ export class Agent {
       ...boundedHistory,
       { role: 'user', content: question }
     ];
-    return { content: await this.provider.chat(messages), memories, context };
+    return { messages, memories, context };
   }
 
   async ask(question: string, history: readonly AgentMessage[] = []): Promise<string> {
