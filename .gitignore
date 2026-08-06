@@ -1,9 +1,27 @@
 node_modules/
 dist/
+dist_electron/
 out/
+apps/desktop/out/
+apps/desktop/dist/
 .vite/
 coverage/
 *.log
 .forge/
 .DS_Store
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
 
+# Electron packaging output and machine-local artifacts
+release/
+*.dmg
+*.pkg
+*.zip
+builder-debug.yml
+builder-effective-config.yaml
+
+# Obsidian machine-local workspace state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
