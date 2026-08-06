@@ -66,3 +66,13 @@
 ### Custom icon generation prompt
 
 Create a premium macOS icon for a local-first AI-native developer workspace. Combine an abstract forge/anvil with layered code documents, connected memory nodes, and a geometric F. Use a charcoal forged-metal base, molten amber core, restrained cyan accents, strong small-size silhouette, no text, no watermark, and no Electron atom logo.
+
+## 2026-08-05 — Version 1.0.0 publication
+
+- Committed release preparation as `86ed05c` and pushed it directly to `main`.
+- Created and pushed the annotated `v1.0.0` tag.
+- GitHub Actions passed dependency installation, typechecking, all 21 tests, the production build, and unsigned universal macOS packaging.
+- Published the universal DMG, ZIP, update feed, and blockmaps to the public GitHub Release.
+- Electron Builder's parallel publishers initially created two release records for the same new tag. Consolidated the assets into release `365969109`, removed only the accidental duplicate record, regenerated the DMG blockmap from the exact published DMG, and applied `RELEASE_NOTES.md`.
+- Changed the workflow to create or update one tag release before Electron Builder starts parallel asset publication, preventing the race on future tags and making reruns idempotent.
+- Confirmed the first release is public at `https://github.com/kaeganscott26/FORGE/releases/tag/v1.0.0`.

@@ -36,6 +36,17 @@ jobs:
           npm run typecheck
           npm test
 
+      - name: Create or update the tag release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
+          fi
+
       - name: Build unsigned workflow artifact
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
@@ -59,12 +70,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run release:mac
-
-      - name: Apply release notes
-        if: ${{ github.event_name == 'push' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md --latest
 
       - name: Upload workflow artifact
         if: ${{ github.event_name == 'workflow_dispatch' }}
