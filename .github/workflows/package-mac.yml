@@ -20,7 +20,7 @@ jobs:
     env:
       HAS_SIGNING_CERTIFICATE: ${{ secrets.CSC_LINK != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Use Node.js 22
         uses: actions/setup-node@v5
@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload workflow artifact
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: FORGE-macOS-universal
           path: |
