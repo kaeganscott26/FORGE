@@ -1,18 +1,25 @@
-# FORGE 1.1.0-alpha.2
+# FORGE 1.1.0-alpha.3
 
-This preview preserves the complete policy-controlled agent tools and integrated terminal introduced in alpha.1, and fixes updater downgrade behavior discovered during alpha.1 installed-runtime verification. The immutable alpha.1 release and its assets are unchanged.
+This preview preserves the policy-controlled agent tools and integrated terminal while correcting Preview update discovery. Alpha.1 and alpha.2 remain immutable; no compatibility release or replacement asset is published.
 
-## Forward-only update policy
+## Corrected Preview discovery
 
-- Keeps Stable as the default and requires explicit Preview selection before any alpha, beta, or release-candidate can be offered.
-- Resets Electron Updater's `allowDowngrade` flag after every channel change because changing its channel can enable downgrade checks internally.
-- Disables automatic download until FORGE independently validates the candidate.
-- Requires valid semantic versions and strictly forward movement.
-- Excludes prereleases on Stable while allowing Preview to advance through newer alpha, beta, release-candidate, and stable versions.
-- Rejects equal versions, malformed versions, alpha.2 to alpha.1, and alpha.2 to stable 1.0.1.
-- Reconciles filesystem snapshots when macOS reports only a watched-directory event, preventing a valid child-file change from being silently discarded.
+- Adds provider-independent, bounded GitHub Release discovery in `@forge/updater`.
+- Retrieves only the fixed FORGE release collection with a timeout, response-size cap, schema validation, and no credential headers.
+- Excludes drafts, unpublished releases, malformed versions, incompatible prerelease flags, unsupported prerelease identifiers, unsafe metadata URLs, and missing metadata.
+- Keeps Stable limited to strictly newer stable semantic versions.
+- Lets Preview advance only to a strictly newer `alpha`, `beta`, `rc`, or stable semantic version.
+- Selects the highest compatible release independently of GitHub API order.
+- Gives Electron Updater only the selected release feed, resets downgrade permission, and validates the returned version again before download.
+- Preserves checksum verification, download progress, diagnostics, signing warnings, installation, and restart states.
 
-The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.1 < 1.1.0`.
+The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-alpha.3 < 1.1.0-beta.1 < 1.1.0-rc.1 < 1.1.0`.
+
+## One-time manual migration
+
+Alpha.1 and alpha.2 passed FORGE's logical Preview value directly to Electron Updater as a provider channel. Those immutable clients cannot discover conventional `alpha`, `beta`, or `rc` tags through that mapping. Alpha.2 therefore requires one manual installation of alpha.3. Alpha.2-to-alpha.3 is not claimed as an automatic update.
+
+After alpha.3 is installed, future Preview releases are discovered through the corrected logical-channel layer without compatibility tags. The migration issue does not invalidate the earlier packaged apps, five-asset release sets, annotated tags, or semantic-version policy.
 
 ## Agent authority and terminal
 
@@ -25,16 +32,16 @@ The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.
 
 ## Release identity
 
-- Version: `1.1.0-alpha.2`.
-- Development diagnostics: `1.1.0-alpha.2-dev / development`.
-- Preview package diagnostics: `1.1.0-alpha.2 / preview`.
-- Preview publication produces a GitHub Pre-release and `preview-mac.yml`; it does not become Latest.
+- Version: `1.1.0-alpha.3`.
+- Development diagnostics: `1.1.0-alpha.3-dev / development`.
+- Preview package diagnostics: `1.1.0-alpha.3 / preview`.
+- Preview publication creates a GitHub Pre-release and `preview-mac.yml`; it does not become Latest.
 - v1.0.1 remains the Latest stable release.
 
 ## Validation
 
-The clean candidate passed dependency installation, typecheck, lint, 19 test files / 55 tests, production build, ARM64 packaging, universal packaging, ZIP/DMG integrity, and x86_64 + arm64 inspection of the app and PTY binaries. Packaged probes passed for the `file://` app.asar renderer, diagnostics, PTY execution/cancellation boundaries, workspace escape rejection, Tier 0 execution, Tier 1 diff and Run Once approval, Tier 2 rejection, retained audit results, and FORGE/AIFRED/INTERVENTION isolation. A packaged Stable-channel check rejected older v1.0.1 without download.
+The clean pre-commit candidate passed dependency installation with zero audit findings, typecheck, lint, 20 test files / 61 tests, production build, ARM64 packaging, universal packaging, ZIP/DMG integrity, and x86_64 + arm64 inspection of the app and PTY binaries. Packaged probes passed for the `file://` app.asar renderer, diagnostics, PTY execution, workspace escape rejection, Tier 0 execution, Tier 1 diff and Run Once approval, Tier 2 rejection, retained audit results, FORGE/AIFRED/INTERVENTION isolation, and live Stable/Preview filtering of older public releases. Exact merged-commit validation remains required before publication.
 
 ## Limitation
 
-This preview is ad-hoc signed/unsigned and is not notarized because no Apple Developer ID credentials are configured. Update detection and download can be verified, but unattended in-app replacement is not a trusted installation path. Use the DMG or `npm run install:mac` for the local source build and verify About diagnostics after replacement.
+This preview remains ad-hoc signed/unsigned and is not notarized because no Apple Developer ID credentials are configured. Discovery and verified download can be tested, but unattended in-app replacement is not a trusted installation path. Alpha.3 is manually installed over alpha.2 for this migration.

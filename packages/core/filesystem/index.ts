@@ -85,9 +85,9 @@ class NodeDirectoryWatcher implements DirectoryWatcher {
 
   constructor(private readonly watcher: FSWatcher) {}
 
-  usePolling(poll: () => Promise<void>, persistent: boolean): void {
+  usePolling(poll: () => Promise<void>, persistent: boolean, replaceNativeWatcher = true): void {
     if (this.closed || this.pollingTimer) return;
-    this.watcher.close();
+    if (replaceNativeWatcher) this.watcher.close();
     const run = async (): Promise<void> => {
       if (this.closed || this.polling) return;
       this.polling = true;
@@ -274,16 +274,21 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
   };
   let previousSnapshot = await takeSnapshot();
   let adapter: NodeDirectoryWatcher; // eslint-disable-line prefer-const -- initialized after watchFs so its callback can close over the adapter
-  const reconcileSnapshot = async (): Promise<void> => {
-    const nextSnapshot = await takeSnapshot();
-    for (const [entryPath, signature] of nextSnapshot) {
-      if (!previousSnapshot.has(entryPath)) adapter.publish({ type: 'created', path: entryPath });
-      else if (previousSnapshot.get(entryPath) !== signature) adapter.publish({ type: 'changed', path: entryPath });
-    }
-    for (const entryPath of previousSnapshot.keys()) {
-      if (!nextSnapshot.has(entryPath)) adapter.publish({ type: 'deleted', path: entryPath });
-    }
-    previousSnapshot = nextSnapshot;
+  let reconciliation = Promise.resolve();
+  const reconcileSnapshot = (): Promise<void> => {
+    const run = async (): Promise<void> => {
+      const nextSnapshot = await takeSnapshot();
+      for (const [entryPath, signature] of nextSnapshot) {
+        if (!previousSnapshot.has(entryPath)) adapter.publish({ type: 'created', path: entryPath });
+        else if (previousSnapshot.get(entryPath) !== signature) adapter.publish({ type: 'changed', path: entryPath });
+      }
+      for (const entryPath of previousSnapshot.keys()) {
+        if (!nextSnapshot.has(entryPath)) adapter.publish({ type: 'deleted', path: entryPath });
+      }
+      previousSnapshot = nextSnapshot;
+    };
+    reconciliation = reconciliation.then(run, run);
+    return reconciliation;
   };
   const watcher = watchFs(directoryPath, {
     recursive,
@@ -310,9 +315,12 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
     else previousSnapshot.delete(changedPath);
   });
   adapter = new NodeDirectoryWatcher(watcher);
+  // macOS can omit an fs.watch notification entirely. Keep a bounded snapshot
+  // fallback beside native events so the workspace cannot remain stale.
+  adapter.usePolling(reconcileSnapshot, persistent, false);
   watcher.on('error', (error) => {
     if ('code' in error && error.code === 'EMFILE') {
-      adapter.usePolling(reconcileSnapshot, persistent);
+      watcher.close();
       return;
     }
     adapter.fail(error);

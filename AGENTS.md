@@ -49,3 +49,9 @@ API keys and GitHub tokens remain encrypted with Electron `safeStorage` and macO
 Every tool decision is recorded per workspace with timestamp, conversation, model, tool, sanitized input, risk tier, approval decision, duration, outcome, affected paths, exit code, and rollback metadata where applicable. API keys, tokens, authorization headers, credential values, and decrypted Keychain data are redacted and must never be logged.
 
 Tool-derived evidence is bounded before it re-enters model context and is labeled separately from Workspace Documentation, Source Code, Git, Durable Memory, Terminal, External Web, and Model Inference. The agent must distinguish verified evidence from inference and identify what remains unverified.
+
+## Release and updater authority
+
+The model does not select, download, install, tag, or publish application updates. Stable and Preview are logical user choices enforced by FORGE. Stable accepts only strictly newer normal semantic versions. Preview accepts only strictly newer `alpha`, `beta`, `rc`, or normal semantic versions. Drafts, malformed versions, unsupported prerelease identifiers, equal versions, and downgrades are rejected before Electron Updater receives a feed.
+
+FORGE discovers published GitHub Releases through a bounded, validated request and maps the selected artifact to provider-specific update metadata internally. Provider channel identifiers are not user authority and must never be exposed as a compatibility requirement. Publishing a duplicate tag or compatibility release is not an acceptable way to bypass updater policy. Release publication, asset replacement, and installation remain explicit human-authorized operations with independently verified tag provenance and artifact hashes.

@@ -28,8 +28,8 @@ describe('IPC contract', () => {
     expect(buildReleaseIdentity('1.1.0-alpha.1', true)).toEqual({ version: '1.1.0-alpha.1', channel: 'preview' });
     expect(buildReleaseIdentity('1.1.0', true)).toEqual({ version: '1.1.0', channel: 'stable' });
     expect(normalizeUpdateChannel('preview')).toBe('preview'); expect(normalizeUpdateChannel('anything-else')).toBe('stable');
-    expect(buildUpdatePolicy('stable')).toEqual({ feedChannel: 'latest', allowPrerelease: false, allowDowngrade: false });
-    expect(buildUpdatePolicy('preview')).toEqual({ feedChannel: 'preview', allowPrerelease: true, allowDowngrade: false });
+    expect(buildUpdatePolicy('stable')).toEqual({ allowPrerelease: false, allowDowngrade: false });
+    expect(buildUpdatePolicy('preview')).toEqual({ allowPrerelease: true, allowDowngrade: false });
   });
 
   it('only permits forward updates that belong to the selected channel', () => {
@@ -43,6 +43,8 @@ describe('IPC contract', () => {
     expect(isUpdateVersionEligible('1.1.0-alpha.2', '1.1.0-beta.1', 'preview')).toBe(true);
     expect(isUpdateVersionEligible('1.1.0-beta.1', '1.1.0', 'preview')).toBe(true);
     expect(isUpdateVersionEligible('1.1.0', '1.1.0-beta.1', 'preview')).toBe(false);
+    expect(isUpdateVersionEligible('1.1.0-alpha.2', '1.1.0-rc.1', 'preview')).toBe(true);
+    expect(isUpdateVersionEligible('1.1.0-alpha.2', '1.1.0-preview.3', 'preview')).toBe(false);
     expect(isUpdateVersionEligible('invalid', '1.1.0', 'preview')).toBe(false);
     expect(isUpdateVersionEligible('1.1.0', 'invalid', 'preview')).toBe(false);
   });

@@ -1,5 +1,33 @@
 # FORGE Developer Log
 
+## 2026-08-06 — FORGE 1.1.0-alpha.3 logical Preview discovery
+
+### Why
+
+Post-publication review found that alpha.1 and alpha.2 passed FORGE's user-facing logical `Preview` value into Electron Updater as a provider channel. GitHub prerelease tags use SemVer identifiers such as `alpha`, `beta`, and `rc`; there is no reliable provider release named `preview` to bridge those concepts. The prior local SemVer gate correctly rejected downgrades, and the packages, assets, and tag provenance remain valid, but the immutable clients cannot discover conventional future prerelease tags through that mapping.
+
+Alpha.2-to-alpha.3 is therefore a one-time manual migration. Alpha.1 and alpha.2 and all published assets remain untouched. No duplicate compatibility release or `v1.1.0-preview.2` tag is created.
+
+### Updater boundary
+
+- Added `@forge/updater` as a provider-independent release-discovery package.
+- Retrieves a maximum of 50 published GitHub Releases from the fixed FORGE repository, with a ten-second timeout, one-megabyte body limit, JSON content check, strict Zod schema, and no credential headers.
+- Rejects drafts, unpublished entries, malformed tags, GitHub prerelease/version mismatches, unsupported prerelease identifiers, missing metadata, and metadata URLs outside this repository's HTTPS release-download path.
+- Stable accepts only strictly newer stable SemVer. Preview accepts only strictly newer `alpha`, `beta`, `rc`, or stable SemVer and chooses the highest compatible candidate regardless of API order.
+- Configures Electron Updater only after selection, derives its internal metadata channel from the chosen release, resets `allowDowngrade=false`, and revalidates the updater-returned version before download.
+- Preserves automatic-download gating, metadata checksum verification, progress, diagnostics, signing warnings, installation, and restart state.
+- Keeps `Preview` as UI vocabulary; provider-specific metadata names remain internal.
+
+### Validation status
+
+- `npm ci` audited 532 packages with zero vulnerabilities. Typecheck, lint, all 20 files / 61 tests, and production build pass.
+- The first full run exposed the existing macOS case where `fs.watch` omitted a notification entirely. `NodeFileSystem` now runs a serialized 250 ms snapshot fallback alongside native events. The focused file passed 20 consecutive runs, and the complete suite then passed.
+- ARM64 and universal packaging pass. The ARM app/PTY binaries are arm64; the universal app, `pty.node`, and `spawn-helper` contain x86_64 and arm64 slices. Universal ZIP integrity and DMG verification pass; signing is ad-hoc with no TeamIdentifier.
+- A packaged candidate loaded its nonblank renderer through `file://` inside `app.asar`, reported alpha.3/Preview/packaged/darwin arm64, opened FORGE, read `AGENTS.md`, rejected unknown IPC, streamed PTY `pwd`, and rejected cwd escapes.
+- A loopback mock provider exercised the actual packaged tool pipeline without sending project context externally: Tier 0 `file.read` ran automatically with Tool Result evidence, Tier 1 `file.create` displayed a diff and remained absent until Run Once, and Tier 2 `shell.run` was rejected without execution. All decisions remained in the audit log, and the verification identifiers were absent from AIFRED and INTERVENTION stores.
+- Packaged Stable and Preview checks against the current public release set both returned `not-available`: alpha.2 and v1.0.1 were rejected as older than alpha.3.
+- These pre-commit artifacts correctly embed baseline main `4a0207a0d0e721c031a4687f10ce4aa12d43277e` and are not publishable. The complete suite, packaging, runtime checks, hashes, and diagnostics must be repeated from the exact merged release commit.
+
 ## 2026-08-06 — FORGE 1.1.0-alpha.2 updater release
 
 ### Why
