@@ -1,0 +1,17 @@
+{
+  "name": "@forge/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./filesystem": "./filesystem/index.ts",
+    "./markdown": "./markdown/index.ts",
+    "./project": "./project/index.ts",
+    "./search": "./search/index.ts",
+    "./workspace": "./workspace/index.ts"
+  },
+  "dependencies": {
+    "marked": "^15.0.0"
+  }
+}
