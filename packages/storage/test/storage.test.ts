@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StorageService } from '../src';
@@ -64,6 +64,7 @@ describe('workspace-owned conversation storage', () => {
     expect((await secondRun.conversationState()).activeConversationId).toBe(original.activeConversationId);
     expect(await secondRun.getWorkspaceLayout()).toEqual({ explorerWidth: 318, intelligenceWidth: 477, bottomHeight: 211, contextHeight: 266 });
     await secondRun.close();
+    expect((await readdir(join(directory, '.forge'))).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   it('migrates legacy unthreaded messages without deleting history', async () => {
@@ -96,5 +97,29 @@ describe('workspace-owned conversation storage', () => {
     expect(await first.listActions({ riskTier: 2 })).toEqual([]);
     await expect(first.appendAction({ id: 'wrong', timestamp: 30, workspaceId: secondId, conversationId: 'x', modelId: 'm', toolName: 'file.read', sanitizedInputs: {}, riskTier: 0, approvalDecision: 'automatic', executionDurationMs: 0, success: true, result: { success: true }, resultSummary: 'x', affectedPaths: [] })).rejects.toThrow(/another workspace/);
     await first.close(); await second.close();
+  });
+
+  it('migrates an alpha.3 schema-v3 task without losing the legacy row', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-v3-task-')); temporaryDirectories.push(directory); await mkdir(join(directory, '.forge'));
+    const SQL = await initSqlJs(); const legacy = new SQL.Database(); const now = Date.now();
+    legacy.run('CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+    legacy.run('CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL, priority TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+    legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['v3-project', 'forge-v3', directory, now, now]); legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'v3-project', 'Legacy task', null, 'in-progress', 'high', now, now]); legacy.run('PRAGMA user_version = 3');
+    await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
+    const service = new StorageService(); await service.init(directory); const migrated = await service.getPersistentTask('legacy-task'); expect(migrated.status).toBe('running'); expect(migrated.taskType).toBe('general'); expect(migrated.events).toEqual([]); await service.close();
+    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(4); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); verify.close();
+  });
+
+  it('isolates tasks by workspace and redacts secret-like structured fields', async () => {
+    const first = await storage(); const second = await storage(); const task = await first.createPersistentTask({ title: 'Secret-safe task', taskType: 'test', resumeInstructions: 'Inspect before resuming.', assignedProvider: 'provider-a', assignedModel: 'model-a', steps: [{ id: 'one', name: 'One', purpose: 'Inspect.', riskTier: 0, requiredTool: 'file.read', expectedInput: { apiKey: 'must-not-store', note: 'sk-abcdefghijklmnopqrstuvwxyz' }, verificationCriteria: ['Observed'] }] });
+    await expect(second.getPersistentTask(task.id)).rejects.toThrow(/active workspace/); const loaded = await first.getPersistentTask(task.id); expect(loaded.steps[0].expectedInput).toEqual({ apiKey: '[REDACTED]', note: '[REDACTED]' }); expect(loaded.assignedModel).toBe('model-a'); await first.close(); await second.close();
+  });
+
+  it('rejects cyclic step dependencies and projects expired approvals without authorizing work', async () => {
+    const service = await storage();
+    await expect(service.createPersistentTask({ title: 'Cycle', taskType: 'test', resumeInstructions: 'Do not run.', steps: [{ id: 'a', name: 'A', purpose: 'A', riskTier: 0, verificationCriteria: ['A'], dependencies: ['b'] }, { id: 'b', name: 'B', purpose: 'B', riskTier: 0, verificationCriteria: ['B'], dependencies: ['a'] }] })).rejects.toThrow(/cycle/);
+    const task = await service.createPersistentTask({ title: 'Approval', taskType: 'test', resumeInstructions: 'Request a fresh approval.', steps: [{ id: 'execute', name: 'Execute', purpose: 'Run.', riskTier: 2, requiredTool: 'shell.run', verificationCriteria: ['Exit zero'] }] });
+    await service.recordTaskApproval(task.id, 'execute', { decision: 'session', scope: `${task.id}:execute:shell.run`, expiresAt: 1 }); const expired = await service.getPersistentTask(task.id); expect(expired.approvals[0].decision).toBe('expired'); expect(expired.steps[0].approvalState).toBe('expired');
+    await expect(service.appendTaskCheckpoint(task.id, { stepId: 'execute', name: 'Invalid evidence', summary: 'No active-workspace audit exists.', verified: true, auditReferences: ['missing-audit'] })).rejects.toThrow(/audit reference does not exist/); await service.close();
   });
 });
