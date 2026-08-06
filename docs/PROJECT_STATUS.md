@@ -19,7 +19,7 @@ Historical Releases and release tags remain intact while validation proceeds. Th
 | Area | Implemented behavior |
 | --- | --- |
 | Provider routing | GPT-5.6 tool turns use `/v1/responses`; provider-neutral messages, tool requests, and direct-response support remain internal |
-| Workspace recovery | Root-first discovery and structured missing-path suggestions prevent a missing assumed directory from ending a scan |
+| Workspace recovery | Root-first discovery, structured missing-path suggestions, and a capped Tier 0 continuation loop prevent a missing assumed directory from ending a scan |
 | Tool policy | Tier 0 reads; Tier 1 one-time or exact expiring session approval; Tier 2 always explicit |
 | Filesystem | Workspace containment, symlink escape rejection, atomic writes, diffs, backups, dirty-editor protection |
 | Git and shell | Protected Git service; argument-array shell spawn with workspace cwd, bounds, cancellation, and process-tree controls |

@@ -10,7 +10,7 @@ import { OpenAIProvider, ContextBuilderImpl, Agent, type AgentMessage } from '@f
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
-import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type ProviderToolCall } from '@forge/agent-tools';
+import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type ProviderToolCall, type ToolRequestOutcome } from '@forge/agent-tools';
 import { ShellService, TerminalService } from '@forge/shell';
 import { WebService } from '@forge/web';
 import { TaskRuntime } from '@forge/tasks';
@@ -125,39 +125,64 @@ function registerHandlers(): void {
     const state = await resolveConversation(conversationId);
     const history = await historyFor(state.activeConversationId);
     await storage.appendConversation(state.activeConversationId, 'user', prompt);
-    const turn = await agent.askWithTools(prompt, history, toolRouter.providerDefinitions());
-    const calls: ProviderToolCall[] = [...turn.toolCalls];
-    const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
-    if (fallback) calls.push(fallback);
-    if (calls.length > 5) throw new Error('The model requested too many tools in one turn.');
+    const definitions = toolRouter.providerDefinitions();
+    const firstTurn = await agent.askWithTools(prompt, history, definitions);
+    let turn = firstTurn;
     const project = await storage.dashboard();
     const info = workspace.info();
     if (!project || !info) throw new Error('Open a workspace before requesting agent tools.');
-    const toolOutcomes = [];
-    for (const call of calls) toolOutcomes.push(await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel }));
+    const toolOutcomes: ToolRequestOutcome[] = [];
     const taskLinkWarnings: string[] = [];
-    for (const outcome of toolOutcomes) {
-      const link = taskLink(outcome.request); if (!link) continue;
-      if (outcome.result) { const warning = await recordTaskOutcome(outcome.request, outcome.result); if (warning) taskLinkWarnings.push(warning); }
-      else await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: outcome.request.id, decision: 'pending', scope: `${link.taskId}:${link.stepId}:${outcome.request.toolName}` });
+    const continuationHistory: AgentMessage[] = [...history, { role: 'user', content: prompt }];
+    let modelContent = '';
+    let completedRounds = 0;
+    for (; completedRounds < 3; completedRounds += 1) {
+      const calls: ProviderToolCall[] = [...turn.toolCalls];
+      const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
+      if (fallback) calls.push(fallback);
+      if (calls.length === 0) { modelContent = turn.content; break; }
+      if (toolOutcomes.length + calls.length > 5) throw new Error('The model requested too many tools in one turn.');
+      const roundOutcomes: ToolRequestOutcome[] = [];
+      for (const originalCall of calls) {
+        let call = originalCall;
+        const link = taskLink({ input: originalCall.arguments, toolName: originalCall.name });
+        if (link) {
+          try {
+            const task = await taskRuntime.get(link.taskId);
+            if (!task.steps.some((step) => step.id === link.stepId)) throw new Error('Unknown task step.');
+          } catch {
+            const { taskContext: _invalidTaskContext, ...argumentsWithoutTaskContext } = originalCall.arguments as Record<string, unknown>;
+            call = { ...originalCall, arguments: argumentsWithoutTaskContext };
+          }
+        }
+        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
+        roundOutcomes.push(outcome); toolOutcomes.push(outcome);
+      }
+      for (const outcome of roundOutcomes) {
+        const link = taskLink(outcome.request); if (!link) continue;
+        if (outcome.result) { const warning = await recordTaskOutcome(outcome.request, outcome.result); if (warning) taskLinkWarnings.push(warning); }
+        else await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: outcome.request.id, decision: 'pending', scope: `${link.taskId}:${link.stepId}:${outcome.request.toolName}` });
+      }
+      if (roundOutcomes.some((outcome) => !outcome.result)) { modelContent = turn.content; break; }
+      const evidence = roundOutcomes.map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
+      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. If a filesystem result reports a missing path, follow its recovery instruction and inspect the workspace root before concluding. Do not repeat a completed request.\n\n${evidence}`, continuationHistory, definitions);
+    }
+    if (!modelContent && completedRounds >= 3) {
+      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      modelContent = (await agent.askWithContext(`Answer the original request from the observed Tool Results. The bounded continuation limit was reached; do not claim unobserved work.\n\n${evidence}`, continuationHistory)).content;
     }
     const toolSummary = toolOutcomes.map(({ request, result }) => result
       ? `Tool ${request.toolName} ${result.success ? 'succeeded' : 'failed'} (${result.durationMs} ms).${result.error ? ` ${result.error.message}` : ''}`
       : `Tool ${request.toolName} requires Tier ${request.riskTier} approval before FORGE can execute it.`).join('\n');
-    let modelContent = fallback ? '' : turn.content;
-    if (toolOutcomes.length && toolOutcomes.every((outcome) => outcome.result)) {
-      const evidence = toolOutcomes.map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
-      const followUp = await agent.askWithContext(`FORGE validated and executed the requested tools. Use these bounded, redacted Tool Result records to answer the original request. Distinguish tool evidence from inference and do not claim anything beyond the results.\n\n${evidence}`, [...history, { role: 'user', content: prompt }, { role: 'assistant', content: turn.content || 'I requested FORGE tools.' }]);
-      modelContent = followUp.content;
-    }
     const content = [modelContent, toolSummary, ...taskLinkWarnings].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
     await storage.appendConversation(state.activeConversationId, 'assistant', content);
     return {
       content,
       contextUsed: turn.context.artifacts.length > 0,
       conversationId: state.activeConversationId,
-      memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
-      contextSources: [...turn.context.artifacts.map((artifact) => ({
+      memories: firstTurn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
+      contextSources: [...firstTurn.context.artifacts.map((artifact) => ({
         id: artifact.id,
         kind: artifact.kind,
         title: artifact.title,

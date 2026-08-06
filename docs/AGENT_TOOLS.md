@@ -39,4 +39,8 @@ Tool results are labeled `Tool Result`. Web evidence is labeled `External Web`; 
 
 Filesystem inspection starts at the workspace root. A missing read/list/search path returns a structured recovery result (`missing`, requested path, nearest requested parent, and `restart-at-workspace-root`) instead of abandoning the scan after `ENOENT`.
 
+FORGE may continue an agent turn for up to three bounded tool rounds and five total tool requests when every completed request was authorized automatically under Tier 0. This lets the model consume a missing-path recovery result, inspect the root, and continue with an observed path. The loop stops immediately for an approval-required request; it never turns persistence or recovery into authorization.
+
 Existing tools accept optional `taskContext` containing an exact task/step ID. The router never changes the tool's risk because it belongs to a task. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
+
+A provider-supplied task link is accepted only when the task and step exist in the active workspace. A stale, foreign, or invented link is stripped before execution, so an otherwise valid tool request can run without attaching evidence to the wrong task.
