@@ -19,6 +19,9 @@
 .build-diagnostic pre { margin: 0 0 13px; padding: 12px; overflow: auto; border: 1px solid #2c3742; border-radius: 6px; background: #090d11; color: #b9c7d4; font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .settings-section label { display: block; margin: 12px 0; color: #a9b5c1; font-size: 12px; font-weight: 650; }
 .settings-section input { width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #374451; border-radius: 6px; outline: none; background: #090d11; color: #e5ebf1; }
+.settings-section select { width: 100%; margin-top: 6px; padding: 10px 11px; border: 1px solid #374451; border-radius: 6px; background: #090d11; color: #e5ebf1; }
+.settings-section label.settings-check { display: flex; align-items: center; gap: 9px; }
+.settings-section label.settings-check input { width: auto; margin: 0; }
 .settings-section input:focus { border-color: #51bde9; box-shadow: 0 0 0 2px rgba(81, 189, 233, .14); }
 .settings-help { margin: -3px 0 13px; color: #8594a3; font-size: 12px; line-height: 1.55; }
 .model-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0 13px; }

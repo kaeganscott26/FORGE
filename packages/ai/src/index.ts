@@ -10,5 +10,5 @@ export interface ContextBuilder {
 
 export { DEFAULT_OPENAI_MODEL, OpenAIProvider } from './openai';
 export { ContextBuilderImpl } from './context';
-export { Agent, type AgentMessage, type AgentTurnResult } from './agent';
+export { Agent, type AgentMessage, type AgentTurnResult, type AgentToolTurnResult, type AgentToolDescriptor, type AgentProviderResponse } from './agent';
 export * from './intelligence';

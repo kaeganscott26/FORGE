@@ -35,6 +35,7 @@ export interface AppUpdateStatus {
 
 export interface AppBuildInfo {
   version: string;
+  channel: 'development' | 'preview' | 'stable';
   commit: string;
   buildDate: string;
   runtime: 'packaged' | 'development';
@@ -43,9 +44,17 @@ export interface AppBuildInfo {
   architecture: string;
 }
 
+export function buildReleaseIdentity(baseVersion: string, packaged: boolean): Pick<AppBuildInfo, 'version' | 'channel'> {
+  if (!packaged) return { version: `${baseVersion}-dev`, channel: 'development' };
+  return { version: baseVersion, channel: baseVersion.includes('-') ? 'preview' : 'stable' };
+}
+
+export function normalizeUpdateChannel(value: unknown): 'stable' | 'preview' { return value === 'preview' ? 'preview' : 'stable'; }
+
 export function formatAppBuildInfo(info: AppBuildInfo): string {
   return [
     `FORGE v${info.version}`,
+    `Channel: ${info.channel}`,
     `Commit: ${info.commit}`,
     `Build date: ${info.buildDate}`,
     `Runtime: ${info.runtime}`,
@@ -61,6 +70,8 @@ export interface UserSettings {
   githubUsername: string;
   githubTokenConfigured: boolean;
   secureStorageAvailable: boolean;
+  webResearchEnabled: boolean;
+  updateChannel: 'stable' | 'preview';
 }
 
 export interface SettingsSaveRequest {
@@ -71,7 +82,21 @@ export interface SettingsSaveRequest {
   githubUsername: string;
   githubToken?: string;
   clearGithubToken?: boolean;
+  webResearchEnabled: boolean;
+  updateChannel: 'stable' | 'preview';
 }
+
+export interface ToolRequestView {
+  id: string; workspaceId: string; conversationId: string; modelId: string; toolName: string; input: unknown;
+  riskTier: 0 | 1 | 2; reason: string; target: string; workingDirectory?: string; expectedEffect: string;
+  predictedAffectedPaths: string[]; networkAccess: boolean; externalDataDescription?: string; diff?: string;
+  state: 'pending' | 'approved' | 'running' | 'succeeded' | 'failed' | 'rejected' | 'cancelled';
+  requestedAt: number; updatedAt: number; sessionApprovalAvailable: boolean;
+}
+export interface ToolResultView { requestId: string; toolName: string; success: boolean; output?: unknown; affectedPaths: string[]; diff?: string; warnings: string[]; error?: { code: string; message: string; details?: string }; rollback?: { available: boolean; instructions?: string; backupPath?: string }; exitCode?: number | null; durationMs: number; truncated?: boolean; cancelled?: boolean; }
+export interface ActionLogView { id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string; sanitizedInputs: unknown; riskTier: 0 | 1 | 2; approvalDecision: string; executionDurationMs: number; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null; rollback?: ToolResultView['rollback']; }
+export interface TerminalSessionView { id: string; cwd: string; pid: number; state: 'running' | 'exited'; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
+export interface TerminalEventView { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
 
 export interface ProviderModel { id: string; ownedBy?: string; }
 export interface ModelLookupRequest { apiBaseUrl: string; apiKey?: string; }
@@ -153,6 +178,8 @@ export const IPC_CHANNELS = {
   agentConversationsState: 'agent.conversations.state', agentConversationsList: 'agent.conversations.list', agentConversationsAppend: 'agent.conversations.append',
   agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear',
   agentMemoriesList: 'agent.memories.list', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesReindex: 'agent.memories.reindex'
+  , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
+  terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove'
 } as const;
 
 export interface IPCRequestMap {
@@ -166,6 +193,9 @@ export interface IPCRequestMap {
   'agent.conversations.state': { conversationId?: string } | undefined; 'agent.conversations.list': { conversationId?: string } | undefined; 'agent.conversations.append': { conversationId?: string; entries: Array<{ role: ConversationEntry['role']; content: string }> };
   'agent.conversation.create': { title?: string }; 'agent.conversation.select': { conversationId: string }; 'agent.conversation.rename': { conversationId: string; title: string }; 'agent.conversation.clear': { conversationId: string };
   'agent.memories.list': undefined; 'agent.memories.delete': { id: string }; 'agent.memories.reindex': undefined;
+  'tool.requests.list': undefined; 'tool.request.approve': { requestId: string; choice: 'run-once' | 'session' }; 'tool.request.reject': { requestId: string }; 'tool.request.cancel': { requestId: string };
+  'tool.actions.list': { conversationId?: string; toolName?: string; riskTier?: 0 | 1 | 2; success?: boolean; from?: number; to?: number } | undefined; 'editor.dirty.update': { paths: string[] };
+  'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
 }
 
 export interface IPCResponseMap {
@@ -179,7 +209,9 @@ export interface IPCResponseMap {
   'agent.conversations.state': ConversationState; 'agent.conversations.list': ConversationEntry[]; 'agent.conversations.append': void;
   'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState;
   'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.delete': void; 'agent.memories.reindex': void;
+  'tool.requests.list': ToolRequestView[]; 'tool.request.approve': ToolResultView; 'tool.request.reject': void; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
+  'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
 }
 
 export type IPCChannel = keyof IPCRequestMap;
-export type ForgeAPI = { invoke<C extends IPCChannel>(channel: C, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>> };
+export type ForgeAPI = { invoke<C extends IPCChannel>(channel: C, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>>; onTerminalEvent(listener: (event: TerminalEventView) => void): () => void };

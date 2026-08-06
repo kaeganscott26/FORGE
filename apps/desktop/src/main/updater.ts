@@ -27,6 +27,11 @@ export class UpdaterService {
     autoUpdater.on('error', (error) => this.setStatus('error', `Automatic update failed: ${error.message} Download the latest release manually.`));
   }
 
+  setChannel(channel: 'stable' | 'preview'): void {
+    autoUpdater.allowPrerelease = channel === 'preview';
+    autoUpdater.channel = channel === 'preview' ? 'preview' : 'latest';
+  }
+
   status(): AppUpdateStatus {
     return { ...this.updateStatus, currentVersion: app.getVersion() };
   }

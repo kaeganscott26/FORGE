@@ -14,12 +14,12 @@ const buildDate = process.env.FORGE_BUILD_DATE?.trim() || new Date().toISOString
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@forge/ipc': packageSource('ipc'), '@forge/workspace': packageSource('workspace'), '@forge/git': packageSource('git'), '@forge/storage': packageSource('storage') } },
+    resolve: { alias: { '@forge/ipc': packageSource('ipc'), '@forge/workspace': packageSource('workspace'), '@forge/git': packageSource('git'), '@forge/storage': packageSource('storage'), '@forge/agent-tools': packageSource('agent-tools'), '@forge/tool-policy': packageSource('tool-policy'), '@forge/shell': packageSource('shell'), '@forge/web': packageSource('web') } },
     define: {
       __FORGE_BUILD_COMMIT__: JSON.stringify(buildCommit),
       __FORGE_BUILD_DATE__: JSON.stringify(buildDate)
     }
   },
-  preload: { plugins: [externalizeDepsPlugin()], resolve: { alias: { '@forge/ipc': packageSource('ipc') } } },
-  renderer: { root: rendererRoot, plugins: [react()], resolve: { alias: { '@renderer': resolve(rendererRoot, 'src'), '@forge/ipc': packageSource('ipc') } } }
+  preload: { plugins: [externalizeDepsPlugin()], resolve: { alias: { '@forge/ipc': packageSource('ipc') } }, build: { rollupOptions: { output: { format: 'cjs', entryFileNames: 'index.cjs' } } } },
+  renderer: { root: rendererRoot, plugins: [react()], resolve: { alias: { '@renderer': resolve(rendererRoot, 'src'), '@forge/ipc': packageSource('ipc') } }, optimizeDeps: { exclude: ['@xterm/xterm', '@xterm/addon-fit'] } }
 });

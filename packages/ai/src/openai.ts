@@ -1,4 +1,5 @@
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string; }
+import type { AgentProviderResponse, AgentToolDescriptor } from './agent';
 export interface OpenAIModelInfo { id: string; ownedBy?: string; }
 export interface OpenAIModelValidation { model: string; exists: boolean; availableCount: number; }
 
@@ -84,6 +85,34 @@ export class OpenAIProvider {
     return typeof choice.message?.content === 'string' ? choice.message.content : String(choice.text ?? '');
   }
 
+  async chatWithTools(messages: ChatMessage[], tools: AgentToolDescriptor[], model = this.model): Promise<AgentProviderResponse> {
+    const selectedModel = this.normalizeModel(model);
+    const providerNames = new Map<string, string>();
+    const providerTools = tools.map((tool, index) => {
+      const alias = `forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      providerNames.set(alias, tool.name);
+      return { type: 'function', function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: tool.parameters } };
+    });
+    const request = {
+      model: selectedModel,
+      messages: messages.map((message) => ({ role: message.role, content: message.content })),
+      tools: providerTools,
+      tool_choice: 'auto',
+      max_completion_tokens: 1_600
+    };
+    const response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+    if (!response.ok) throw await this.providerError(response, `AI request failed for model "${selectedModel}"`);
+    const data = await response.json() as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown[] } }> };
+    const message = data.choices?.[0]?.message;
+    const toolCalls = (message?.tool_calls ?? []).map((raw) => {
+      const call = raw as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+      if (typeof call.function?.name !== 'string' || typeof call.function.arguments !== 'string') throw new Error('The provider returned a malformed tool call.');
+      let args: unknown; try { args = JSON.parse(call.function.arguments); } catch { throw new Error('The provider returned malformed tool arguments.'); }
+      return { id: typeof call.id === 'string' ? call.id : crypto.randomUUID(), name: providerNames.get(call.function.name) ?? call.function.name, arguments: args, provider: this.id };
+    });
+    return { content: typeof message?.content === 'string' ? message.content : '', toolCalls, modelId: selectedModel };
+  }
+
   private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
     if (!this.apiKey) throw new Error('OpenAI API key is not configured.');
     return fetch(url, {
@@ -110,7 +139,12 @@ export class OpenAIProvider {
   private normalizeBaseUrl(value: string): string {
     const normalized = value.trim().replace(/\/$/, '');
     if (!normalized) throw new Error('API base URL is required.');
-    return normalized;
+    const parsed = new URL(normalized);
+    if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('API base URL must use HTTPS or HTTP.');
+    if (parsed.username || parsed.password) throw new Error('API base URL must not contain credentials.');
+    const loopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
+    if (parsed.protocol === 'http:' && !loopback) throw new Error('Remote API base URLs must use HTTPS. HTTP is allowed only for loopback providers.');
+    return parsed.toString().replace(/\/$/, '');
   }
 
   private normalizeModel(value: string): string {

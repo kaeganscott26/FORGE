@@ -1,5 +1,53 @@
 # FORGE Developer Log
 
+## 2026-08-06 — FORGE 1.1 tool runtime, terminal, and preview channels
+
+### Why
+
+FORGE needed a safe boundary between model reasoning and machine authority. Tool calling is now explicitly a request: the stable workspace runtime validates, authorizes, executes, logs, and returns results. This preserves the project folder as source of truth and keeps providers replaceable.
+
+### Architecture and security
+
+- Added `@forge/agent-tools`, `@forge/tool-policy`, `@forge/shell`, and `@forge/web` with dependency-injected services and no circular package ownership.
+- Added provider-native calls plus strict provider-neutral fallback, Zod input/output validation, unknown/malformed rejection, stable definitions, risk/approval/boundary/timeout/audit/cancellation metadata, and bounded result continuation.
+- Added Tier 0 automatic reads, Tier 1 explicit/exact-scope expiring session permissions, and Tier 2 always-explicit execution. Workspace changes clear all session permissions.
+- Added contained filesystem operations with realpath/symlink checks, literal search, atomic writes, targeted patches, diffs before approval, BOM/mode preservation, `.forge/backups/` rollback data, and dirty-editor rejection.
+- Reused protected Git service for all agent Git tools. Added argument-array shell execution with environment filtering, timeout, output cap, cancellation, and process-group termination.
+- Added default-off web search/fetch/open with HTTP(S), credential, local/private network, DNS, redirect, content-type, response-size, and timeout controls.
+- Added schema-v3 `action_log` persistence with workspace isolation, filters, sanitized input, decision, duration, result, paths, exit code, and rollback metadata.
+- Enabled Electron renderer sandbox and web security, changed preload to sandbox-compatible CommonJS, retained context isolation/no Node integration, fixed the IPC allowlist, denied new windows, and blocked unexpected navigation.
+
+### Terminal and UI
+
+- Added main-process `node-pty` lifecycle and xterm.js UI with multiple sessions, workspace cwd, resize, streaming, termination, restart, clear visible, copy output, running/exited state, and exit codes.
+- Added Agent Actions approval/result/audit UI and separate labels for user terminal versus agent shell requests.
+- Added bounded/redacted tool results as agent context and context-source labels for Workspace Documentation, Source Code, Git, Durable Memory, Terminal, Tool Result, External Web, and Model Inference.
+- Added web enablement and Stable/Preview updater selection to Settings and release channel to build diagnostics.
+
+### Release engineering
+
+- Updated all workspace versions to `1.1.0-alpha.1`; development reports `1.1.0-alpha.1-dev`.
+- Added `release:preview` and `release:stable`, stable-default updater behavior, prerelease-aware GitHub workflow logic, and non-Latest GitHub Pre-release creation.
+- Unpacked `node-pty` native files from `app.asar`, excluded unused cross-architecture prebuild copies, and retained Electron Builder rebuilds. The universal app, `pty.node`, and `spawn-helper` all contain x86_64 and arm64.
+- Added root postinstall repair for missing Electron vendor app and macOS PTY helper execute permission. `npm run dev` now launches the native Electron app in this checkout.
+
+### Validation on feature branch
+
+- `npm run typecheck`: pass.
+- `npm run lint`: pass.
+- `npm test`: pass, 19 files / 54 tests.
+- `npm run build`: pass.
+- `npm run package:mac`: pass, arm64 DMG/ZIP/blockmaps.
+- `npm run package:mac:universal`: pass after excluding unused `node-pty/prebuilds`; universal DMG/ZIP/blockmaps/YAML.
+- Packaged arm64 and universal CDP probes: pass for `file://` app.asar renderer, sandbox-compatible preload, preview diagnostics, workspace/Git metadata, Terminal/Agent Actions UI, PTY streaming, and workspace escape rejection.
+- Packaged configured-provider probe: stable `file.read` Tier 0 execution and Tool Result disclosure passed; a Tier 1 file creation stayed absent until its displayed diff received Run Once approval; a Tier 2 shell request stayed unexecuted and produced a retained rejection audit record.
+- Packaged AIFRED/FORGE/INTERVENTION probes confirmed separate conversation and action stores.
+- Signing: ad-hoc/unsigned; TeamIdentifier absent; notarization not performed.
+
+### Deferred release work
+
+Feature branch commit/push/PR/merge, clean-main rebuild, final embedded commit verification, annotated tag, GitHub Pre-release workflow/assets, stable-channel feed check, `npm run install:mac`, duplicate-install report, and installed-app runtime diagnostics remain required. No v1.1 preview has been published yet.
+
 ## 2026-08-06 — Version 1.0.1 release repair
 
 ### Release and installed-binary audit

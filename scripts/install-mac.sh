@@ -20,6 +20,16 @@ if [[ ! -d "$built_app" ]]; then
   exit 1
 fi
 
+candidate_apps=("/Applications/FORGE.app" "/Applications/Forge.app" "$HOME/Applications/FORGE.app" "$HOME/Applications/Forge.app")
+found_apps=()
+for candidate in "${candidate_apps[@]}"; do
+  [[ -d "$candidate" ]] && found_apps+=("$candidate")
+done
+if [[ ${#found_apps[@]} -gt 0 ]]; then
+  echo "Detected FORGE installations (none will be deleted):"
+  printf '  %s\n' "${found_apps[@]}"
+fi
+
 if [[ -d "/Applications/FORGE.app" ]]; then
   installed_app="/Applications/FORGE.app"
 elif [[ -d "/Applications/Forge.app" ]]; then
@@ -40,3 +50,4 @@ touch "$installed_app"
 open "$installed_app"
 
 echo "Updated and opened $installed_app"
+echo "Active executable: $installed_app/Contents/MacOS/FORGE"

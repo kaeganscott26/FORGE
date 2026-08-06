@@ -1,7 +1,8 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { is } from '@electron-toolkit/utils';
-import { formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult } from '@forge/ipc';
+import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult } from '@forge/ipc';
 import { WorkspaceService } from '@forge/workspace';
 import { GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
@@ -9,6 +10,9 @@ import { OpenAIProvider, ContextBuilderImpl, Agent, type AgentMessage } from '@f
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
+import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type ProviderToolCall } from '@forge/agent-tools';
+import { ShellService, TerminalService } from '@forge/shell';
+import { WebService } from '@forge/web';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -18,11 +22,19 @@ const settings = new SettingsService();
 const git = new GitService(() => settings.githubCredentials());
 const storage = new StorageService();
 const updater = new UpdaterService();
+const dirtyEditorPaths = new Set<string>();
+const shellService = new ShellService(() => workspace.info()?.rootPath ?? null);
+const webService = new WebService(() => settings.webResearchEnabled());
+const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? null, (event) => {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send('terminal.event', event);
+});
+const toolRouter = new ToolRouter({ git, shell: shellService, terminal: terminalService, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
 function appBuildInfo(): AppBuildInfo {
+  const identity = buildReleaseIdentity(app.getVersion(), app.isPackaged);
   return {
-    version: app.getVersion(),
+    ...identity,
     commit: __FORGE_BUILD_COMMIT__,
     buildDate: __FORGE_BUILD_DATE__,
     runtime: app.isPackaged ? 'packaged' : 'development',
@@ -51,8 +63,13 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
   });
 }
 
+async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType<WorkspaceService['info']>>> {
+  terminalService.dispose(); dirtyEditorPaths.clear(); toolRouter.sessions.clear(); await storage.close();
+  const info = await workspace.open(rootPath); await git.init(info.rootPath); await storage.init(info.rootPath); return info;
+}
+
 function registerHandlers(): void {
-  register(IPC_CHANNELS.workspaceOpen, async () => { const selection = await dialog.showOpenDialog({ title: 'Open Forge workspace', properties: ['openDirectory', 'createDirectory'] }); if (selection.canceled || !selection.filePaths[0]) throw new Error('Workspace selection was cancelled.'); await storage.close(); const info = await workspace.open(selection.filePaths[0]); await git.init(info.rootPath); await storage.init(info.rootPath); return info; });
+  register(IPC_CHANNELS.workspaceOpen, async () => { const selection = await dialog.showOpenDialog({ title: 'Open Forge workspace', properties: ['openDirectory', 'createDirectory'] }); if (selection.canceled || !selection.filePaths[0]) throw new Error('Workspace selection was cancelled.'); return openWorkspaceAt(selection.filePaths[0]); });
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
@@ -77,7 +94,7 @@ function registerHandlers(): void {
     return info;
   });
   register(IPC_CHANNELS.settingsGet, async () => settings.publicSettings());
-  register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); return result; });
+  register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); updater.setChannel(result.updateChannel); return result; });
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
   register(IPC_CHANNELS.settingsModelsList, async (request) => {
     const configuration = await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl });
@@ -95,21 +112,40 @@ function registerHandlers(): void {
     const state = await resolveConversation(conversationId);
     const history = await historyFor(state.activeConversationId);
     await storage.appendConversation(state.activeConversationId, 'user', prompt);
-    const turn = await agent.askWithContext(prompt, history);
-    await storage.appendConversation(state.activeConversationId, 'assistant', turn.content);
+    const turn = await agent.askWithTools(prompt, history, toolRouter.providerDefinitions());
+    const calls: ProviderToolCall[] = [...turn.toolCalls];
+    const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
+    if (fallback) calls.push(fallback);
+    if (calls.length > 5) throw new Error('The model requested too many tools in one turn.');
+    const project = await storage.dashboard();
+    const info = workspace.info();
+    if (!project || !info) throw new Error('Open a workspace before requesting agent tools.');
+    const toolOutcomes = [];
+    for (const call of calls) toolOutcomes.push(await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel }));
+    const toolSummary = toolOutcomes.map(({ request, result }) => result
+      ? `Tool ${request.toolName} ${result.success ? 'succeeded' : 'failed'} (${result.durationMs} ms).${result.error ? ` ${result.error.message}` : ''}`
+      : `Tool ${request.toolName} requires Tier ${request.riskTier} approval before FORGE can execute it.`).join('\n');
+    let modelContent = fallback ? '' : turn.content;
+    if (toolOutcomes.length && toolOutcomes.every((outcome) => outcome.result)) {
+      const evidence = toolOutcomes.map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      const followUp = await agent.askWithContext(`FORGE validated and executed the requested tools. Use these bounded, redacted Tool Result records to answer the original request. Distinguish tool evidence from inference and do not claim anything beyond the results.\n\n${evidence}`, [...history, { role: 'user', content: prompt }, { role: 'assistant', content: turn.content || 'I requested FORGE tools.' }]);
+      modelContent = followUp.content;
+    }
+    const content = [modelContent, toolSummary].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
+    await storage.appendConversation(state.activeConversationId, 'assistant', content);
     return {
-      content: turn.content,
+      content,
       contextUsed: turn.context.artifacts.length > 0,
       conversationId: state.activeConversationId,
       memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
-      contextSources: turn.context.artifacts.map((artifact) => ({
+      contextSources: [...turn.context.artifacts.map((artifact) => ({
         id: artifact.id,
         kind: artifact.kind,
         title: artifact.title,
         path: artifact.path,
         relevance: typeof artifact.metadata?.relevance === 'number' ? artifact.metadata.relevance : undefined,
         reason: typeof artifact.metadata?.reason === 'string' ? artifact.metadata.reason : undefined
-      }))
+      })), ...toolOutcomes.filter((outcome) => outcome.result).map(({ request, result }) => ({ id: `tool:${request.id}`, kind: 'tool', title: request.toolName, relevance: 100, reason: result?.success ? 'Structured result returned by the FORGE tool runtime.' : 'Structured tool failure returned by FORGE.' }))]
     };
   };
   register(IPC_CHANNELS.agentAsk, async (request) => {
@@ -150,11 +186,43 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.agentMemoriesReindex, async () => {
     await memoryIndexer.indexWorkspaceFiles(); return undefined;
   });
+  const toolContext = async () => {
+    const project = await storage.dashboard(); const info = workspace.info(); const conversation = await storage.conversationState();
+    if (!project || !info) throw new Error('Open a workspace first.');
+    return { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: conversation.activeConversationId, modelId: settings.publicSettings().apiModel };
+  };
+  register(IPC_CHANNELS.toolRequestsList, async () => { const project = await storage.dashboard(); return (project ? toolRouter.listRequests(project.id) : []) as any; });
+  register(IPC_CHANNELS.toolRequestApprove, async (request) => {
+    const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.');
+    const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
+    const history = await historyFor(pending.conversationId);
+    const evidence = boundedToolEvidence(result);
+    try {
+      const followUp = await agent.askWithContext(`FORGE has completed the previously approved ${pending.toolName} request. Continue the active task using this bounded, redacted Tool Result. Report success or failure exactly as returned.\n\n${evidence}`, history);
+      await storage.appendConversation(pending.conversationId, 'assistant', followUp.content);
+    } catch {
+      await storage.appendConversation(pending.conversationId, 'assistant', `FORGE tool result: ${pending.toolName} ${result.success ? 'succeeded' : 'failed'}.${result.error ? ` ${result.error.message}` : ''}`);
+    }
+    return result as any;
+  });
+  register(IPC_CHANNELS.toolRequestReject, async (request) => { await toolRouter.reject(request.requestId, await toolContext()); return undefined; });
+  register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
+  register(IPC_CHANNELS.toolActionsList, async (request) => storage.listActions(request) as any);
+  register(IPC_CHANNELS.editorDirtyUpdate, async (request) => { dirtyEditorPaths.clear(); for (const value of request.paths) if (value && !value.split(/[\\/]/).includes('..')) dirtyEditorPaths.add(value); return undefined; });
+  register(IPC_CHANNELS.terminalCreate, async (request) => terminalService.create(request?.workingDirectory, request?.columns, request?.rows) as any);
+  register(IPC_CHANNELS.terminalList, async () => terminalService.list() as any);
+  register(IPC_CHANNELS.terminalInput, async (request) => { terminalService.input(request.sessionId, request.data); return undefined; });
+  register(IPC_CHANNELS.terminalResize, async (request) => { terminalService.resize(request.sessionId, request.columns, request.rows); return undefined; });
+  register(IPC_CHANNELS.terminalTerminate, async (request) => { terminalService.terminate(request.sessionId); return undefined; });
+  register(IPC_CHANNELS.terminalRestart, async (request) => terminalService.restart(request.sessionId) as any);
+  register(IPC_CHANNELS.terminalRemove, async (request) => { terminalService.remove(request.sessionId); return undefined; });
 }
 
 import { existsSync } from 'node:fs';
 
 function createWindow(): void {
+  const rendererFile = join(__dirname, '../renderer/index.html');
+  const packagedRendererUrl = pathToFileURL(rendererFile).toString();
   const window = new BrowserWindow({
     width: 1500,
     height: 950,
@@ -163,21 +231,28 @@ function createWindow(): void {
     show: false,
     title: 'Forge',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true
     }
   });
 
   window.on('ready-to-show', () => window.show());
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    const developmentUrl = process.env.ELECTRON_RENDERER_URL;
+    const allowed = is.dev && developmentUrl ? new URL(url).origin === new URL(developmentUrl).origin : url === packagedRendererUrl;
+    if (!allowed) event.preventDefault();
+  });
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     rendererSource = 'development URL';
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     rendererSource = app.isPackaged ? 'file:// packaged app.asar' : 'file:// development build';
-    window.loadFile(join(__dirname, '../renderer/index.html'));
+    window.loadFile(rendererFile);
   }
 }
 
@@ -187,7 +262,10 @@ app.whenReady().then(() => {
   if (process.platform === 'darwin' && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
   settings.init().then(async () => {
     await applyAISettings();
+    updater.setChannel(settings.updateChannel());
     registerHandlers();
+    const startupWorkspace = process.argv.find((argument) => argument.startsWith('--workspace='))?.slice('--workspace='.length);
+    if (startupWorkspace) await openWorkspaceAt(startupWorkspace);
     createWindow();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   }).catch((error) => {
@@ -195,4 +273,4 @@ app.whenReady().then(() => {
     app.quit();
   });
 });
-app.on('window-all-closed', async () => { await storage.close(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', async () => { terminalService.dispose(); await storage.close(); if (process.platform !== 'darwin') app.quit(); });

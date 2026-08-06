@@ -31,7 +31,10 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 - In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, provider model discovery, and availability validation
 - In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
 - GitHub Release update checks in packaged builds
-- Copyable Settings build diagnostic with version, source commit, build date, runtime mode, renderer source, platform, and architecture
+- Policy-controlled provider-neutral agent tools with risk tiers, approvals, cancellation, structured results, and a per-workspace audit log
+- Workspace-contained integrated macOS PTY terminal with multiple sessions, resize, restart, cancellation, exit codes, copy, and bounded output
+- Permissioned external web research with URL/DNS/network disclosure controls; disabled by default
+- Copyable Settings build diagnostic with version, release channel, source commit, build date, runtime mode, renderer source, platform, and architecture
 - One-command local rebuild and in-place app refresh
 
 ## Install FORGE on macOS
@@ -98,6 +101,7 @@ npm run lint
 npm test
 npm run build
 npm run package:mac
+npm run package:mac:universal
 ```
 
 Useful packaging commands:
@@ -107,14 +111,15 @@ Useful packaging commands:
 | `npm run package:mac` | DMG and ZIP for the current Mac architecture |
 | `npm run package:mac:universal` | Universal Intel + Apple Silicon DMG and ZIP |
 | `npm run install:mac` | Build and refresh the installed local app in place |
-| `npm run release:mac` | Publish a universal build through the configured GitHub provider |
+| `npm run release:preview` | Publish a universal prerelease through the configured GitHub provider |
+| `npm run release:stable` | Publish a normal universal release through the configured GitHub provider |
 | `npm run clean` | Remove generated build and package output |
 
 Generated packages are written to `dist_electron/` and are intentionally excluded from Git. Release binaries belong on GitHub Releases.
 
 ## Release automation
 
-Pushing a version tag such as `v1.0.1` runs `.github/workflows/package-mac.yml`, validates the source, creates a universal package, and publishes the release assets. A manual workflow run creates a downloadable Actions artifact without publishing a release.
+Pushing a version tag runs `.github/workflows/package-mac.yml`, validates the source, creates a universal package, and publishes the release assets. A prerelease tag such as `v1.1.0-alpha.1` creates a GitHub Pre-release and does not become Latest. A manual workflow run creates a downloadable Actions artifact without publishing a release. Read [Release Channels](docs/RELEASE_CHANNELS.md).
 
 For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 
@@ -144,6 +149,12 @@ Every AI turn receives an automatically generated system context before the conv
 
 Conversations and durable intelligence have separate lifecycles. **New chat** creates another thread in the current workspace. **Clear** removes messages only from the active thread. Neither action deletes indexed files, memories, embeddings or future indexes, project metadata, layout, or Git state.
 
+## Agent tools and terminal
+
+A model tool call is a request, never permission. FORGE validates the schema, applies the permanent risk tier, checks workspace/session policy, displays approval when required, executes in main, records a sanitized audit event, bounds the result, and only then returns it to the agent and user.
+
+Tier 0 read-only tools may run automatically. Tier 1 reversible changes require Run once or a narrow exact-scope session permission. Tier 2 delete, shell, remote Git, web, credential, and release actions always require Run once. There is no allow-everything mode. The integrated terminal is user-controlled and visually separate from agent `shell.run`; PTYs default to the workspace and terminal output is not automatically indexed.
+
 ## Documentation
 
 - [User Manual](UserManual.md)
@@ -153,10 +164,15 @@ Conversations and durable intelligence have separate lifecycles. **New chat** cr
 - [Architecture](docs/ARCHITECTURE.md)
 - [Core Architecture](docs/Architecture/Core.md)
 - [Current Project Status](docs/PROJECT_STATUS.md)
+- [Agent Tools](docs/AGENT_TOOLS.md)
+- [Tool Security](docs/TOOL_SECURITY.md)
+- [Integrated Terminal](docs/TERMINAL.md)
+- [Release Channels](docs/RELEASE_CHANNELS.md)
 
 ## Security notes
 
 - Never commit API keys, GitHub tokens, Apple certificates, or `.env` files.
 - Review the exact Git diff before committing or pushing from FORGE.
-- Markdown preview output is sanitized; Electron sandbox settings still require hardening before opening untrusted workspaces.
+- Markdown preview output is sanitized; the renderer uses context isolation, no Node integration, Electron sandboxing, fixed preload channels, and blocked unexpected navigation.
+- Agent tools do not bypass policy. Web research is off by default, shell execution is always approval-gated, and normal tool paths cannot leave the workspace.
 - Automatic macOS updates require a consistently signed application; an unsigned release cannot provide that guarantee.
