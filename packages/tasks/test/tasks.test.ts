@@ -15,10 +15,10 @@ async function runtime(): Promise<{ root: string; storage: StorageService; tasks
 
 describe('workspace-owned persistent tasks', () => {
   it('creates a dependency-aware release template without granting execution approval', async () => {
-    const { storage, tasks } = await runtime(); const task = await tasks.createRelease('1.1.0-alpha.4');
+    const { storage, tasks } = await runtime(); const task = await tasks.createRelease('1.1.0-beta.2');
     expect(task.taskType).toBe('release'); expect(task.steps.length).toBeGreaterThan(20); expect(task.steps[0].status).toBe('pending');
     expect(task.steps.find((step) => step.name === 'Push')?.riskTier).toBe(2); expect(task.steps.find((step) => step.name === 'Push')?.approvalState).toBe('required');
-    expect(releaseTaskTemplate('1.1.0-alpha.4').associatedReleaseTag).toBe('v1.1.0-alpha.4'); await storage.close();
+    expect(releaseTaskTemplate('1.1.0-beta.2').associatedReleaseTag).toBe('v1.1.0-beta.2'); await storage.close();
   });
 
   it('persists independently of conversations and application restarts', async () => {

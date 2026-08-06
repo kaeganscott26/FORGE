@@ -2,52 +2,39 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-machine_arch="$(uname -m)"
+manifest="$project_root/dist_electron/build-manifest.json"
 
-case "$machine_arch" in
-  arm64) builder_arch="arm64"; output_dir="mac-arm64" ;;
-  x86_64) builder_arch="x64"; output_dir="mac" ;;
-  *) echo "Unsupported macOS architecture: $machine_arch" >&2; exit 1 ;;
-esac
-
-cd "$project_root"
-npm run build
-CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dir --"$builder_arch" --publish never
-
-built_app="$project_root/dist_electron/$output_dir/FORGE.app"
-if [[ ! -d "$built_app" ]]; then
-  echo "Packaged app was not found at $built_app" >&2
+if [[ ! -f "$manifest" ]]; then
+  echo "Build manifest was not found at $manifest. Package FORGE first." >&2
   exit 1
 fi
 
-candidate_apps=("/Applications/FORGE.app" "/Applications/Forge.app" "$HOME/Applications/FORGE.app" "$HOME/Applications/Forge.app")
-found_apps=()
-for candidate in "${candidate_apps[@]}"; do
-  [[ -d "$candidate" ]] && found_apps+=("$candidate")
-done
-if [[ ${#found_apps[@]} -gt 0 ]]; then
-  echo "Detected FORGE installations (none will be deleted):"
-  printf '  %s\n' "${found_apps[@]}"
-fi
+cd "$project_root"
+node scripts/verify-build-manifest.mjs
+built_app="$(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const a=m.packagedApplications.find((v)=>v.architectures.includes("arm64")&&v.architectures.includes("x86_64")); if(!a) process.exit(2); process.stdout.write(a.path)' "$manifest")"
+built_app="$project_root/$built_app"
+installed_app="/Applications/FORGE.app"
 
-if [[ -d "/Applications/FORGE.app" ]]; then
-  installed_app="/Applications/FORGE.app"
-elif [[ -d "/Applications/Forge.app" ]]; then
-  installed_app="/Applications/Forge.app"
-elif [[ -d "$HOME/Applications/FORGE.app" ]]; then
-  installed_app="$HOME/Applications/FORGE.app"
-elif [[ -d "$HOME/Applications/Forge.app" ]]; then
-  installed_app="$HOME/Applications/Forge.app"
-else
-  mkdir -p "$HOME/Applications"
-  installed_app="$HOME/Applications/FORGE.app"
+if [[ -d "$HOME/Applications/FORGE.app" || -d "$HOME/Applications/Forge.app" || -d "/Applications/Forge.app" ]]; then
+  echo "A stale alternate FORGE installation exists. Move it to Trash before installing." >&2
+  exit 1
 fi
 
 osascript -e 'tell application id "com.kaeganscott26.forge" to quit' >/dev/null 2>&1 || true
 sleep 1
+if pgrep -fl '/FORGE.app/Contents/MacOS/FORGE' >/dev/null; then
+  echo "A FORGE process is still running. Installation was not attempted." >&2
+  pgrep -fl '/FORGE.app/Contents/MacOS/FORGE' >&2
+  exit 1
+fi
+if [[ -d "$installed_app" ]]; then
+  backup="$HOME/.Trash/FORGE.app.pre-install-$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "$installed_app" "$backup"
+  echo "Moved the previous /Applications installation to $backup"
+fi
 ditto "$built_app" "$installed_app"
 touch "$installed_app"
-open "$installed_app"
+open "/Applications/FORGE.app"
 
 echo "Updated and opened $installed_app"
 echo "Active executable: $installed_app/Contents/MacOS/FORGE"

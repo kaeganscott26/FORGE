@@ -11,7 +11,7 @@ interface StoredSettings {
   githubUsername?: string;
   githubToken?: string;
   webResearchEnabled?: boolean;
-  updateChannel?: 'stable' | 'preview';
+  updateChannel?: 'stable' | 'beta' | 'preview';
 }
 
 export interface GitHubCredentials {
@@ -102,7 +102,7 @@ export class SettingsService {
   }
 
   webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
-  updateChannel(): 'stable' | 'preview' { return normalizeUpdateChannel(this.data.updateChannel); }
+  updateChannel(): 'stable' | 'beta' { return normalizeUpdateChannel(this.data.updateChannel); }
 
   private validateUrl(value: string): string {
     const parsed = new URL(value.trim());

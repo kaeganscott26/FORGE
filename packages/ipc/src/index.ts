@@ -67,7 +67,7 @@ export interface AppUpdateStatus {
 
 export interface AppBuildInfo {
   version: string;
-  channel: 'development' | 'preview' | 'stable';
+  channel: 'development' | 'beta' | 'stable';
   commit: string;
   buildDate: string;
   runtime: 'packaged' | 'development';
@@ -78,20 +78,22 @@ export interface AppBuildInfo {
 
 export function buildReleaseIdentity(baseVersion: string, packaged: boolean): Pick<AppBuildInfo, 'version' | 'channel'> {
   if (!packaged) return { version: `${baseVersion}-dev`, channel: 'development' };
-  return { version: baseVersion, channel: baseVersion.includes('-') ? 'preview' : 'stable' };
+  return { version: baseVersion, channel: baseVersion.includes('-') ? 'beta' : 'stable' };
 }
 
-export function normalizeUpdateChannel(value: unknown): 'stable' | 'preview' { return value === 'preview' ? 'preview' : 'stable'; }
-
-export function buildUpdatePolicy(channel: 'stable' | 'preview'): { allowPrerelease: boolean; allowDowngrade: false } {
-  return { allowPrerelease: channel === 'preview', allowDowngrade: false };
+export function normalizeUpdateChannel(value: unknown): 'stable' | 'beta' {
+  return value === 'beta' || value === 'preview' ? 'beta' : 'stable';
 }
 
-export function isUpdateVersionEligible(currentVersion: string, candidateVersion: string, channel: 'stable' | 'preview'): boolean {
+export function buildUpdatePolicy(channel: 'stable' | 'beta'): { allowPrerelease: boolean; allowDowngrade: false } {
+  return { allowPrerelease: channel === 'beta', allowDowngrade: false };
+}
+
+export function isUpdateVersionEligible(currentVersion: string, candidateVersion: string, channel: 'stable' | 'beta'): boolean {
   if (!valid(currentVersion) || !valid(candidateVersion) || !gt(candidateVersion, currentVersion)) return false;
   const identifiers = prerelease(candidateVersion);
   if (identifiers === null) return true;
-  return channel === 'preview' && typeof identifiers[0] === 'string' && ['alpha', 'beta', 'rc'].includes(identifiers[0]);
+  return channel === 'beta' && typeof identifiers[0] === 'string' && ['beta', 'rc'].includes(identifiers[0]);
 }
 
 export function formatAppBuildInfo(info: AppBuildInfo): string {
@@ -114,7 +116,7 @@ export interface UserSettings {
   githubTokenConfigured: boolean;
   secureStorageAvailable: boolean;
   webResearchEnabled: boolean;
-  updateChannel: 'stable' | 'preview';
+  updateChannel: 'stable' | 'beta';
 }
 
 export interface SettingsSaveRequest {
@@ -126,7 +128,7 @@ export interface SettingsSaveRequest {
   githubToken?: string;
   clearGithubToken?: boolean;
   webResearchEnabled: boolean;
-  updateChannel: 'stable' | 'preview';
+  updateChannel: 'stable' | 'beta';
 }
 
 export interface ToolRequestView {

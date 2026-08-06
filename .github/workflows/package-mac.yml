@@ -62,7 +62,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run package:mac:universal -- --config.mac.hardenedRuntime=true
+        run: |
+          npm run clean:dist
+          npm run build
+          npx electron-builder --mac --universal --publish never --config.mac.hardenedRuntime=true
+          node scripts/write-build-manifest.mjs universal
 
       - name: Package unsigned tag artifacts
         if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE != 'true' }}
@@ -76,7 +80,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            bash scripts/upload-release-assets.sh "$GITHUB_REF_NAME" preview
+            bash scripts/upload-release-assets.sh "$GITHUB_REF_NAME" beta
           else
             bash scripts/upload-release-assets.sh "$GITHUB_REF_NAME" latest
           fi
@@ -102,5 +106,6 @@ jobs:
             dist_electron/FORGE-*.zip
             dist_electron/*.blockmap
             dist_electron/latest-mac.yml
-            dist_electron/preview-mac.yml
+            dist_electron/beta-mac.yml
+            dist_electron/build-manifest.json
           if-no-files-found: error

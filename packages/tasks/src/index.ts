@@ -222,7 +222,7 @@ export function releaseTaskTemplate(version: string, originatingConversationId?:
     ['DMG upload', 'Upload the validated DMG serially.', 2, 'web.open', ['Remote DMG exists']],
     ['ZIP upload', 'Upload the validated ZIP after the DMG.', 2, 'web.open', ['Remote ZIP exists']],
     ['Blockmap verification', 'Verify expected blockmap assets.', 0, 'web.fetch', ['Required blockmaps exist']],
-    ['Updater metadata verification', 'Validate preview or latest updater YAML.', 0, 'web.fetch', ['Updater metadata references correct assets']],
+    ['Updater metadata verification', 'Validate beta or latest updater YAML.', 0, 'web.fetch', ['Updater metadata references correct assets']],
     ['Remote SHA verification', 'Compare remote assets with validated local hashes.', 0, 'web.fetch', ['Every remote SHA matches']],
     ['Release publication', 'Publish the release only after provenance checks.', 2, 'web.open', ['Release is published and not draft']],
     ['Local installation', 'Install the exact validated application package.', 2, 'shell.run', ['Installed bundle identity is recorded']],

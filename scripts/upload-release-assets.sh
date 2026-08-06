@@ -6,7 +6,7 @@ channel="${2:?metadata channel is required}"
 repository="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 artifact_directory="${FORGE_ARTIFACT_DIRECTORY:-dist_electron}"
 
-if [[ "$channel" != "preview" && "$channel" != "latest" ]]; then
+if [[ "$channel" != "beta" && "$channel" != "latest" ]]; then
   echo "Unsupported updater metadata channel: $channel" >&2
   exit 1
 fi
@@ -14,18 +14,23 @@ fi
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT
 
-shopt -s nullglob
-dmg_assets=("$artifact_directory"/FORGE-*.dmg)
-zip_assets=("$artifact_directory"/FORGE-*.zip)
-blockmap_assets=("$artifact_directory"/*.blockmap)
+manifest="$artifact_directory/build-manifest.json"
 metadata_asset="$artifact_directory/$channel-mac.yml"
 
-if [[ ${#dmg_assets[@]} -ne 1 || ${#zip_assets[@]} -ne 1 || ${#blockmap_assets[@]} -lt 2 || ! -f "$metadata_asset" ]]; then
-  echo "Expected exactly one DMG, one ZIP, both blockmaps, and $metadata_asset." >&2
+if [[ ! -f "$manifest" || ! -f "$metadata_asset" ]]; then
+  echo "Expected $manifest and $metadata_asset." >&2
   exit 1
 fi
 
-assets=("${dmg_assets[@]}" "${zip_assets[@]}" "${blockmap_assets[@]}" "$metadata_asset")
+asset_list="$(node scripts/manifest-assets.mjs "$manifest" "$channel" "$tag")"
+assets=()
+while IFS= read -r asset; do
+  [[ -n "$asset" ]] && assets+=("$asset")
+done <<<"$asset_list"
+if [[ ${#assets[@]} -ne 5 ]]; then
+  echo "Expected exactly five manifest-selected release assets; found ${#assets[@]}." >&2
+  exit 1
+fi
 remote_names="$(gh api "repos/$repository/releases/tags/$tag" --jq '.assets[].name')"
 
 for asset in "${assets[@]}"; do
