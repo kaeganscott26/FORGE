@@ -4,9 +4,10 @@ import { ContextBuilderImpl } from '../src/context';
 // Create lightweight mocks for services
 class MockWorkspace {
   private files: Record<string, string>;
+  listedPaths: string[] = [];
   constructor(files: Record<string, string> = {}) { this.files = files; }
   info() { return { rootPath: '/repo', name: 'repo' }; }
-  async list() { return Object.keys(this.files).map((path) => ({ path, relativePath: path, name: path, type: 'file', extension: path.split('.').at(-1) })); }
+  async list(path = '') { this.listedPaths.push(path); return Object.keys(this.files).map((filePath) => ({ path: filePath, relativePath: filePath, name: filePath, type: 'file', extension: filePath.split('.').at(-1) })); }
   async readFile(path: string) { if (this.files[path]) return { path, content: this.files[path], modifiedAt: Date.now() }; throw new Error('not found'); }
 }
 
@@ -59,6 +60,7 @@ describe('ContextBuilder', () => {
     const builder = new ContextBuilderImpl(ws as any, git as any, storage as any);
     const ctx = await builder.buildContext();
     expect(ctx.files).toBeInstanceOf(Array);
+    expect(ws.listedPaths).toEqual(['']);
   });
 
   it('assembles FORGE philosophy and project evidence automatically', async () => {
@@ -67,6 +69,8 @@ describe('ContextBuilder', () => {
     const result = await builder.assemble('What should I build next?');
     expect(result.systemPrompt).toContain('The project folder is the source of truth');
     expect(result.systemPrompt).toContain('Prefer architectural evolution');
+    expect(result.systemPrompt).toContain('Persistent tasks belong to the workspace');
+    expect(result.systemPrompt).toContain('Do not repeat completed or externally verified work');
     expect(result.artifacts.some((artifact) => artifact.id === 'project-metadata')).toBe(true);
   });
 

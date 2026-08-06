@@ -8,6 +8,14 @@ const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
 interface ProviderErrorBody { error?: { message?: string; code?: string; param?: string }; message?: string; }
 
+interface ResponsesOutputItem {
+  type?: unknown;
+  call_id?: unknown;
+  name?: unknown;
+  arguments?: unknown;
+  content?: Array<{ type?: unknown; text?: unknown }>;
+}
+
 export class OpenAIProvider {
   public id = 'openai';
   private apiKey: string | undefined;
@@ -88,11 +96,18 @@ export class OpenAIProvider {
   async chatWithTools(messages: ChatMessage[], tools: AgentToolDescriptor[], model = this.model): Promise<AgentProviderResponse> {
     const selectedModel = this.normalizeModel(model);
     const providerNames = new Map<string, string>();
-    const providerTools = tools.map((tool, index) => {
+    const aliasedTools = tools.map((tool, index) => {
       const alias = `forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       providerNames.set(alias, tool.name);
-      return { type: 'function', function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: tool.parameters } };
+      return { alias, tool };
     });
+    if (this.usesResponsesForTools(selectedModel)) {
+      return this.responsesWithTools(messages, aliasedTools, providerNames, selectedModel);
+    }
+    const providerTools = aliasedTools.map(({ alias, tool }) => ({
+      type: 'function',
+      function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: tool.parameters }
+    }));
     const request = {
       model: selectedModel,
       messages: messages.map((message) => ({ role: message.role, content: message.content })),
@@ -111,6 +126,54 @@ export class OpenAIProvider {
       return { id: typeof call.id === 'string' ? call.id : crypto.randomUUID(), name: providerNames.get(call.function.name) ?? call.function.name, arguments: args, provider: this.id };
     });
     return { content: typeof message?.content === 'string' ? message.content : '', toolCalls, modelId: selectedModel };
+  }
+
+  private async responsesWithTools(
+    messages: ChatMessage[],
+    tools: Array<{ alias: string; tool: AgentToolDescriptor }>,
+    providerNames: ReadonlyMap<string, string>,
+    selectedModel: string
+  ): Promise<AgentProviderResponse> {
+    const request = {
+      model: selectedModel,
+      input: messages.map((message) => ({ role: message.role, content: message.content })),
+      tools: tools.map(({ alias, tool }) => ({
+        type: 'function',
+        name: alias,
+        description: `${tool.description} (FORGE tool: ${tool.name})`,
+        parameters: tool.parameters
+      })),
+      tool_choice: 'auto',
+      max_output_tokens: 1_600
+    };
+    const response = await this.authorizedFetch(`${this.baseUrl}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+    if (!response.ok) throw await this.providerError(response, `AI request failed for model "${selectedModel}"`);
+    const data = await response.json() as { model?: unknown; output?: ResponsesOutputItem[]; output_text?: unknown };
+    if (!Array.isArray(data.output)) throw new Error('The provider returned a malformed Responses API result.');
+    const toolCalls = data.output.filter((item) => item.type === 'function_call').map((call) => {
+      if (typeof call.name !== 'string' || typeof call.arguments !== 'string') throw new Error('The provider returned a malformed tool call.');
+      let args: unknown;
+      try { args = JSON.parse(call.arguments); } catch { throw new Error('The provider returned malformed tool arguments.'); }
+      return {
+        id: typeof call.call_id === 'string' ? call.call_id : crypto.randomUUID(),
+        name: providerNames.get(call.name) ?? call.name,
+        arguments: args,
+        provider: this.id
+      };
+    });
+    const content = typeof data.output_text === 'string'
+      ? data.output_text
+      : data.output
+        .filter((item) => item.type === 'message')
+        .flatMap((item) => item.content ?? [])
+        .filter((part) => part.type === 'output_text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+        .join('');
+    return { content, toolCalls, modelId: typeof data.model === 'string' ? data.model : selectedModel };
   }
 
   private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -151,6 +214,10 @@ export class OpenAIProvider {
     const normalized = value.trim();
     if (!normalized) throw new Error('AI model ID is required.');
     return normalized;
+  }
+
+  private usesResponsesForTools(model: string): boolean {
+    return /^gpt-5\.6(?:-|$)/i.test(model);
   }
 }
 
