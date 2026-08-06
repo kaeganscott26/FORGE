@@ -40,13 +40,13 @@ For development and automation, the OpenAI-compatible provider also supports the
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Yes | none |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | No | `gpt-4o` |
+| `OPENAI_MODEL` | No | `gpt-5.6-sol` |
 
 For terminal development:
 
 ```sh
 export OPENAI_API_KEY="your-key"
-export OPENAI_MODEL="gpt-4o"
+export OPENAI_MODEL="gpt-5.6-sol"
 npm run dev
 ```
 
@@ -56,7 +56,7 @@ The in-app settings are recommended for packaged builds. macOS apps opened from 
 
 ```sh
 launchctl setenv OPENAI_API_KEY "your-key"
-launchctl setenv OPENAI_MODEL "gpt-4o"
+launchctl setenv OPENAI_MODEL "gpt-5.6-sol"
 ```
 
 Quit and reopen FORGE afterward. Remove the session variables when needed:
@@ -68,6 +68,23 @@ launchctl unsetenv OPENAI_BASE_URL
 ```
 
 `.env.example` documents supported names, but the packaged app does not automatically load a repository `.env` file. Saved in-app values take precedence over environment values for base URL and model; a saved key takes precedence over `OPENAI_API_KEY`.
+
+The default applies only when neither a saved preference nor `OPENAI_MODEL` exists. Existing saved model IDs, including older GPT-4o configurations, are preserved for backwards compatibility.
+
+### Model discovery and validation
+
+The model field accepts any non-empty ID. This is deliberate: FORGE does not require a source update whenever OpenAI or an OpenAI-compatible provider introduces a model.
+
+- **Refresh provider models** calls `<API base URL>/models` using the entered key, or the stored key when the input is blank.
+- **Validate model** checks for an exact ID in that response.
+- A missing ID can still be saved for a compatible provider or future availability, but chat requests will display an unsupported/unavailable error until the provider accepts it.
+- **Test saved model and API connection** validates the already stored URL, key, and model.
+
+The automated request uses Chat Completions. FORGE sends `max_completion_tokens` and retries with legacy `max_tokens` only when an OpenAI-compatible endpoint rejects the newer parameter.
+
+### Conversation and workspace configuration
+
+AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation history is not: threads, the selected thread, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all three without changing the API credentials.
 
 ## GitHub Release integration
 

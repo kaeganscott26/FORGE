@@ -1,16 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MemoryService, MemoryRetriever } from '../src';
 import { StorageService } from '@forge/storage';
 
-class InMemoryStorage extends StorageService {
-  // reuse StorageService but keep using init to create db; tests will call init with temp dir
-}
+const temporaryDirectories: string[] = [];
+afterEach(async () => { await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe('Memory Retriever scoring', () => {
   it('scores exact matches and recency', async () => {
     const storage = new StorageService();
-    // initialize a temp project in test workspace root
-    await storage.init(process.cwd());
+    const directory = await mkdtemp(join(tmpdir(), 'forge-memory-'));
+    temporaryDirectories.push(directory);
+    await storage.init(directory);
     const memsvc = new MemoryService(storage as any);
     await memsvc.create({ type: 'note', title: 'Important note', content: 'This is about deployment and CI' });
     await memsvc.create({ type: 'note', title: 'Other', content: 'Unrelated content' });
@@ -18,5 +21,6 @@ describe('Memory Retriever scoring', () => {
     const results = await retriever.search('deployment CI');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].title?.toLowerCase()).toContain('important');
+    await storage.close();
   });
 });

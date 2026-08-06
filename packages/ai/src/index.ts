@@ -5,10 +5,10 @@ export interface AIProvider {
 }
 
 export interface ContextBuilder {
-	assemble(query: string): Promise<{ text: string; rationale: string }>;
+  assemble(query: string): Promise<import('./intelligence').ContextAssemblyResult>;
 }
 
-export { OpenAIProvider } from './openai';
+export { DEFAULT_OPENAI_MODEL, OpenAIProvider } from './openai';
 export { ContextBuilderImpl } from './context';
-export { Agent } from './agent';
-
+export { Agent, type AgentMessage, type AgentTurnResult } from './agent';
+export * from './intelligence';

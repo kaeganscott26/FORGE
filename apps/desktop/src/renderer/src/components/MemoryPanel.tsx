@@ -1,34 +1,27 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { JSX } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
+import { forgeInvoke } from '../forge';
 
-export default function MemoryPanel(): JSX.Element {
-  const [memories, setMemories] = useState<Array<{ id: string; title?: string | null; content: string }>>([]);
+type Memory = { id: string; title?: string | null; content: string };
+
+export default function MemoryPanel({ workspaceKey }: { workspaceKey: string }): JSX.Element {
+  const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setError(null);
     try {
-      const res = await import('../forge').then((m) => m.forgeInvoke('agent.memories.list', undefined));
-      if (res && res.success) setMemories(res.data as any);
-    } catch (e) {
-      // ignore
-    } finally { setLoading(false); }
+      const result = await forgeInvoke('agent.memories.list', undefined);
+      if (!result.success) throw new Error(result.error.message);
+      setMemories(result.data as Memory[]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setLoading(false); }
   }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-    const del = useCallback(async (id: string) => { if (!confirm('Delete memory?')) return; await import('../forge').then((m) => m.forgeInvoke('agent.memories.delete', { id })); void refresh(); }, [refresh]);
-  const reindex = useCallback(async () => { setLoading(true); try { await import('../forge').then((m) => m.forgeInvoke('agent.memories.reindex', undefined)); await refresh(); } finally { setLoading(false); } }, [refresh]);
-  return (
-    <div className="memory-panel">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong>Memories</strong>
-        <div><button onClick={() => void refresh()} disabled={loading}>Refresh</button> <button onClick={() => void reindex()} disabled={loading}>Reindex workspace</button></div>
-      </div>
-      <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 8 }}>
-        {memories.length === 0 ? <div className="muted">No memories indexed yet.</div> : memories.map((m) => (
-          <div key={m.id} style={{ padding: 6, borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><div><strong>{m.title ?? '(untitled)'}</strong><div style={{ fontSize: 12, opacity: 0.85 }}>{m.content.slice(0, 160)}{m.content.length > 160 ? '…' : ''}</div></div><div><button onClick={() => void del(m.id)}>Delete</button></div></div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  useEffect(() => { setMemories([]); void refresh(); }, [workspaceKey, refresh]);
+  const remove = async (id: string): Promise<void> => { if (!window.confirm('Delete this durable workspace memory?')) return; await forgeInvoke('agent.memories.delete', { id }); await refresh(); };
+  const reindex = async (): Promise<void> => { setLoading(true); try { const result = await forgeInvoke('agent.memories.reindex', undefined); if (!result.success) throw new Error(result.error.message); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setLoading(false); } };
+  return <section className="memory-panel">
+    <div className="memory-heading"><div><strong>Durable memory</strong><small>{memories.length} workspace entries</small></div><div><button onClick={() => void refresh()} disabled={loading}>Refresh</button><button onClick={() => void reindex()} disabled={loading}>Reindex</button></div></div>
+    {error && <p className="inline-error">{error}</p>}
+    <div className="memory-list">{memories.length === 0 ? <p className="muted">No memories indexed for this workspace.</p> : memories.map((memory) => <article key={memory.id}><div><strong>{memory.title ?? 'Untitled memory'}</strong><p>{memory.content.slice(0, 180)}{memory.content.length > 180 ? '…' : ''}</p></div><button onClick={() => void remove(memory.id)}>Delete</button></article>)}</div>
+  </section>;
 }

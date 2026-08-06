@@ -273,7 +273,7 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
     return snapshot;
   };
   let previousSnapshot = await takeSnapshot();
-  let adapter: NodeDirectoryWatcher;
+  let adapter: NodeDirectoryWatcher; // eslint-disable-line prefer-const -- initialized after watchFs so its callback can close over the adapter
   const watcher = watchFs(directoryPath, {
     recursive,
     persistent,

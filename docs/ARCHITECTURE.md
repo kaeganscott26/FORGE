@@ -1,204 +1,154 @@
 # FORGE Architecture
 
-## System Intent
+## System intent
 
-FORGE is a development workspace whose AI layer operates on durable project context. The application should be designed around project files, documentation, Git history, metadata, conversations, and memory—not around a standalone chat transcript.
+FORGE is a local-first development workspace whose AI lives alongside a project rather than replacing it. The project folder is the source of truth. Markdown, source code, architecture, Git, project metadata, durable memory, and workspace-owned conversations are treated as evidence in one evolving knowledge graph.
 
----
+Features are accepted when they strengthen that relationship. Generic IDE parity is not an architectural goal.
 
-## Runtime Map
+## Runtime map
 
 ```text
-ELECTRON DESKTOP APP
-  |
-  |-- Main Process
-  |     |-- WorkspaceService
-  |     |-- GitService
-  |     |-- StorageService
-  |     |-- MemoryService
-  |     |-- MemoryRetriever
-  |     |-- MemoryIndexer
-  |     |-- ContextBuilder
-  |     |-- Agent
-  |     `-- AI Provider
-  |
-  |-- Preload Bridge
-  |     `-- allowlisted typed IPC
-  |
-  `-- React Renderer
-        |-- Explorer
-        |-- Monaco Editor
-        |-- Markdown Preview
-        |-- Project Dashboard
-        |-- Source Control
-        |-- Memory Panel
-        `-- Chat Panel
+Electron main process
+├── WorkspaceService        safe project-folder operations
+├── GitService              repository state and changes
+├── StorageService          workspace-owned SQLite state
+├── MemoryService           durable project memories
+├── MemoryRetriever         lexical memory relevance
+├── MemoryIndexer           project-file memory ingestion
+├── ContextBuilderImpl      automatic evidence selection and framing
+├── Agent                   conversation history + current prompt assembly
+├── OpenAIProvider          model discovery, validation, and chat
+├── SettingsService         app-global encrypted credentials and preference
+└── UpdaterService          GitHub Release update lifecycle
+          │
+          ▼
+Typed, allowlisted Electron IPC
+          │
+          ▼
+React renderer
+├── resizable Explorer
+├── Monaco editor / Markdown preview
+├── resizable workspace-intelligence and memory context
+├── workspace-owned multi-conversation chat
+└── resizable source control
 ```
 
----
+The renderer has no direct Node.js access. `contextIsolation` is enabled and `nodeIntegration` is disabled. Runtime validation and workspace-ownership checks remain main-process responsibilities because TypeScript alone does not validate IPC messages.
 
-## Package Responsibilities
+## Package responsibilities
 
 | Package | Responsibility |
 | --- | --- |
-| `@forge/workspace` | Open and inspect workspaces; perform safe file operations |
-| `@forge/git` | Git status, branches, logs, diffs, staging, commits, pull, and push |
-| `@forge/storage` | Persist project metadata, goals, tasks, conversations, and memories |
-| `@forge/memory` | Create, list, retrieve, delete, and index project memory |
-| `@forge/ai` | Provider interface, context assembly, and Agent behavior |
-| `@forge/ipc` | Shared renderer/main contracts and channel definitions |
-| `@forge/core` | Runtime-independent filesystem, Markdown, workspace, project, and keyword-search services |
-| `@forge/search` | Search package boundary for future hybrid retrieval |
-| `@forge/plugin-sdk` | Plugin contracts; a runtime host is not implemented |
+| `@forge/workspace` | Open a project and perform root-confined file operations |
+| `@forge/git` | Status, history, diffs, staging, commits, pull, and push |
+| `@forge/storage` | Project metadata, schema migration, conversations, active thread, layout, and memory persistence |
+| `@forge/memory` | Create, retrieve, delete, and index durable project memory |
+| `@forge/ai` | Provider adapter, evidence budgeting, system context, prompt assembly, and future intelligence contracts |
+| `@forge/ipc` | Shared renderer/main request and response contracts |
+| `@forge/core` | Runtime-independent filesystem, Markdown, project, workspace, and search primitives |
 
----
+## Workspace boundary and persistence
 
-## Data Flow
-
-### Opening a workspace
+Opening a folder initializes services in this order:
 
 ```text
-USER SELECTS DIRECTORY
-  ↓
-workspace.open
-  ↓
-WorkspaceService initializes root
-  ↓
-GitService initializes repository context
-  ↓
-StorageService opens or creates .forge/metadata.sqlite
-  ↓
-Renderer refreshes files, Git state, and dashboard
+directory selection
+  → WorkspaceService root
+  → GitService repository context
+  → <workspace>/.forge/metadata.sqlite
+  → renderer loads that workspace's files, layout, metadata, memories, and active conversation
 ```
 
-### Asking the Agent
+`metadata.sqlite` schema version 2 contains:
+
+- `projects`, `goals`, and `tasks`;
+- `conversation_threads`;
+- `conversations`, linked to a thread;
+- `memories`;
+- `workspace_state`, containing active conversation and layout JSON.
+
+Legacy unthreaded conversation rows are migrated into an **Imported conversation** without deleting content. Saved model preferences such as `gpt-4o` remain valid; the new default applies only when no saved or environment preference exists.
+
+App-global API/GitHub credentials are deliberately not stored in the project. `SettingsService` encrypts them through Electron `safeStorage` outside the workspace. The preferred provider URL and model are also app-global, while conversations and layout are project-owned.
+
+## Conversation lifecycle
+
+Each workspace can contain multiple named threads. The active thread ID is stored in that workspace's `workspace_state` row.
+
+- Switching workspace closes one SQLite database and opens another. A conversation ID is accepted only if it belongs to the active project.
+- **New chat** creates and selects a blank thread. The first user prompt supplies its automatic title.
+- Selecting a thread changes only active conversation state.
+- **Clear chat** deletes message rows for only the selected thread.
+- Memory, indexed project content, metadata, layout, Git state, and other threads are not touched by New or Clear.
+
+The storage and IPC APIs keep conversations separate from memory by design so later embedding/search backends cannot be accidentally erased by a chat-control action.
+
+## Prompt and context assembly
+
+Every user turn follows this pipeline:
 
 ```text
-USER PROMPT
-  ↓
-agent.ask IPC
-  ↓
-MemoryRetriever searches stored memories
-  ↓
-ContextBuilder reads project context
-  ↓
-Agent assembles model messages
-  ↓
-Provider sends request
-  ↓
-Response returns to renderer
-  ↓
-Conversation is persisted
+user prompt + active conversation ID
+  → validate thread belongs to active workspace
+  → load bounded prior messages (last 24, character limited)
+  → retrieve relevant durable memories
+  → collect workspace evidence
+  → priority/budget policy selects and truncates artifacts
+  → FORGE philosophy system prompt + evidence + history + user prompt
+  → provider request
+  → persist user and assistant messages in the active thread
 ```
 
----
+Current evidence sources are:
 
-## Trust Boundaries
+- architecture, README, project-status, roadmap, developer-log, release-note, goal, and memory documents;
+- project goals/tasks metadata;
+- current Git status and recent Git history;
+- relevant or currently changed source snapshots;
+- `package.json` and a bounded file inventory;
+- retrieved durable memories.
 
-The renderer is not trusted with direct Node.js access.
+The stable system frame tells the model to treat the project folder as authority, distinguish evidence from inference, and recommend architectural evolution. It explicitly rejects generic plugin/collaboration/onboarding/theme/template suggestions unless repository evidence connects them to FORGE's architecture. The context budget is provider-independent and selected through `ContextBudgetPolicy`, not through model-specific assumptions.
 
-Current BrowserWindow protections include:
+## Provider and model selection
 
-- `contextIsolation: true`
-- `nodeIntegration: false`
+`OpenAIProvider` uses a free-form model ID. `gpt-5.6-sol` is the default only when a user has not saved a preference. The Settings UI can query the provider's `/models` endpoint and validate an exact ID, but saving is not constrained to a compiled allowlist; this supports future model IDs and OpenAI-compatible endpoints.
 
-The preload bridge should expose only named, validated IPC actions. Request validation belongs in the main process even when TypeScript types exist, because runtime messages are not automatically type-safe.
+Unsupported models produce an actionable error and do not overwrite the preference automatically. Chat Completions uses `max_completion_tokens`, with a compatibility retry using `max_tokens` for older OpenAI-compatible providers.
 
-Markdown preview output is sanitized in the renderer. The production security review should still revisit the current disabled Electron sandbox.
+## Layout architecture
 
----
+The renderer exposes drag handles between Explorer/editor, editor/intelligence, workspace-context/chat, and main workspace/source control. Changes are clamped in storage and debounced to the active workspace's `workspace_state.layout_json`. This contract provides slots for future context and memory panels without coupling persistence to current React components.
 
-## Persistence Model
+## Future intelligence contracts
 
-Workspace-specific state is stored at:
+`packages/ai/src/intelligence.ts` defines vendor-neutral boundaries without pretending the features are implemented:
 
-```text
-<workspace>/.forge/metadata.sqlite
-```
+- `ContextSourceProvider` and `ContextBudgetPolicy` for automatic context assembly;
+- `ArchitecturalMemoryStore` for durable decisions and relationships;
+- `ProjectTimelineService` for chronology across Git, docs, goals, and conversations;
+- `DiffReviewService` for evidence-grounded AI change review;
+- `ContextInspector` for showing why evidence was selected;
+- `IntentNavigator` for moving from user intent to related workspace artifacts;
+- `WorkspaceIntelligence` as a composition boundary.
 
-Current tables represent:
+These are extension points, not a plugin roadmap. Implementations should remain local-first, auditable, and project-folder grounded.
 
-- projects
-- goals
-- tasks
-- conversations
-- memories
+## Trust and known debt
 
-The persistence layer needs explicit schema migrations before the format can be considered stable.
+- Renderer sandboxing is still disabled and must be hardened before untrusted plugin or autonomous execution.
+- Memory indexing is lexical and can create duplicates; canonical path/content-hash upsert is pending.
+- Embedding-backed hybrid retrieval and a persisted search index are not yet implemented. Clear/New semantics already reserve them as durable workspace intelligence.
+- Context selection is bounded and test-covered but will need token-aware budgeting and evaluation against real repositories.
+- A live model-list or completion check requires a user-supplied provider key and is not part of automated tests.
+- Signed, notarized releases are required for trusted unattended macOS updates.
 
----
+## Source authority
 
-## Memory Model
+1. Source under `apps/` and `packages/`.
+2. Current root and `docs/` documentation.
+3. Package/build configuration and CI workflows.
+4. Generated output only as validation evidence, never architecture authority.
 
-Current memory retrieval uses lightweight lexical scoring with:
-
-- token frequency,
-- inverse document frequency,
-- title boosts,
-- metadata-tag boosts,
-- recency weighting.
-
-This is a useful prototype, but not the final retrieval architecture.
-
-Target direction:
-
-```text
-FILE WATCHER / CONVERSATIONS / DECISIONS
-  ↓
-NORMALIZATION
-  ↓
-CHUNKING + METADATA
-  ↓
-KEYWORD INDEX + EMBEDDINGS
-  ↓
-HYBRID RETRIEVAL
-  ↓
-RERANKING
-  ↓
-CONTEXT BUDGETING
-  ↓
-AGENT PROMPT
-```
-
-Reindexing should become idempotent through canonical file paths and content hashes.
-
----
-
-## Provider Model
-
-The current concrete provider is OpenAI. Provider interfaces should remain narrow enough to support:
-
-- OpenAI
-- Ollama
-- LM Studio
-- Anthropic
-- other OpenAI-compatible endpoints
-
-Provider selection, credentials, model names, request limits, and availability should eventually be project- or user-configurable rather than hard-coded.
-
----
-
-## Source of Truth
-
-Current authority order:
-
-1. source under `apps/` and `packages/`,
-2. current documentation under `docs/`,
-3. root package and build configuration,
-4. CI workflows,
-5. generated build output only as evidence—not authority.
-
-Generated build output and local workspace databases are evidence or user state, not application architecture.
-
----
-
-## Next Architectural Milestones
-
-1. Formal database migrations.
-2. Idempotent memory indexing.
-3. Verified memory-content injection into model prompts.
-4. Relevant source-file retrieval and context budgeting.
-5. Provider configuration UI and local-provider support.
-6. Agent tools with explicit permissions and verification loops.
-7. Production Electron sandboxing and Markdown sanitization.
-8. Developer ID signing, notarization, and end-to-end signed update validation.
+See [Core Architecture](Architecture/Core.md) for the runtime-independent `@forge/core` layer. The desktop currently composes `@forge/workspace`, `@forge/storage`, and other service packages directly; the core contracts remain a separate reusable boundary.
