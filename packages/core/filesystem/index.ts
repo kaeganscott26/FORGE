@@ -274,36 +274,45 @@ export async function watchDirectory(directoryPath: string, options: WatchDirect
   };
   let previousSnapshot = await takeSnapshot();
   let adapter: NodeDirectoryWatcher; // eslint-disable-line prefer-const -- initialized after watchFs so its callback can close over the adapter
+  const reconcileSnapshot = async (): Promise<void> => {
+    const nextSnapshot = await takeSnapshot();
+    for (const [entryPath, signature] of nextSnapshot) {
+      if (!previousSnapshot.has(entryPath)) adapter.publish({ type: 'created', path: entryPath });
+      else if (previousSnapshot.get(entryPath) !== signature) adapter.publish({ type: 'changed', path: entryPath });
+    }
+    for (const entryPath of previousSnapshot.keys()) {
+      if (!nextSnapshot.has(entryPath)) adapter.publish({ type: 'deleted', path: entryPath });
+    }
+    previousSnapshot = nextSnapshot;
+  };
   const watcher = watchFs(directoryPath, {
     recursive,
     persistent,
     encoding: 'utf8'
   }, async (eventType, fileName) => {
-    if (!fileName) return;
-    if (fileName === path.basename(directoryPath)) return;
+    if (!fileName || fileName === path.basename(directoryPath)) {
+      await reconcileSnapshot();
+      return;
+    }
     const changedPath = path.resolve(directoryPath, fileName);
-    if (changedPath === path.resolve(directoryPath)) return;
+    if (changedPath === path.resolve(directoryPath)) {
+      await reconcileSnapshot();
+      return;
+    }
     let type: FileChangeType = 'changed';
     if (eventType === 'rename') {
       const exists = await fs.access(changedPath, constants.F_OK).then(() => true).catch(() => false);
       type = exists ? 'created' : 'deleted';
     }
     adapter.publish({ type, path: changedPath });
+    const changedStats = await fs.lstat(changedPath).catch(() => null);
+    if (changedStats) previousSnapshot.set(changedPath, `${changedStats.mtimeMs}:${changedStats.size}:${changedStats.mode}`);
+    else previousSnapshot.delete(changedPath);
   });
   adapter = new NodeDirectoryWatcher(watcher);
   watcher.on('error', (error) => {
     if ('code' in error && error.code === 'EMFILE') {
-      adapter.usePolling(async () => {
-        const nextSnapshot = await takeSnapshot();
-        for (const [entryPath, signature] of nextSnapshot) {
-          if (!previousSnapshot.has(entryPath)) adapter.publish({ type: 'created', path: entryPath });
-          else if (previousSnapshot.get(entryPath) !== signature) adapter.publish({ type: 'changed', path: entryPath });
-        }
-        for (const entryPath of previousSnapshot.keys()) {
-          if (!nextSnapshot.has(entryPath)) adapter.publish({ type: 'deleted', path: entryPath });
-        }
-        previousSnapshot = nextSnapshot;
-      }, persistent);
+      adapter.usePolling(reconcileSnapshot, persistent);
       return;
     }
     adapter.fail(error);

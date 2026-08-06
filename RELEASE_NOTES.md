@@ -10,6 +10,7 @@ This preview preserves the complete policy-controlled agent tools and integrated
 - Requires valid semantic versions and strictly forward movement.
 - Excludes prereleases on Stable while allowing Preview to advance through newer alpha, beta, release-candidate, and stable versions.
 - Rejects equal versions, malformed versions, alpha.2 to alpha.1, and alpha.2 to stable 1.0.1.
+- Reconciles filesystem snapshots when macOS reports only a watched-directory event, preventing a valid child-file change from being silently discarded.
 
 The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.1 < 1.1.0`.
 

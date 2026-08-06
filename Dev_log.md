@@ -32,7 +32,8 @@ Installed alpha.1 verification found that assigning Electron Updater's channel r
 - A Tier 2 `/bin/pwd` agent request stayed pending until rejection, never executed, and retained a zero-duration rejected audit action.
 - The three alpha.2 FORGE conversation/action identifiers were absent from both AIFRED and INTERVENTION stores.
 - With Stable explicitly saved, the alpha.2 packaged updater identified v1.0.1 as older, returned `not-available`, and did not download it.
-- Documentation-only verification updates follow this commit; the final tag target must therefore be rebuilt and rechecked before publication.
+- A later exact-commit suite exposed the known macOS case where `fs.watch` reports only the watched directory and the prior filter discarded that signal. The watcher now reconciles its snapshot on directory-level events instead of returning silently; its focused lifecycle/watcher test passed ten consecutive runs after the fix.
+- The final tag target includes this watcher repair and must be rebuilt and rechecked before publication.
 
 ## 2026-08-06 — FORGE 1.1 tool runtime, terminal, and preview channels
 

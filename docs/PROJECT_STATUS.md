@@ -45,6 +45,7 @@ The preview remains ad-hoc signed/unsigned because no Apple Developer ID or nota
 - In that packaged runtime, provider-requested Tier 0 `file.read` succeeded automatically with Tool Result evidence and a sanitized action record. Tier 1 file creation stayed absent until its displayed diff received Run Once approval. Tier 2 `shell.run` stayed unexecuted, was rejected, and produced a zero-duration rejected audit entry.
 - AIFRED and INTERVENTION stores contained none of the alpha.2 FORGE conversation/action IDs.
 - An explicit Stable-channel check from packaged alpha.2 identified v1.0.1 as older and returned `not-available` without download.
+- A final-suite filesystem watcher timeout traced to macOS directory-level events being discarded. The watcher now reconciles its snapshot for that signal; the focused two-test file passed ten consecutive runs after the repair.
 - The release is incomplete until the final documentation commit is rebuilt, retested, tagged, published, hash-matched, updater-tested from alpha.1, installed, launched, and visibly verified.
 
 ## Known limitations and debt
