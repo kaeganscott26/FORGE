@@ -30,6 +30,10 @@ The enforced order includes `1.0.1 < 1.1.0-alpha.1 < 1.1.0-alpha.2 < 1.1.0-beta.
 - Preview publication produces a GitHub Pre-release and `preview-mac.yml`; it does not become Latest.
 - v1.0.1 remains the Latest stable release.
 
+## Validation
+
+The clean candidate passed dependency installation, typecheck, lint, 19 test files / 55 tests, production build, ARM64 packaging, universal packaging, ZIP/DMG integrity, and x86_64 + arm64 inspection of the app and PTY binaries. Packaged probes passed for the `file://` app.asar renderer, diagnostics, PTY execution/cancellation boundaries, workspace escape rejection, Tier 0 execution, Tier 1 diff and Run Once approval, Tier 2 rejection, retained audit results, and FORGE/AIFRED/INTERVENTION isolation. A packaged Stable-channel check rejected older v1.0.1 without download.
+
 ## Limitation
 
 This preview is ad-hoc signed/unsigned and is not notarized because no Apple Developer ID credentials are configured. Update detection and download can be verified, but unattended in-app replacement is not a trusted installation path. Use the DMG or `npm run install:mac` for the local source build and verify About diagnostics after replacement.

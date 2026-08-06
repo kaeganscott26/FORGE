@@ -41,7 +41,11 @@ The preview remains ad-hoc signed/unsigned because no Apple Developer ID or nota
 - ARM64 packaging passes with arm64 app/PTY binaries.
 - Universal packaging passes with x86_64 and arm64 slices in the app executable, `pty.node`, and `spawn-helper`; ZIP and DMG integrity checks pass.
 - The candidate universal app loads a nonblank renderer from `file://` inside `app.asar`, exposes only the allowlisted preload bridge, reports `1.1.0-alpha.2 / preview / packaged / darwin arm64`, opens the workspace, reads `AGENTS.md`, streams PTY `pwd`, and rejects unknown IPC plus workspace escape.
-- These are pre-commit candidate checks. The release is incomplete until the exact final commit is rebuilt, retested, tagged, published, hash-matched, updater-tested, installed, launched, and visibly verified.
+- Clean committed candidate `7ad23e6` repeated the complete source and packaging suite and embedded its exact full commit SHA in packaged diagnostics.
+- In that packaged runtime, provider-requested Tier 0 `file.read` succeeded automatically with Tool Result evidence and a sanitized action record. Tier 1 file creation stayed absent until its displayed diff received Run Once approval. Tier 2 `shell.run` stayed unexecuted, was rejected, and produced a zero-duration rejected audit entry.
+- AIFRED and INTERVENTION stores contained none of the alpha.2 FORGE conversation/action IDs.
+- An explicit Stable-channel check from packaged alpha.2 identified v1.0.1 as older and returned `not-available` without download.
+- The release is incomplete until the final documentation commit is rebuilt, retested, tagged, published, hash-matched, updater-tested from alpha.1, installed, launched, and visibly verified.
 
 ## Known limitations and debt
 

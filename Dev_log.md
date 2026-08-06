@@ -23,6 +23,17 @@ Installed alpha.1 verification found that assigning Electron Updater's channel r
 - A packaged universal runtime probe loaded the renderer through `file://` inside `app.asar`, reported alpha.2/Preview/packaged/darwin arm64, opened the FORGE workspace, read `AGENTS.md` through IPC, rejected an unknown channel, streamed `pwd` through the PTY, and rejected a terminal cwd escape.
 - This pre-commit package embeds baseline main commit `00ea8383`; it is validation evidence only and is not eligible for publication. Exact release-commit rebuild, full packaged tool/audit/isolation probes, tag, workflow, asset comparison, updater transition, and installed-app evidence remain mandatory before completion.
 
+### Committed-candidate validation
+
+- Committed the alpha.2 source and metadata as `7ad23e6`, then repeated `npm ci`, typecheck, lint, all 55 tests, production build, ARM64 packaging, and universal packaging from that clean commit.
+- Packaged diagnostics embedded the complete `7ad23e6edab9a4cb438b124a38e2784587edb5f3` source SHA.
+- A configured provider requested `file.read`; Tier 0 ran automatically, produced bounded Tool Result evidence, and recorded a sanitized successful action.
+- A Tier 1 `.forge/alpha2-tool-runtime-verification.txt` creation showed its diff and stayed absent until Run Once approval; approval created the exact content and retained affected-path and rollback metadata.
+- A Tier 2 `/bin/pwd` agent request stayed pending until rejection, never executed, and retained a zero-duration rejected audit action.
+- The three alpha.2 FORGE conversation/action identifiers were absent from both AIFRED and INTERVENTION stores.
+- With Stable explicitly saved, the alpha.2 packaged updater identified v1.0.1 as older, returned `not-available`, and did not download it.
+- Documentation-only verification updates follow this commit; the final tag target must therefore be rebuilt and rechecked before publication.
+
 ## 2026-08-06 — FORGE 1.1 tool runtime, terminal, and preview channels
 
 ### Why
