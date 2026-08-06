@@ -1,22 +1,44 @@
 {
   "collapse-filter": true,
-  "search": "",
-  "showTags": false,
+  "search": "-path:node_modules -path:dist -path:dist_electron -path:apps/desktop/out -path:.forge",
+  "showTags": true,
   "showAttachments": false,
-  "hideUnresolved": false,
-  "showOrphans": true,
-  "collapse-color-groups": true,
-  "colorGroups": [],
+  "hideUnresolved": true,
+  "showOrphans": false,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {
+      "query": "path:docs",
+      "color": {
+        "a": 1,
+        "rgb": 10485760
+      }
+    },
+    {
+      "query": "path:apps",
+      "color": {
+        "a": 1,
+        "rgb": 5635925
+      }
+    },
+    {
+      "query": "path:packages",
+      "color": {
+        "a": 1,
+        "rgb": 4437377
+      }
+    }
+  ],
   "collapse-display": true,
-  "showArrow": false,
+  "showArrow": true,
   "textFadeMultiplier": 0,
-  "nodeSizeMultiplier": 1,
-  "lineSizeMultiplier": 1,
+  "nodeSizeMultiplier": 1.1,
+  "lineSizeMultiplier": 1.1,
   "collapse-forces": true,
-  "centerStrength": 0.518713248970312,
-  "repelStrength": 10,
+  "centerStrength": 0.6,
+  "repelStrength": 12,
   "linkStrength": 1,
-  "linkDistance": 250,
-  "scale": 0.24699506685768297,
+  "linkDistance": 220,
+  "scale": 0.7,
   "close": true
 }
