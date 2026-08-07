@@ -10,10 +10,15 @@ const fakeWeb = { search: async () => ({ query: '', results: [] }), fetch: async
 
 describe('agent tool runtime', () => {
   it('defines every tool with schemas, risk, timeout, audit, cancellation, and boundary metadata', () => {
-    const definitions = createToolRegistry().list();
+    const registry = createToolRegistry(); const definitions = registry.list();
     expect(definitions.map((entry) => entry.name)).toContain('shell.run');
     expect(definitions.map((entry) => entry.name)).toContain('web.search');
+    expect(definitions.find((entry) => entry.name === 'task.inspect')?.riskTier).toBe(0);
+    expect(definitions.find((entry) => entry.name === 'task.create')?.riskTier).toBe(1);
+    expect(definitions.find((entry) => entry.name === 'task.process.start')?.riskTier).toBe(2);
+    expect(definitions.find((entry) => entry.name === 'task.process.start')?.approval).toBe('always');
     expect(definitions.every((entry) => entry.inputSchema && entry.outputSchema && entry.timeoutMs > 0 && entry.audit && typeof entry.cancellable === 'boolean')).toBe(true);
+    expect(registry.parse({ id: 'linked-write', name: 'file.create', provider: 'test', arguments: { path: 'note.md', content: '', reason: 'Create task output.', taskContext: { taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' } } }).input.taskContext).toEqual({ taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' });
   });
 
   it('blocks traversal and symlink workspace escapes', async () => {
@@ -21,6 +26,20 @@ describe('agent tool runtime', () => {
     await mkdir(path.join(root, 'inside')); await symlink(outside, path.join(root, 'escape'));
     await expect(resolveContainedPath(root, '../outside', true)).rejects.toThrow(/relative|traverse/);
     await expect(resolveContainedPath(root, 'escape')).rejects.toThrow(/Symlink/);
+  });
+
+  it('returns structured recovery metadata for missing filesystem paths', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-missing-')); const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const listResult = await router.request({ id: 'list-1', name: 'file.list', provider: 'test', arguments: { path: 'missing/dir', recursive: false } }, context);
+    expect(listResult.result?.success).toBe(true);
+    expect(listResult.result?.output).toMatchObject({ success: true, missing: true, requestedPath: 'missing/dir', recovery: { action: 'restart-at-workspace-root', path: '.' } });
+    const readResult = await router.request({ id: 'read-1', name: 'file.read', provider: 'test', arguments: { path: 'missing.txt' } }, context);
+    expect(readResult.result?.success).toBe(true);
+    expect(readResult.result?.output).toMatchObject({ success: true, missing: true, requestedPath: 'missing.txt' });
+    const searchResult = await router.request({ id: 'search-1', name: 'file.search', provider: 'test', arguments: { path: 'missing/search', query: 'needle' } }, context);
+    expect(searchResult.result?.success).toBe(true);
+    expect(searchResult.result?.output).toMatchObject({ success: true, missing: true, requestedPath: 'missing/search', matches: [] });
   });
 
   it('creates visible diffs and applies approved atomic patches with rollback backups', async () => {
@@ -32,6 +51,7 @@ describe('agent tool runtime', () => {
     const result = await router.approve('patch-1', context, 'run-once');
     expect(result.success).toBe(true); expect(result.rollback?.backupPath).toContain('.forge/backups/');
     expect(await readFile(path.join(root, 'note.txt'), 'utf8')).toBe('after\n'); expect(records.at(-1)?.approvalDecision).toBe('run-once');
+    expect(records.at(-1)?.id).toBe('patch-1');
   });
 
   it('blocks writes to unsaved editor paths and redacts secrets in validation audit records', async () => {

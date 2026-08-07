@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "1.1.0-alpha.3",
+  "version": "1.1.0-beta.1",
   "private": true,
   "description": "Local-first AI-native development workspace",
   "author": "Kaegan Scott",
@@ -20,11 +20,11 @@
     "dev": "electron-vite dev apps/desktop",
     "start-renderer": "vite apps/desktop/src/renderer",
     "build": "npm run typecheck && electron-vite build apps/desktop",
-    "package:mac": "npm run build && electron-builder --mac --publish never",
-    "package:mac:universal": "npm run build && electron-builder --mac --universal --publish never",
+    "clean:dist": "rimraf dist_electron",
+    "package:mac": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && node scripts/write-build-manifest.mjs arm64",
+    "package:mac:universal": "npm run clean:dist && npm run build && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs universal",
+    "package:mac:all": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs arm64,universal",
     "install:mac": "bash scripts/install-mac.sh",
-    "release:preview": "npm run build && electron-builder --mac --universal --publish always --config.publish.releaseType=prerelease --config.publish.channel=preview",
-    "release:stable": "npm run build && electron-builder --mac --universal --publish always --config.publish.releaseType=release --config.publish.channel=latest",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -56,8 +56,8 @@
         "provider": "github",
         "owner": "kaeganscott26",
         "repo": "FORGE",
-        "releaseType": "release",
-        "channel": "preview"
+        "releaseType": "prerelease",
+        "channel": "beta"
       }
     ],
     "mac": {

@@ -8,7 +8,7 @@ FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It
 
 ## 2. Navigate a workspace
 
-The Explorer lists directories and supported text files recursively. Select a file to open it. Use **New file** to create a relative path, **Save** to write changes, and **Delete** only after reviewing the confirmation.
+The Explorer lists directories and supported text files recursively. Select a file to open it. **New file** creates the requested relative path and immediately opens its bundled offline editor; type content and choose **Save** or press **Command/Ctrl+S** to write it. If that path exists, FORGE offers to open the existing file or prompts for another name instead of showing a raw filesystem error. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo. Use **Delete** only after reviewing the confirmation.
 
 FORGE rejects absolute paths, path traversal, and resolved paths outside the opened workspace.
 
@@ -24,7 +24,7 @@ Markdown files open in preview mode. Use **Edit** and **Preview** to switch view
 
 The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. The context-health number is a lightweight readiness indicator, not a code-quality score.
 
-Goals and tasks are stored only in the workspace's local FORGE database.
+Goals and persistent tasks are stored only in the workspace's local FORGE database.
 
 ## 5. Use source control
 
@@ -34,7 +34,9 @@ Always confirm the file list and diff before a commit, pull, or push. FORGE oper
 
 ## 6. Use workspace conversations
 
-Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. Use **Refresh provider models** to load IDs available to the current key and **Validate model** to check an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
+Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1`, choose a loaded tool-capable model, and leave the key blank. Use **Refresh provider models** to load IDs available from the provider and **Validate model** to check an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
+
+Compatible local models receive a focused set of FORGE workspace file tools through the same policy router as hosted models. Read-only inspection may run automatically; file creation and writes still require explicit approval. The focused catalog avoids confusing smaller models with unrelated Git, release, shell, and task actions. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
 
 Each project has its own conversations. Switching from FORGE to another folder automatically shows that folder's active thread; histories are never shared between workspace databases.
 
@@ -72,29 +74,44 @@ Running operations can be cancelled. Completed requests retain their state; loca
 
 Web research is disabled by default. Enable it in Settings only if you want requests to external services. The approval card names the exact query/URL and any project data declared for transfer.
 
-## 9. Use the integrated terminal
+## 9. Use persistent tasks
+
+Choose **TASKS** in the bottom panel. Tasks remain in the opened workspace even when you switch conversations, providers, or models, reload the renderer, or restart FORGE.
+
+- Select a task to inspect its structured steps, dependencies, progress, verification criteria, approvals, events, Git/release references, and active PID/output path.
+- **Resume** audits current Git and known local processes before selecting unfinished work.
+- **Pause** records an interruption without erasing history.
+- **Cancel tracking** stops FORGE from advancing the record; it does not silently kill a process, cancel a GitHub workflow, remove an upload, or undo remote state.
+- **Retry step** is available only for a failed or blocked step within its retry policy and requires fresh approval when the tool is Tier 1 or Tier 2.
+- **Copy handoff** creates `.forge/handoffs/<task>.md` from the authoritative SQLite record and copies its concise resume context.
+
+A successful tool result is recorded as evidence but does not by itself satisfy every verification criterion. The step completes only after a verified checkpoint. If a saved PID disappears without completion evidence, FORGE blocks the step and asks you to inspect its bounded output/artifacts before retrying.
+
+## 10. Use the integrated terminal
 
 Choose **Terminal** in the bottom panel and select **New**. A user terminal starts at the active workspace and shows the exact working directory. Create or switch multiple sessions, resize the panel, copy output, clear only the visible screen, cancel a process, restart a session, and inspect exit state.
 
 The user terminal is separate from model-requested `shell.run`. The model cannot type into a user session. Agent shell requests appear under Agent Actions and require one-time approval. FORGE rejects normal terminal working directories outside the workspace, and terminal output is not automatically indexed into memory.
 
-## 10. Update FORGE
+Login shells receive a small explicit environment with the current user home, shell identity, and common Homebrew/user CLI paths, so installed tools such as `ollama` and `codex` can be resolved without forwarding API keys or other secret environment variables. macOS may still block an independently installed quarantined CLI until that exact signed binary is approved under **System Settings → Privacy & Security**.
+
+## 11. Update FORGE
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current 1.1 preview reports `1.1.0-alpha.3`, `preview`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-alpha.3-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The beta reports `1.1.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-beta.1-dev` and `development`.
 
-Stable is the default update channel and excludes every prerelease. Preview must be selected explicitly and permits newer alpha, beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
+Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 
-Alpha.1 and alpha.2 stored an incompatible mapping between FORGE's logical Preview choice and Electron Updater's provider channel. Those immutable clients cannot discover ordinary `alpha`, `beta`, or `rc` tags and will not update automatically to alpha.3. Install alpha.3 once from the [`v1.1.0-alpha.3` GitHub Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v1.1.0-alpha.3) or its exact DMG. Future Preview updates then use the corrected discovery layer. This is a preview-channel migration issue, not a failure of the alpha.1/alpha.2 app packages, assets, tag provenance, or semantic-version comparison.
+Existing settings that contain the former Preview preference migrate to Beta. This supports the alpha.3-to-beta.1 transition but does not permit future alpha builds on the Beta channel.
 
-For a local source build, run `npm run install:mac`. It updates the existing installed app bundle and opens the new build without an uninstall step.
+For a local source build, first run `npm run package:mac:universal`, then `npm run install:mac`. Installation verifies `build-manifest.json`, requires duplicates to be resolved, backs up the old system bundle to Trash, and installs exactly `/Applications/FORGE.app`.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### macOS blocks the first launch
 
-Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. Version 1.0.1 is unsigned.
+Control-click FORGE and choose **Open**, or approve it under **System Settings → Privacy & Security**. The beta remains ad-hoc/unsigned unless the published workflow proves a Developer ID signature and notarization.
 
 ### The old UI still opens after replacement
 
@@ -116,13 +133,15 @@ Open **Settings** and save an API key. If macOS Keychain is unavailable, FORGE r
 
 Open **Settings**, refresh the provider model list, and validate the exact model ID. Availability can differ by API key and compatible provider. FORGE keeps a manually entered ID for future compatibility but reports unsupported-model responses clearly.
 
+GPT-5.6 tool-capable requests use the Responses API. If a compatible provider implements only Chat Completions, choose a model/path that provider supports; FORGE does not disable reasoning or silently drop tools to conceal an incompatible endpoint.
+
 ### Git actions fail
 
 Open **GitHub**, save a fine-grained token, and test the connection. Confirm the workspace is a Git repository and the `origin` remote is an HTTPS `github.com` URL. SSH and non-GitHub remotes continue to use system Git credentials.
 
 ### Local install cannot update `/Applications`
 
-Move FORGE to `~/Applications`, or give your user write access through Finder. The update script intentionally does not invoke `sudo`.
+Resolve permissions through Finder or the account that owns `/Applications/FORGE.app`. The install script intentionally does not invoke `sudo` and does not fall back to `~/Applications`.
 
 ### Agent tool request is pending
 
@@ -132,6 +151,12 @@ Open **Agent Actions**, inspect the exact scope, and choose Run once, the offere
 
 Confirm the app was packaged with `node-pty` unpacked and that its `spawn-helper` is executable. From source, rerun `npm install`; FORGE's postinstall repairs the helper permission and missing Electron vendor app.
 
-## 12. Data safety
+If a command resolves but macOS reports that it cannot verify the executable, the PTY is working and Gatekeeper is blocking that separately installed CLI. Verify the binary's origin and signature, then approve only that exact executable through macOS security controls or reinstall it from a trusted source. FORGE does not disable Gatekeeper globally.
 
-Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, layouts, conversation threads, and durable memories.
+### A task says a process disappeared
+
+Open the task and inspect its saved output path, expected artifacts, and external references. Resume does not rerun it automatically. Record a verified checkpoint if reality proves completion, or retry only after confirming the action is safe and approving its exact tool request.
+
+## 13. Data safety
+
+Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, persistent tasks/checkpoints/events, layouts, conversation threads, audit history, and durable memories.

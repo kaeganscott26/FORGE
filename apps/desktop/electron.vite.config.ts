@@ -14,7 +14,7 @@ const buildDate = process.env.FORGE_BUILD_DATE?.trim() || new Date().toISOString
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@forge/ipc': packageSource('ipc'), '@forge/workspace': packageSource('workspace'), '@forge/git': packageSource('git'), '@forge/storage': packageSource('storage'), '@forge/agent-tools': packageSource('agent-tools'), '@forge/tool-policy': packageSource('tool-policy'), '@forge/shell': packageSource('shell'), '@forge/web': packageSource('web') } },
+    resolve: { alias: { '@forge/ipc': packageSource('ipc'), '@forge/workspace': packageSource('workspace'), '@forge/git': packageSource('git'), '@forge/storage': packageSource('storage'), '@forge/agent-tools': packageSource('agent-tools'), '@forge/tool-policy': packageSource('tool-policy'), '@forge/shell': packageSource('shell'), '@forge/web': packageSource('web'), '@forge/tasks': packageSource('tasks') } },
     define: {
       __FORGE_BUILD_COMMIT__: JSON.stringify(buildCommit),
       __FORGE_BUILD_DATE__: JSON.stringify(buildDate)

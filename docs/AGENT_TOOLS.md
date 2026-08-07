@@ -6,7 +6,7 @@ FORGE 1.1 introduces provider-neutral, policy-controlled tools. A model sees sta
 
 ```text
 Model → Agent → Tool Registry → Policy Engine → Approval Manager
-      → Executor → Filesystem / Git / Shell / Web
+      → Executor → Filesystem / Git / Shell / Web / Task Runtime
       → Structured Tool Result → bounded, redacted Agent context → User
 ```
 
@@ -25,6 +25,9 @@ Dependency injection keeps the registry/router independent of Electron and preve
 | `git.commit`, `git.pull`, `git.push` | 2 | always | Local history or remote mutation |
 | `shell.run` | 2 | always | Spawn one executable with an argument array |
 | `web.search`, `web.fetch`, `web.open` | 2 | always and web enabled | Bounded external research |
+| `task.inspect` | 0 | automatic | Read the active workspace's structured task evidence |
+| `task.create`, `task.resume`, `task.pause`, `task.cancel`, `task.checkpoint`, `task.handoff` | 1 | explicit or exact scoped session | Change reversible task tracking/projections |
+| `task.process.start` | 2 | always | Start a workspace-owned detached argument-array process and persist PID/output |
 
 Every definition includes purpose, Zod input/output schemas, risk, approval rule, workspace-boundary rule, timeout, audit metadata, cancellation behavior, target/effect descriptions, and network disclosure. Unknown names and invalid arguments fail closed.
 
@@ -33,3 +36,17 @@ Every definition includes purpose, Zod input/output schemas, risk, approval rule
 Results contain success, affected paths, diff, warnings, error code/details, rollback data, exit code, duration, truncation, and cancellation state where applicable. Automatic Tier 0 results are bounded and redacted before the agent produces its final answer. After an approved Tier 1/2 action, FORGE records the result, asks the agent to continue using the bounded result, persists the continuation in the same workspace conversation, and shows the inspectable raw structured result locally.
 
 Tool results are labeled `Tool Result`. Web evidence is labeled `External Web`; it is not presented as workspace evidence. Shell and terminal output are never automatically indexed into durable memory.
+
+Filesystem inspection starts at the workspace root. A missing read/list/search path returns a structured recovery result (`missing`, requested path, nearest requested parent, and `restart-at-workspace-root`) instead of abandoning the scan after `ENOENT`.
+
+FORGE may continue an agent turn for up to three bounded tool rounds and five total tool requests when every completed request was authorized automatically under Tier 0. This lets the model consume a missing-path recovery result, inspect the root, and continue with an observed path. The loop stops immediately for an approval-required request; it never turns persistence or recovery into authorization.
+
+If a compatible provider emits strict plain JSON naming an actually offered tool, the adapter promotes it to the same validated request structure as a native call. Unoffered names remain text and cannot reach the router. If the provider repeats an already completed call, FORGE deduplicates it and performs one no-tools synthesis pass over the bounded observed results. This protects small compatible models from repeating a completed file read while preserving genuine validated calls for a different next tool.
+
+Existing tools accept optional `taskContext` containing an exact task/step ID. The router never changes the tool's risk because it belongs to a task. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
+
+OpenAI-compatible loopback providers may run without an API key. For example, Ollama at `http://127.0.0.1:11434/v1` can list local models and receive a focused provider-neutral file-tool set: list, read, search, create, write, patch, rename/move, and directory creation. This avoids flooding small local models with unrelated Git/release/task tools. Model capability still matters, and all returned calls remain subject to normal validation, tiering, approval, execution, and audit. Remote providers continue to require authentication and retain the full catalog.
+
+A provider-supplied task link is accepted only when the task and step exist in the active workspace. A stale, foreign, or invented link is stripped before execution, so an otherwise valid tool request can run without attaching evidence to the wrong task.
+
+Approval projection and evidence projection are separate. A direct `task.checkpoint` request records its pending/approved/rejected decision against the task step, but the checkpoint result is not reprocessed as ordinary step tool evidence. Task-context file/shell results and direct task process starts retain both links.

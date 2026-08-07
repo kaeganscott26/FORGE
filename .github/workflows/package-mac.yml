@@ -37,21 +37,15 @@ jobs:
           npm run lint
           npm test
 
-      - name: Create or update the tag release
+      - name: Create or validate the draft tag release
         if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release_flags=(--verify-tag --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md)
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            release_flags+=(--prerelease)
-          else
-            release_flags+=(--latest)
-          fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" "${release_flags[@]:1}"
+            gh release view "$GITHUB_REF_NAME" --json tagName,targetCommitish
           else
-            gh release create "$GITHUB_REF_NAME" "${release_flags[@]}"
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md
           fi
 
       - name: Build unsigned workflow artifact
@@ -60,32 +54,46 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run package:mac:universal
 
-      - name: Publish signed and notarized tag release
+      - name: Package signed and notarized tag artifacts
         if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            npm run release:preview -- --config.mac.hardenedRuntime=true
-          else
-            npm run release:stable -- --config.mac.hardenedRuntime=true
-          fi
+          npm run clean:dist
+          npm run build
+          npx electron-builder --mac --universal --publish never --config.mac.hardenedRuntime=true
+          node scripts/write-build-manifest.mjs universal
 
-      - name: Publish unsigned tag release
+      - name: Package unsigned tag artifacts
         if: ${{ github.event_name == 'push' && env.HAS_SIGNING_CERTIFICATE != 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run package:mac:universal
+
+      - name: Upload and verify tag assets serially
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
-            npm run release:preview
+            bash scripts/upload-release-assets.sh "$GITHUB_REF_NAME" beta
           else
-            npm run release:stable
+            bash scripts/upload-release-assets.sh "$GITHUB_REF_NAME" latest
+          fi
+
+      - name: Publish the verified tag release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease --latest=false --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease=false --latest --title "FORGE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md
           fi
 
       - name: Upload workflow artifact
@@ -98,5 +106,6 @@ jobs:
             dist_electron/FORGE-*.zip
             dist_electron/*.blockmap
             dist_electron/latest-mac.yml
-            dist_electron/preview-mac.yml
+            dist_electron/beta-mac.yml
+            dist_electron/build-manifest.json
           if-no-files-found: error

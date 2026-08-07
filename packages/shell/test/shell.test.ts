@@ -1,14 +1,23 @@
-import { mkdtemp, realpath } from 'node:fs/promises';
+import { mkdtemp, realpath, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filteredEnvironment, ShellService, TerminalService } from '../src';
+import { filteredEnvironment, ShellService, terminalEnvironment, TerminalService } from '../src';
 
 describe('shell and terminal services', () => {
   it('filters the parent environment and blocks secret-like requested variables', () => {
     const environment = filteredEnvironment({ SAFE_VALUE: 'yes', API_TOKEN: 'no' }, ['SAFE_VALUE']);
     expect(environment.SAFE_VALUE).toBe('yes'); expect(environment.API_TOKEN).toBeUndefined();
     expect(() => filteredEnvironment({ API_TOKEN: 'no' }, ['API_TOKEN'])).toThrow(/Secret-like/);
+  });
+
+  it('builds a safe interactive environment with common user CLI locations', () => {
+    const environment = terminalEnvironment('/bin/zsh');
+    expect(environment.HOME).toBe(os.homedir());
+    expect(environment.SHELL).toBe('/bin/zsh');
+    expect(environment.TERM_PROGRAM).toBe('FORGE');
+    expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local/bin')]));
+    expect(environment.OPENAI_API_KEY).toBeUndefined();
   });
 
   it('enforces output limits and timeouts', async () => {
@@ -25,11 +34,24 @@ describe('shell and terminal services', () => {
     await new Promise((resolve) => setTimeout(resolve, 80)); expect(service.cancel(id)).toBe(true); expect((await running).cancelled).toBe(true);
   });
 
-  it.skipIf(process.platform !== 'darwin')('creates a workspace-scoped PTY, streams pwd, and terminates it', async () => {
-    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'forge-terminal-'))); const events: any[] = []; const service = new TerminalService(() => root, (event) => events.push(event));
+  it('starts detached workspace-owned output without blocking the caller', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-background-')); const service = new ShellService(() => root);
+    const started = await service.startBackground({ command: '/bin/sh', args: ['-c', 'printf background-ready'], workingDirectory: '.', timeoutMs: 2_000, reason: 'test background process', expectedOutcome: 'output file' }, '.forge/task-output/test.log', 'background-test');
+    expect(started.pid).toBeGreaterThan(0); expect(started.outputPath).toBe('.forge/task-output/test.log');
+    await new Promise((resolve) => setTimeout(resolve, 80)); expect(await (await import('node:fs/promises')).readFile(path.join(root, started.outputPath), 'utf8')).toContain('background-ready');
+  });
+
+  it.skipIf(process.platform !== 'darwin')('forwards PTY input, rejects exited sessions, and restarts writable in the active workspace', async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'forge-terminal-'))); const linkedRoot = `${root}-link`; await symlink(root, linkedRoot); const otherRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'forge-terminal-other-'))); let activeRoot = linkedRoot; const events: any[] = []; const service = new TerminalService(() => activeRoot, (event) => events.push(event));
     const session = await service.create('.', 80, 24); expect(session.cwd).toBe(root); expect(session.state).toBe('running');
     service.input(session.id, 'pwd\n');
     await new Promise<void>((resolve, reject) => { const started = Date.now(); const timer = setInterval(() => { if (events.some((event) => event.data?.includes(root))) { clearInterval(timer); resolve(); } else if (Date.now() - started > 3_000) { clearInterval(timer); reject(new Error('PTY output timeout')); } }, 20); });
+    activeRoot = otherRoot; expect(() => service.input(session.id, 'pwd\n')).toThrow(/active workspace/); activeRoot = linkedRoot;
+    service.input(session.id, 'exit\n');
+    await new Promise<void>((resolve, reject) => { const started = Date.now(); const timer = setInterval(() => { if (service.list().find((entry) => entry.id === session.id)?.state === 'exited') { clearInterval(timer); resolve(); } else if (Date.now() - started > 3_000) { clearInterval(timer); reject(new Error('PTY exit timeout')); } }, 20); });
+    expect(() => service.input(session.id, 'pwd\n')).toThrow(/not running/);
+    const restarted = await service.restart(session.id); expect(restarted.id).toBe(session.id); service.input(restarted.id, 'printf restart-writable\\n\n');
+    await new Promise<void>((resolve, reject) => { const started = Date.now(); const timer = setInterval(() => { if (events.some((event) => event.data?.includes('restart-writable'))) { clearInterval(timer); resolve(); } else if (Date.now() - started > 3_000) { clearInterval(timer); reject(new Error('PTY restart input timeout')); } }, 20); });
     service.terminate(session.id); service.dispose();
   });
 });

@@ -9,7 +9,7 @@ const releaseDiscovery = new GitHubReleaseDiscovery({ owner: 'kaeganscott26', re
 type ReleaseDiscovery = Pick<GitHubReleaseDiscovery, 'discover'>;
 
 export class UpdaterService {
-  private channel: 'stable' | 'preview' = 'stable';
+  private channel: 'stable' | 'beta' = 'stable';
   private updateStatus: AppUpdateStatus = {
     currentVersion: app.getVersion(),
     state: 'idle',
@@ -27,7 +27,7 @@ export class UpdaterService {
     autoUpdater.on('error', (error) => this.setStatus('error', `Automatic update failed: ${error.message} Download the latest release manually.`));
   }
 
-  setChannel(channel: 'stable' | 'preview'): void {
+  setChannel(channel: 'stable' | 'beta'): void {
     this.channel = channel;
     const policy = buildUpdatePolicy(channel);
     autoUpdater.allowPrerelease = policy.allowPrerelease;

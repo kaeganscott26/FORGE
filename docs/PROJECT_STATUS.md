@@ -2,60 +2,66 @@
 
 **Updated:** August 6, 2026
 
-**Working version:** 1.1.0-alpha.3
+**Working version:** 1.1.0-beta.1
 
-**Release source branch:** `main` after validated feature-branch merge
+**Source branch:** `feature/persistent-task-engine` until reviewed and merged
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
-## Release state
+## Current state
 
-FORGE 1.1's policy-controlled agent tools and integrated terminal were introduced in alpha.1. Alpha.1 and alpha.2 are immutable GitHub Pre-releases, and v1.0.1 remains GitHub Latest stable. No duplicate compatibility release is used.
+The repair and workspace-owned persistent-task milestone is implemented in source. After editor, terminal CLI, local-model, and approval-projection repairs, the clean beta source gate passed dependency installation, typecheck, lint, 25 test files / 95 tests, production build, and a production audit with zero vulnerabilities. The full exact-commit package, installed acceptance, public workflow, remote hashes, and public-artifact reinstallation remain mandatory before release verification.
 
-Alpha.1 and alpha.2 stored the logical Preview selection as an Electron Updater provider channel. That mapping cannot discover conventional GitHub tags whose SemVer identifiers are `alpha`, `beta`, or `rc`. Alpha.2 therefore requires a one-time manual alpha.3 installation; alpha.2-to-alpha.3 is not an automatic-update success. This migration defect does not invalidate the earlier packaged applications, assets, annotated tags, or forward-only semantic-version gate.
+Historical Releases and release tags remain intact while validation proceeds. The pre-cleanup state is recorded in [PRE_BETA_RELEASE_AUDIT.md](archive/PRE_BETA_RELEASE_AUDIT.md). The old 4.5 GB local packaging tree was moved recoverably to Trash after audit; installed applications have not yet been removed.
 
-Alpha.3 adds bounded GitHub Release discovery. Stable filters to strictly newer stable versions. Preview filters to strictly newer alpha, beta, rc, or stable versions. Drafts, unpublished entries, malformed versions, incompatible prerelease flags, unsupported identifiers, unsafe metadata URLs, and downgrades fail closed before Electron Updater is configured.
+## Implemented capability matrix
 
-The preview remains ad-hoc signed/unsigned because no Apple Developer ID or notarization credentials are configured. Discovery and download are testable, but trusted unattended replacement is unavailable.
-
-## Capability matrix
-
-| Area | Verified implementation |
+| Area | Implemented behavior |
 | --- | --- |
-| Provider-neutral tool calls | Native structured calls plus strictly validated structured fallback before policy |
-| Tool policy | Tier 0 automatic reads, Tier 1 one-time or exact expiring session approval, Tier 2 always explicit |
-| Filesystem | Workspace-relative list/read/search/create/write/patch/rename/move/delete/directory create with realpath containment, atomic writes, diffs, backups, and dirty-editor protection |
-| Git | Status/diff/log/branches/stage/unstage/commit/pull/push through the protected Git service; no automatic force push |
-| Agent shell | Argument-array spawn, workspace cwd, filtered environment, timeout/output/cancellation/process-tree controls |
-| External web | Search/fetch/open; disabled by default; URL, DNS, redirect, local-network, size, timeout, and disclosure controls |
-| Approval and audit | Retained request/result/history UI plus schema-v3 per-workspace SQLite log with filtering and secret redaction |
-| Integrated terminal | Main-process `node-pty`, renderer xterm.js, multiple sessions, resize/input/output/terminate/restart/copy/clear/exit state |
-| Renderer boundary | Context isolation, no Node integration, sandbox, web security, fixed allowlisted preload, navigation denial |
-| Update discovery | Fixed GitHub endpoint, bounded validated response, logical Stable/Preview filtering, strict forward SemVer, safe selected feed |
-| Packaging | ARM64 and universal DMG/ZIP/blockmaps/YAML; app and PTY native binaries inspected per architecture |
-| Signing/notarization | Not configured; ad-hoc signature and no TeamIdentifier |
+| Provider routing | GPT-5.6 tool turns use `/v1/responses`; keyless loopback/Ollama uses compatible Chat Completions; provider-neutral requests retain one policy path |
+| Workspace recovery | Root-first discovery, structured missing-path suggestions, and a capped Tier 0 continuation loop prevent a missing assumed directory from ending a scan |
+| Tool policy | Tier 0 reads; Tier 1 one-time or exact expiring session approval; Tier 2 always explicit |
+| Filesystem | Workspace containment, symlink escape rejection, atomic writes, diffs, backups, dirty-editor protection |
+| Git and shell | Protected Git service; argument-array shell spawn with workspace cwd, bounds, cancellation, and process-tree controls |
+| Approval and audit | Retained request/result UI, per-workspace audit records, task references, and secret redaction |
+| Persistent tasks | Schema-v4 tasks, steps, dependencies, checkpoints, artifacts, external references, approvals, events, reconciliation, UI, and Markdown handoffs |
+| Background operations | Task-linked local PID, output path, bounded output, audit reference, and restart reconciliation |
+| Editor and terminal | New blank files activate Monaco; save/open/undo/redo shortcuts; workspace-owned PTY with safe CLI environment, restart, and canonical cwd handling |
+| Renderer boundary | Context isolation, no Node integration, sandbox, allowlisted preload, navigation denial, packaged `file://` renderer |
+| Update discovery | Stable/Beta logical policy, legacy Preview migration, bounded GitHub response, strict forward SemVer, selected safe feed |
+| Packaging | Clean ARM64/universal commands, beta metadata, exact hash-bearing manifest, manifest-driven install/upload |
+| Signing/notarization | Not configured in repository; final workflow state must be inspected |
 
-## Current validation
+## Persistent task boundary
 
-- `npm ci` audited 532 packages with zero vulnerabilities. Typecheck, lint, all 20 test files / 61 tests, and production build pass.
-- Tests cover the required stable, alpha, beta, rc, downgrade, malformed, draft, unpublished, prerelease-mismatch, unsafe-feed, response-bound, timeout, and cancellation cases.
-- The macOS watcher now supplements native events with a serialized snapshot fallback; its focused file passed 20 consecutive runs before the full suite passed.
-- ARM64 and universal packaging pass. The ARM app/PTY binaries are arm64; the universal app, `pty.node`, and `spawn-helper` contain x86_64 and arm64. Universal ZIP and DMG integrity pass.
-- The pre-commit packaged app loads from `file://` in app.asar and reports alpha.3/Preview/packaged/darwin arm64. Workspace open/read, allowlisted IPC, PTY `pwd`, cwd escape rejection, tool approval/rejection, audit retention, and FORGE/AIFRED/INTERVENTION isolation pass.
-- Live packaged Stable and Preview checks against the public set reject older alpha.2 and v1.0.1 and report alpha.3 up to date.
-- Pre-commit diagnostics correctly embed baseline main `4a0207a0d0e721c031a4687f10ce4aa12d43277e`. Publication remains blocked until the exact merged release commit repeats every gate, is tagged, hash-matched, manually installed, and visibly verified.
+Tasks belong to the workspace SQLite database, not to a conversation or provider. Resume audits current Git, known local processes, and supplied external observations; it preserves verified checkpoints and selects the first dependency-ready unfinished step. Conversation deletion does not delete a task. Every executable step still uses the existing policy and approval path.
 
-## Known limitations and debt
+Implemented background starts can survive the initiating AI turn while the main process remains active. Durable exit supervision across a full application restart, scheduled GitHub polling, and autonomous multi-step execution are not implemented. A later session reconciles persisted PID/remote observations rather than trusting stale running state.
 
-1. Apple Developer ID signing and notarization are unavailable; automatic installation cannot be called trusted.
-2. Alpha.1 and alpha.2 cannot discover normal prerelease tags and require a one-time manual alpha.3 upgrade.
-3. Public unauthenticated GitHub release discovery is limited by GitHub's rate limit; failure is reported and never bypasses policy.
-4. Web search uses a bounded public HTML endpoint rather than a contracted API.
-5. File rollback backups are recovery aids rather than transactional storage.
-6. Tool-result context bounds are character-based rather than tokenizer-aware.
-7. Retrieval remains lexical; concept graph, embeddings, and persisted hybrid search remain future work.
-8. OAuth device flow is not implemented; GitHub uses a user-created Keychain-backed encrypted token.
+## Beta release state
+
+The intended release identity is `1.1.0-beta.1`, annotated tag `v1.1.0-beta.1`, Beta channel, and `beta-mac.yml`. Beta accepts newer beta, rc, or stable versions; it rejects alpha. Stable accepts only stable.
+
+The release is not yet verified. Required remaining gates include:
+
+1. complete beta source suite and clean ARM64/universal packages;
+2. local installation at exactly `/Applications/FORGE.app` and packaged acceptance;
+3. branch push, pull request, checks, merge, and synchronized main;
+4. rebuild/accept the exact final main commit;
+5. annotated tag, public workflow, serial assets, independent remote hashes, and public reinstall;
+6. only then remove audited obsolete Releases/tags and stale local installations/artifacts.
+
+## Known limitations
+
+1. Apple Developer ID signing and notarization are not configured; unattended replacement cannot be called trusted.
+2. Public unauthenticated GitHub discovery is subject to GitHub rate limits and fails closed.
+3. Web search uses a bounded public HTML endpoint rather than a contracted search API.
+4. File rollback backups are recovery aids rather than transactional storage.
+5. Tool-result context bounds are character-based rather than tokenizer-aware.
+6. Retrieval remains lexical; embeddings and a persisted semantic graph remain planned.
+7. OAuth device flow is not implemented; GitHub uses a user-created Keychain-backed encrypted token.
+8. Persistent tasks do not provide unattended full workflow orchestration, a cross-restart supervisor, or scheduled external-service watchers.
 
 ## Repository authority
 
-Current source, root documentation, `docs/`, package configuration, and workflow files are authoritative. Generated `apps/desktop/out` and `dist_electron` output is ignored verification evidence. Machine-local `.obsidian/` state is excluded from release commits.
+The workspace is authoritative; the model is replaceable. Current source, root documentation, `docs/`, package configuration, and workflows describe implemented behavior. Generated output, `.forge/`, `.obsidian/`, local databases, and updater caches are not source and must not be committed or indexed as memory.

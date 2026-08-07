@@ -10,9 +10,12 @@ import { OpenAIProvider, ContextBuilderImpl, Agent, type AgentMessage } from '@f
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
-import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type ProviderToolCall } from '@forge/agent-tools';
+import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type ProviderToolCall, type ToolRequestOutcome } from '@forge/agent-tools';
 import { ShellService, TerminalService } from '@forge/shell';
 import { WebService } from '@forge/web';
+import { TaskRuntime } from '@forge/tasks';
+import { looksLikeRepeatedToolRequest, toolCallKey } from './agent-continuation';
+import { taskApprovalLink, taskEvidenceLink } from './task-links';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -28,7 +31,8 @@ const webService = new WebService(() => settings.webResearchEnabled());
 const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? null, (event) => {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('terminal.event', event);
 });
-const toolRouter = new ToolRouter({ git, shell: shellService, terminal: terminalService, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
+const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
+const toolRouter = new ToolRouter({ git, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
 function appBuildInfo(): AppBuildInfo {
@@ -108,37 +112,86 @@ function registerHandlers(): void {
   const resolveConversation = async (conversationId?: string) => storage.conversationState(conversationId);
   const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId))
     .map((entry) => ({ role: entry.role, content: entry.content }));
+  const recordTaskOutcome = async (request: { id: string; input: unknown; toolName?: string }, result: any): Promise<string | null> => {
+    const link = taskEvidenceLink(request); if (!link) return null;
+    try { await taskRuntime.recordToolOutcome(link.taskId, link.stepId, request.id, result); return null; }
+    catch (error) { return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`; }
+  };
   const runAgentTurn = async (conversationId: string, prompt: string) => {
     const state = await resolveConversation(conversationId);
     const history = await historyFor(state.activeConversationId);
     await storage.appendConversation(state.activeConversationId, 'user', prompt);
-    const turn = await agent.askWithTools(prompt, history, toolRouter.providerDefinitions());
-    const calls: ProviderToolCall[] = [...turn.toolCalls];
-    const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
-    if (fallback) calls.push(fallback);
-    if (calls.length > 5) throw new Error('The model requested too many tools in one turn.');
+    const definitions = toolRouter.providerDefinitions();
+    const firstTurn = await agent.askWithTools(prompt, history, definitions);
+    let turn = firstTurn;
     const project = await storage.dashboard();
     const info = workspace.info();
     if (!project || !info) throw new Error('Open a workspace before requesting agent tools.');
-    const toolOutcomes = [];
-    for (const call of calls) toolOutcomes.push(await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel }));
+    const toolOutcomes: ToolRequestOutcome[] = [];
+    const taskLinkWarnings: string[] = [];
+    const continuationHistory: AgentMessage[] = [...history, { role: 'user', content: prompt }];
+    const executedCallKeys = new Set<string>();
+    const synthesizeObservedResults = async (): Promise<string> => {
+      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      return (await agent.askWithContext(`The required FORGE tool has already completed. Do not output JSON and do not request another tool. Answer the original request using only these observed Tool Result records.\n\n${evidence}`, continuationHistory)).content;
+    };
+    let modelContent = '';
+    let completedRounds = 0;
+    for (; completedRounds < 3; completedRounds += 1) {
+      const calls: ProviderToolCall[] = [...turn.toolCalls];
+      const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
+      if (fallback) calls.push(fallback);
+      if (calls.length === 0) {
+        if (toolOutcomes.length && looksLikeRepeatedToolRequest(turn.content)) {
+          modelContent = await synthesizeObservedResults();
+        } else modelContent = turn.content;
+        break;
+      }
+      const freshCalls = calls.filter((call) => !executedCallKeys.has(toolCallKey(call)));
+      if (freshCalls.length === 0) { modelContent = await synthesizeObservedResults(); break; }
+      if (toolOutcomes.length + freshCalls.length > 5) throw new Error('The model requested too many tools in one turn.');
+      const roundOutcomes: ToolRequestOutcome[] = [];
+      for (const originalCall of freshCalls) {
+        executedCallKeys.add(toolCallKey(originalCall));
+        let call = originalCall;
+        const link = taskEvidenceLink({ input: originalCall.arguments, toolName: originalCall.name });
+        if (link) {
+          try {
+            const task = await taskRuntime.get(link.taskId);
+            if (!task.steps.some((step) => step.id === link.stepId)) throw new Error('Unknown task step.');
+          } catch {
+            const { taskContext: _invalidTaskContext, ...argumentsWithoutTaskContext } = originalCall.arguments as Record<string, unknown>;
+            call = { ...originalCall, arguments: argumentsWithoutTaskContext };
+          }
+        }
+        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
+        roundOutcomes.push(outcome); toolOutcomes.push(outcome);
+      }
+      for (const outcome of roundOutcomes) {
+        const link = taskApprovalLink(outcome.request); if (!link) continue;
+        if (outcome.result) { const warning = await recordTaskOutcome(outcome.request, outcome.result); if (warning) taskLinkWarnings.push(warning); }
+        else await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: outcome.request.id, decision: 'pending', scope: `${link.taskId}:${link.stepId}:${outcome.request.toolName}` });
+      }
+      if (roundOutcomes.some((outcome) => !outcome.result)) { modelContent = turn.content; break; }
+      const evidence = roundOutcomes.map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
+      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. If a filesystem result reports a missing path, follow its recovery instruction and inspect the workspace root before concluding. Do not repeat a completed request.\n\n${evidence}`, continuationHistory, definitions);
+    }
+    if (!modelContent && completedRounds >= 3) {
+      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      modelContent = (await agent.askWithContext(`Answer the original request from the observed Tool Results. The bounded continuation limit was reached; do not claim unobserved work.\n\n${evidence}`, continuationHistory)).content;
+    }
     const toolSummary = toolOutcomes.map(({ request, result }) => result
       ? `Tool ${request.toolName} ${result.success ? 'succeeded' : 'failed'} (${result.durationMs} ms).${result.error ? ` ${result.error.message}` : ''}`
       : `Tool ${request.toolName} requires Tier ${request.riskTier} approval before FORGE can execute it.`).join('\n');
-    let modelContent = fallback ? '' : turn.content;
-    if (toolOutcomes.length && toolOutcomes.every((outcome) => outcome.result)) {
-      const evidence = toolOutcomes.map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
-      const followUp = await agent.askWithContext(`FORGE validated and executed the requested tools. Use these bounded, redacted Tool Result records to answer the original request. Distinguish tool evidence from inference and do not claim anything beyond the results.\n\n${evidence}`, [...history, { role: 'user', content: prompt }, { role: 'assistant', content: turn.content || 'I requested FORGE tools.' }]);
-      modelContent = followUp.content;
-    }
-    const content = [modelContent, toolSummary].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
+    const content = [modelContent, toolSummary, ...taskLinkWarnings].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
     await storage.appendConversation(state.activeConversationId, 'assistant', content);
     return {
       content,
       contextUsed: turn.context.artifacts.length > 0,
       conversationId: state.activeConversationId,
-      memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
-      contextSources: [...turn.context.artifacts.map((artifact) => ({
+      memories: firstTurn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
+      contextSources: [...firstTurn.context.artifacts.map((artifact) => ({
         id: artifact.id,
         kind: artifact.kind,
         title: artifact.title,
@@ -194,18 +247,21 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.toolRequestsList, async () => { const project = await storage.dashboard(); return (project ? toolRouter.listRequests(project.id) : []) as any; });
   register(IPC_CHANNELS.toolRequestApprove, async (request) => {
     const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.');
+    const link = taskApprovalLink(pending);
+    if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: request.choice, scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now(), expiresAt: request.choice === 'session' ? Date.now() + 30 * 60_000 : undefined });
     const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
+    const taskWarning = await recordTaskOutcome(pending, result);
     const history = await historyFor(pending.conversationId);
     const evidence = boundedToolEvidence(result);
     try {
       const followUp = await agent.askWithContext(`FORGE has completed the previously approved ${pending.toolName} request. Continue the active task using this bounded, redacted Tool Result. Report success or failure exactly as returned.\n\n${evidence}`, history);
-      await storage.appendConversation(pending.conversationId, 'assistant', followUp.content);
+      await storage.appendConversation(pending.conversationId, 'assistant', [followUp.content, taskWarning].filter(Boolean).join('\n\n'));
     } catch {
       await storage.appendConversation(pending.conversationId, 'assistant', `FORGE tool result: ${pending.toolName} ${result.success ? 'succeeded' : 'failed'}.${result.error ? ` ${result.error.message}` : ''}`);
     }
     return result as any;
   });
-  register(IPC_CHANNELS.toolRequestReject, async (request) => { await toolRouter.reject(request.requestId, await toolContext()); return undefined; });
+  register(IPC_CHANNELS.toolRequestReject, async (request) => { const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.'); await toolRouter.reject(request.requestId, await toolContext()); const link = taskApprovalLink(pending); if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: 'rejected', scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now() }); return undefined; });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
   register(IPC_CHANNELS.toolActionsList, async (request) => storage.listActions(request) as any);
   register(IPC_CHANNELS.editorDirtyUpdate, async (request) => { dirtyEditorPaths.clear(); for (const value of request.paths) if (value && !value.split(/[\\/]/).includes('..')) dirtyEditorPaths.add(value); return undefined; });
@@ -216,6 +272,15 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.terminalTerminate, async (request) => { terminalService.terminate(request.sessionId); return undefined; });
   register(IPC_CHANNELS.terminalRestart, async (request) => terminalService.restart(request.sessionId) as any);
   register(IPC_CHANNELS.terminalRemove, async (request) => { terminalService.remove(request.sessionId); return undefined; });
+  register(IPC_CHANNELS.tasksList, async () => taskRuntime.list());
+  register(IPC_CHANNELS.tasksGet, async (request) => taskRuntime.get(request.taskId));
+  register(IPC_CHANNELS.tasksCreate, async (request) => taskRuntime.create(request));
+  register(IPC_CHANNELS.tasksCreateRelease, async (request) => taskRuntime.createRelease(request.version, request.originatingConversationId));
+  register(IPC_CHANNELS.tasksResume, async (request) => taskRuntime.resume(request.taskId));
+  register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));
+  register(IPC_CHANNELS.tasksCancel, async (request) => taskRuntime.cancel(request.taskId, request.reason, request.trackingOnly));
+  register(IPC_CHANNELS.tasksRetryStep, async (request) => taskRuntime.retryStep(request.taskId, request.stepId));
+  register(IPC_CHANNELS.tasksHandoff, async (request) => taskRuntime.generateHandoff(request.taskId));
 }
 
 import { existsSync } from 'node:fs';

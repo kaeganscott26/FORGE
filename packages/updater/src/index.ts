@@ -2,9 +2,9 @@ import { compare, gt, prerelease, valid } from 'semver';
 import { fetch } from 'undici';
 import { z } from 'zod';
 
-export type LogicalUpdateChannel = 'stable' | 'preview';
+export type LogicalUpdateChannel = 'stable' | 'beta';
 
-const supportedPreviewIdentifiers = new Set(['alpha', 'beta', 'rc']);
+const supportedBetaIdentifiers = new Set(['beta', 'rc']);
 const githubAssetSchema = z.object({
   name: z.string().min(1).max(200),
   browser_download_url: z.string().url().max(2_048)
@@ -25,7 +25,7 @@ export interface DiscoveredUpdateRelease {
   tagName: string;
   prerelease: boolean;
   feedBaseUrl: string;
-  feedChannel: 'latest' | 'preview';
+  feedChannel: 'latest' | 'beta';
   metadataAssetUrl: string;
 }
 
@@ -50,7 +50,7 @@ function isCompatibleVersion(version: string, releaseIsPrerelease: boolean, chan
   const identifiers = prerelease(version);
   if (identifiers === null) return !releaseIsPrerelease;
   if (channel === 'stable' || !releaseIsPrerelease) return false;
-  return typeof identifiers[0] === 'string' && supportedPreviewIdentifiers.has(identifiers[0]);
+  return typeof identifiers[0] === 'string' && supportedBetaIdentifiers.has(identifiers[0]);
 }
 
 function safeMetadataAssetUrl(rawUrl: string, owner: string, repo: string, tagName: string, assetName: string): URL | null {
@@ -77,7 +77,7 @@ export function selectCompatibleRelease(
     const version = valid(release.tag_name);
     if (!version || !gt(version, currentVersion) || !isCompatibleVersion(version, release.prerelease, channel)) continue;
     const isPrerelease = prerelease(version) !== null;
-    const feedChannel = isPrerelease ? 'preview' : 'latest';
+    const feedChannel = isPrerelease ? 'beta' : 'latest';
     const assetName = `${feedChannel}-mac.yml`;
     const asset = release.assets.find((entry) => entry.name === assetName);
     const assetUrl = asset ? safeMetadataAssetUrl(asset.browser_download_url, repository.owner, repository.repo, release.tag_name, assetName) : null;

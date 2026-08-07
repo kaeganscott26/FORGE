@@ -1,5 +1,46 @@
 # FORGE Developer Log
 
+## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
+
+The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable updater choices. Stored Preview settings migrate to Beta; Beta permits newer beta, rc, or stable versions and rejects alpha. Packaging now cleans stale output, writes an exact hash-bearing build manifest, and makes installation and serial upload select artifacts from that manifest.
+
+Agent tool continuation now permits a capped three-round/five-call Tier 0 sequence so structured missing-path recovery can actually inspect the root and continue in one user turn. Any approval-required request stops the loop. Foreign or invented task links are removed before execution and cannot attach evidence across workspaces.
+
+The final beta repair pass opens a newly created blank file immediately, adds save/open/undo/redo shortcuts, gives user PTYs a bounded non-secret CLI environment, and supports keyless loopback OpenAI-compatible providers. A live local Ollama `llama3.2:3b` request returned a structured file-tool call; FORGE still validates and approval-gates it before any workspace action. Task checkpoint approval projection is now separate from step-evidence projection.
+
+The development-runtime money test created and saved `draft-2.txt`, reopened the duplicate through the human collision prompt, ran Codex 0.147.0 and Ollama 0.32.1 inside the FORGE PTY, and configured Ollama without an API key. `llama3.2:3b` requested `file.read`; FORGE recorded one automatic Tier 0 success in 3 ms and the local model answered `draft-two-content` from the observed result. Small-model plain-JSON calls are promoted only when they exactly match an offered tool, repeated calls are deduplicated, and loopback providers see a focused file-tool catalog.
+
+After the final repair, a clean `npm ci` source gate passed typecheck, lint, 25 test files / 95 tests, production build, and `npm audit --omit=dev` with zero vulnerabilities. npm reported one unapproved install script in the transitive Windows-only `electron-winstaller`; it did not execute and is outside the macOS beta path.
+
+Before the conversion, the complete repair/task-engine source gate passed 21 files / 78 tests, typecheck, lint, and production build. The beta conversion then passed focused IPC, updater, and task checks (3 files / 20 tests). The 4.5 GB historical local packaging tree was fully hashed in `docs/archive/PRE_BETA_RELEASE_AUDIT.md` and moved recoverably to Trash. Installed applications and all GitHub Releases/tags remain untouched pending final beta acceptance.
+
+This is preparation evidence, not release proof. Exact final-main packaging, local installed runtime checks, public workflow/assets, downloaded hash equality, public installation, updater behavior, and post-verification historical cleanup remain open.
+
+## 2026-08-06 — Persistent task engine and active runtime repair
+
+### Why
+
+Long-running work was recoverable only from conversation transcripts. Terminal input could be detached from the current renderer session, workspace scanning could stop after a guessed missing path, and GPT-5.6 tool calls used a Chat Completions combination the provider rejects. The repair treats the workspace database and observed runtime state as authority.
+
+### Implemented architecture
+
+- Added schema-v4 tasks, steps, task/step dependencies, checkpoints, artifacts, external references, approvals, and events without replacing conversations, memory, layouts, projects, goals, or action logs.
+- Added `@forge/tasks` with dependency-aware reconciliation, provider/model-independent persistence, PID/Git inspection, no-repeat completion rules, retry/cancellation semantics, safe handoffs, and a 26-step release template.
+- Added Tier 0/1/2 task tools through the existing registry/policy/audit runtime and a dedicated renderer Tasks view.
+- Added detached background process start with workspace-contained output. Process start remains distinct from verified step completion; missing PIDs fail closed for evidence review.
+- Added root-first context/file discovery and structured `ENOENT` recovery.
+- Kept xterm mounted across session changes, routed input through the active-session reference, enforced PTY workspace ownership, rejected writes after exit, and restored writable restart behavior.
+- Routed GPT-5.6 tool turns through `/v1/responses` while retaining Chat Completions compatibility for other provider models.
+- Changed tag CI to draft-first, serial hash-safe uploads and updater-metadata-last publication.
+
+### Validation status
+
+`npm ci` completed with zero reported vulnerabilities. Typecheck, lint, all 21 test files/78 tests, and the production build pass. ARM64 and universal DMG/ZIP packaging completed; both DMGs pass `hdiutil verify`, both ZIPs pass archive testing, and the packaged native PTY is ARM64 in the ARM build and x86_64/ARM64 in the universal build.
+
+An isolated real packaged universal app reported Preview `1.1.0-alpha.3`, `runtime: packaged`, and `file:// packaged app.asar`. Trusted renderer keyboard events sent `pwd` through xterm/preload/IPC to the PTY, `exit` produced code 0, exited input was rejected, and Restart produced a writable PTY in the canonical workspace. A `Persistent Task Verification` record and Markdown handoff survived renderer reload, conversation switching, and a full packaged-application stop/start while retaining the originating conversation and first unfinished step.
+
+The package is ad-hoc signed with no TeamIdentifier; Gatekeeper rejects it as having no usable signature. A live user-configured GPT-5.6 request, remote GitHub workflow/release checks, installation over `/Applications/FORGE.app`, and updater behavior remain unverified. Exact source-commit provenance must be rebuilt after the feature commits; these uncommitted packages embed baseline `d3c34d9` and are validation artifacts only.
+
 ## 2026-08-06 — FORGE 1.1.0-alpha.3 logical Preview discovery
 
 ### Why

@@ -67,7 +67,7 @@ launchctl unsetenv OPENAI_MODEL
 launchctl unsetenv OPENAI_BASE_URL
 ```
 
-`.env.example` documents supported names, but the packaged app does not automatically load a repository `.env` file. Saved in-app values take precedence over environment values for base URL and model; a saved key takes precedence over `OPENAI_API_KEY`.
+`.env.example` documents supported names, but the packaged app does not automatically load a repository `.env` file. Saved in-app values take precedence over environment values for base URL and model; a saved key takes precedence over `OPENAI_API_KEY`. Remote providers require a key. Loopback OpenAI-compatible providers at `localhost`, `127.0.0.1`, or `::1` may run keyless; Ollama's conventional base URL is `http://127.0.0.1:11434/v1`.
 
 The default applies only when neither a saved preference nor `OPENAI_MODEL` exists. Existing saved model IDs, including older GPT-4o configurations, are preserved for backwards compatibility.
 
@@ -75,16 +75,16 @@ The default applies only when neither a saved preference nor `OPENAI_MODEL` exis
 
 The model field accepts any non-empty ID. This is deliberate: FORGE does not require a source update whenever OpenAI or an OpenAI-compatible provider introduces a model.
 
-- **Refresh provider models** calls `<API base URL>/models` using the entered key, or the stored key when the input is blank.
+- **Refresh provider models** calls `<API base URL>/models` using the entered key, the stored key when the input is blank, or no authorization header for a keyless loopback provider.
 - **Validate model** checks for an exact ID in that response.
 - A missing ID can still be saved for a compatible provider or future availability, but chat requests will display an unsupported/unavailable error until the provider accepts it.
 - **Test saved model and API connection** validates the already stored URL, key, and model.
 
-The automated request uses Chat Completions. FORGE sends `max_completion_tokens` and retries with legacy `max_tokens` only when an OpenAI-compatible endpoint rejects the newer parameter.
+GPT-5.6 tool-capable turns use `<API base URL>/responses`, flat Responses function tools, and provider aliases mapped back to FORGE's stable tool names. Other compatible models use Chat Completions; FORGE sends `max_completion_tokens` and retries with legacy `max_tokens` only when an older compatible endpoint rejects the newer parameter. Model routing changes provider protocol only—the same registry, policy, approval, executor, and audit boundaries apply.
 
 ### Conversation and workspace configuration
 
-AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation history is not: threads, the selected thread, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all three without changing the API credentials.
+AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation and task state are not: threads, the selected thread, persistent task steps/checkpoints/events, audit links, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all workspace state without changing the API credentials. Assigning provider/model metadata to a task is provenance, not ownership or execution authority.
 
 The Settings build diagnostic is intentionally separate from user configuration. It contains only application version, release channel, build commit/date, runtime and renderer modes, platform, and architecture; it never includes saved secrets or private local paths.
 
@@ -92,15 +92,15 @@ The Settings build diagnostic is intentionally separate from user configuration.
 
 External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabling web research does not approve a request: each `web.search`, `web.fetch`, or `web.open` remains Tier 2 and shows its exact query/URL and declared project-data transfer.
 
-The update channel defaults to **Stable**, including migrated settings that have no channel field. Choose **Preview** to allow alpha, beta, and release-candidate versions. FORGE treats these as logical channels: bounded GitHub Release discovery filters drafts, malformed versions, incompatible prereleases, and non-forward versions before selecting an exact release feed. Stable accepts only normal semantic versions; Preview accepts strictly newer `alpha`, `beta`, `rc`, or stable versions. The internal Electron Updater metadata channel is derived from the selected release, its downgrade flag is reset to false, and the returned version is checked again before download. This preference contains no secret.
+The update channel defaults to **Stable**, including settings with no recognized channel. Choose **Beta** to allow newer beta, release-candidate, or stable versions. A legacy stored `preview` value migrates to `beta`. Bounded GitHub Release discovery filters drafts, malformed versions, incompatible prereleases, unsafe metadata, and non-forward versions before selecting an exact feed. Stable accepts only normal semantic versions. The selected feed resets downgrade permission, and the returned version is checked again before download. This preference contains no secret.
 
-Alpha.1 and alpha.2 directly stored the logical Preview value as a provider channel. Because those immutable clients cannot discover conventional alpha/beta/rc tags, upgrading from alpha.2 to alpha.3 is a one-time manual install. Do not create a compatibility tag or republish either release. Once alpha.3 is installed, future Preview discovery follows the corrected logical-channel policy.
+Beta does not accept future alpha versions. The legacy preference migration exists only to move an installed alpha.3 forward to beta.1 under the corrected discovery policy.
 
-Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. The persistent per-workspace action log is stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
+Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. A persistent task or saved approval record never revives an expired permission. The persistent per-workspace action log and linked task events are stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
 
 ## GitHub Release integration
 
-The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to attach DMG, ZIP, blockmap, and `latest-mac.yml` assets to version-tag releases. Prerelease tags create GitHub Pre-releases; stable tags create normal Latest releases.
+The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to create a draft version-tag release, attach DMG, ZIP, blockmaps, and channel YAML serially, verify byte-identical assets on retry, and publish only after the upload sequence succeeds. Prerelease tags create GitHub Pre-releases; stable tags create normal Latest releases.
 
 For signed and notarized releases, add these repository Actions secrets:
 
@@ -114,11 +114,12 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and the generated lockfile metadata agree. Use a prerelease version such as `1.1.0-alpha.3` for Preview.
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `1.1.0-beta.1`.
 2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
-3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`.
-4. Commit and push `main`.
-5. Create and push an annotated `vX.Y.Z` tag from the exact synchronized commit.
-6. Verify the GitHub Release assets and test the DMG on a clean macOS account.
+3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`; use `package:mac:all` for one clean combined artifact directory.
+4. Commit on a feature/release branch, push it, open a pull request, and merge only after checks pass.
+5. Synchronize local `main` with `origin/main` and record the authoritative commit.
+6. Create and push an annotated `vX.Y.Z` tag from that exact synchronized commit.
+7. Verify workflow provenance, local/remote hashes, the installed app, runtime diagnostics, terminal input, task persistence, and updater behavior. See `RELEASING.md`.
 
 Versions must always increase. Reusing a version can strand clients on an older update payload.

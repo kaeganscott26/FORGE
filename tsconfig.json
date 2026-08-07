@@ -21,6 +21,7 @@
       , "@forge/shell": ["packages/shell/src/index.ts"]
       , "@forge/web": ["packages/web/src/index.ts"]
       , "@forge/updater": ["packages/updater/src/index.ts"]
+      , "@forge/tasks": ["packages/tasks/src/index.ts"]
     }
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "vitest.config.ts"]

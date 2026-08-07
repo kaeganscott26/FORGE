@@ -24,7 +24,37 @@ export interface DiffLine { type: 'context' | 'addition' | 'deletion'; oldLineNu
 export interface GitDiffFile { path: string; status: string; additions: number; deletions: number; lines: DiffLine[]; }
 export interface GitDiff { files: GitDiffFile[]; }
 export interface Goal { id: string; title: string; description?: string; status: 'active' | 'completed' | 'archived'; createdAt: number; updatedAt: number; }
-export interface Task { id: string; title: string; description?: string; status: 'todo' | 'in-progress' | 'done' | 'blocked'; priority: 'low' | 'medium' | 'high'; createdAt: number; updatedAt: number; }
+export type TaskStatus = 'draft' | 'ready' | 'running' | 'waiting' | 'blocked' | 'paused' | 'failed' | 'cancelled' | 'completed';
+export type TaskStepStatus = 'pending' | 'running' | 'waiting' | 'blocked' | 'failed' | 'skipped' | 'completed';
+export type TaskResumabilityState = 'resumable' | 'reconcile-required' | 'approval-required' | 'not-resumable' | 'complete';
+export type TaskEventType = 'task.created' | 'task.started' | 'step.started' | 'step.waiting' | 'step.completed' | 'step.failed' | 'step.retried' | 'task.paused' | 'task.resumed' | 'task.blocked' | 'task.completed' | 'task.cancelled' | 'state.reconciled' | 'external.process.detected' | 'external.asset.verified' | 'handoff.generated';
+export interface TaskRetryPolicy { maxAttempts: number; backoffMs: number; retryableErrorCodes: string[]; }
+export interface TaskStep {
+  id: string; taskId: string; position: number; name: string; purpose: string; status: TaskStepStatus; riskTier: 0 | 1 | 2;
+  requiredTool?: string; expectedInput?: unknown; expectedOutput?: unknown; startedAt?: number; completedAt?: number; attempts: number;
+  lastError?: { message: string; code?: string; exitCode?: number | null; stdout?: string; stderr?: string; retryable: boolean; suggestedNextAction?: string };
+  retryPolicy: TaskRetryPolicy; timeoutMs: number; approvalState: 'not-required' | 'required' | 'pending' | 'approved' | 'expired' | 'rejected' | 'consumed';
+  externalProcessId?: number; outputPath?: string; artifactPaths: string[]; verificationCriteria: string[]; rollbackInstructions?: string;
+  auditReferences: string[]; dependencies: string[];
+}
+export interface TaskCheckpoint { id: string; taskId: string; stepId?: string; name: string; summary: string; verified: boolean; evidence: unknown; auditReferences: string[]; createdAt: number; }
+export interface TaskArtifact { id: string; taskId: string; stepId?: string; kind: string; path?: string; uri?: string; sha256?: string; size?: number; verifiedAt?: number; metadata?: unknown; createdAt: number; }
+export interface TaskExternalReference { id: string; taskId: string; stepId?: string; type: 'pull-request' | 'release' | 'workflow-run' | 'asset' | 'process' | 'url' | 'other'; provider?: string; externalId: string; url?: string; state?: string; metadata?: unknown; verifiedAt?: number; createdAt: number; updatedAt: number; }
+export interface TaskApproval { id: string; taskId: string; stepId: string; toolRequestId?: string; decision: 'pending' | 'run-once' | 'session' | 'rejected' | 'expired' | 'consumed'; scope: string; requestedAt: number; decidedAt?: number; expiresAt?: number; auditReference?: string; }
+export interface TaskEvent { id: string; taskId: string; stepId?: string; type: TaskEventType; summary: string; details?: unknown; auditReference?: string; createdAt: number; }
+export interface Task {
+  id: string; workspaceId: string; title: string; description?: string; taskType: string; status: TaskStatus; priority: 'low' | 'medium' | 'high';
+  currentStepId?: string; createdAt: number; updatedAt: number; startedAt?: number; completedAt?: number; originatingConversationId?: string;
+  lastActiveConversationId?: string; assignedProvider?: string; assignedModel?: string; progressSummary: string; retryMetadata?: unknown;
+  interruptionReason?: string; resumabilityState: TaskResumabilityState; resumeInstructions: string; associatedBranch?: string; associatedCommitSha?: string;
+  associatedPullRequest?: string; associatedReleaseTag?: string; associatedWorkflowRun?: string; processIds: number[]; externalResourceIds: string[];
+  steps: TaskStep[]; taskDependencies: string[]; checkpoints: TaskCheckpoint[]; artifacts: TaskArtifact[]; externalReferences: TaskExternalReference[];
+  approvals: TaskApproval[]; events: TaskEvent[];
+}
+export interface TaskStepDraft { id?: string; name: string; purpose: string; riskTier: 0 | 1 | 2; requiredTool?: string; expectedInput?: unknown; expectedOutput?: unknown; retryPolicy?: Partial<TaskRetryPolicy>; timeoutMs?: number; artifactPaths?: string[]; verificationCriteria: string[]; rollbackInstructions?: string; dependencies?: string[]; }
+export interface TaskDraft { title: string; description?: string; taskType: string; priority?: Task['priority']; originatingConversationId?: string; assignedProvider?: string; assignedModel?: string; progressSummary?: string; resumeInstructions: string; associatedBranch?: string; associatedCommitSha?: string; associatedPullRequest?: string; associatedReleaseTag?: string; associatedWorkflowRun?: string; taskDependencies?: string[]; steps: TaskStepDraft[]; }
+export interface TaskRealitySnapshot { observedAt: number; workspaceId: string; git?: { branch?: string; commitSha?: string; workingTreeClean?: boolean }; processes: Array<{ pid: number; state: 'running' | 'exited' | 'missing'; exitCode?: number | null }>; stepObservations: Array<{ stepId: string; state: 'running' | 'waiting' | 'completed' | 'failed'; verified: boolean; summary: string; evidence?: unknown; error?: TaskStep['lastError']; auditReference?: string }>; }
+export interface TaskHandoff { taskId: string; relativePath: string; markdown: string; generatedAt: number; }
 export interface ProjectMetadata { id: string; name: string; rootPath: string; createdAt: number; updatedAt: number; goals: Goal[]; tasks: Task[]; }
 export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: { score: number; hasReadme: boolean; noteCount: number; codeFileCount: number }; }
 
@@ -37,7 +67,7 @@ export interface AppUpdateStatus {
 
 export interface AppBuildInfo {
   version: string;
-  channel: 'development' | 'preview' | 'stable';
+  channel: 'development' | 'beta' | 'stable';
   commit: string;
   buildDate: string;
   runtime: 'packaged' | 'development';
@@ -48,20 +78,22 @@ export interface AppBuildInfo {
 
 export function buildReleaseIdentity(baseVersion: string, packaged: boolean): Pick<AppBuildInfo, 'version' | 'channel'> {
   if (!packaged) return { version: `${baseVersion}-dev`, channel: 'development' };
-  return { version: baseVersion, channel: baseVersion.includes('-') ? 'preview' : 'stable' };
+  return { version: baseVersion, channel: baseVersion.includes('-') ? 'beta' : 'stable' };
 }
 
-export function normalizeUpdateChannel(value: unknown): 'stable' | 'preview' { return value === 'preview' ? 'preview' : 'stable'; }
-
-export function buildUpdatePolicy(channel: 'stable' | 'preview'): { allowPrerelease: boolean; allowDowngrade: false } {
-  return { allowPrerelease: channel === 'preview', allowDowngrade: false };
+export function normalizeUpdateChannel(value: unknown): 'stable' | 'beta' {
+  return value === 'beta' || value === 'preview' ? 'beta' : 'stable';
 }
 
-export function isUpdateVersionEligible(currentVersion: string, candidateVersion: string, channel: 'stable' | 'preview'): boolean {
+export function buildUpdatePolicy(channel: 'stable' | 'beta'): { allowPrerelease: boolean; allowDowngrade: false } {
+  return { allowPrerelease: channel === 'beta', allowDowngrade: false };
+}
+
+export function isUpdateVersionEligible(currentVersion: string, candidateVersion: string, channel: 'stable' | 'beta'): boolean {
   if (!valid(currentVersion) || !valid(candidateVersion) || !gt(candidateVersion, currentVersion)) return false;
   const identifiers = prerelease(candidateVersion);
   if (identifiers === null) return true;
-  return channel === 'preview' && typeof identifiers[0] === 'string' && ['alpha', 'beta', 'rc'].includes(identifiers[0]);
+  return channel === 'beta' && typeof identifiers[0] === 'string' && ['beta', 'rc'].includes(identifiers[0]);
 }
 
 export function formatAppBuildInfo(info: AppBuildInfo): string {
@@ -84,7 +116,7 @@ export interface UserSettings {
   githubTokenConfigured: boolean;
   secureStorageAvailable: boolean;
   webResearchEnabled: boolean;
-  updateChannel: 'stable' | 'preview';
+  updateChannel: 'stable' | 'beta';
 }
 
 export interface SettingsSaveRequest {
@@ -96,7 +128,7 @@ export interface SettingsSaveRequest {
   githubToken?: string;
   clearGithubToken?: boolean;
   webResearchEnabled: boolean;
-  updateChannel: 'stable' | 'preview';
+  updateChannel: 'stable' | 'beta';
 }
 
 export interface ToolRequestView {
@@ -192,7 +224,8 @@ export const IPC_CHANNELS = {
   agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear',
   agentMemoriesList: 'agent.memories.list', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesReindex: 'agent.memories.reindex'
   , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
-  terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove'
+  terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove',
+  tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff'
 } as const;
 
 export interface IPCRequestMap {
@@ -209,6 +242,7 @@ export interface IPCRequestMap {
   'tool.requests.list': undefined; 'tool.request.approve': { requestId: string; choice: 'run-once' | 'session' }; 'tool.request.reject': { requestId: string }; 'tool.request.cancel': { requestId: string };
   'tool.actions.list': { conversationId?: string; toolName?: string; riskTier?: 0 | 1 | 2; success?: boolean; from?: number; to?: number } | undefined; 'editor.dirty.update': { paths: string[] };
   'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
+  'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
 }
 
 export interface IPCResponseMap {
@@ -224,6 +258,7 @@ export interface IPCResponseMap {
   'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.delete': void; 'agent.memories.reindex': void;
   'tool.requests.list': ToolRequestView[]; 'tool.request.approve': ToolResultView; 'tool.request.reject': void; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
   'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
+  'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
 }
 
 export type IPCChannel = keyof IPCRequestMap;
