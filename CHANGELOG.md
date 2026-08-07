@@ -57,6 +57,15 @@ The current source passed typecheck, lint, 25 test files / 100 tests, production
 
 GitHub Actions run `31193206048` passed from the exact tagged commit and published the five beta.2 assets. The public DMG digest matched GitHub's reported SHA-256 and its read-only mounted runtime loaded the repaired packaged UI. No existing application installation was replaced.
 
+## 2026-08-07 — FORGE 1.1.0-beta.1 publication
+
+- Merged the persistent-task and final workflow repairs through PRs #12–#15. The verified application payload and annotated `v1.1.0-beta.1` tag point to `8350aab8d498073b2335dfb8a1d7caa227865514`; `main` later advanced only for the draft-release asset lookup fix.
+- Passed typecheck, lint, all 25 test files / 96 tests, production build, zero-vulnerability production audit, exact-commit ARM64/universal packaging, manifest validation, both ZIP tests, both DMG checks, and universal executable/native-module architecture inspection.
+- Verified the packaged editor, Command-key save/undo/redo, duplicate open flow, terminal selection styling, Codex 0.147.0, Ollama 0.32.1, and one real local `file.read` tool round trip. FORGE recorded the Ollama call as one automatic Tier 0 success in 3 ms and returned the actual file content.
+- The tag workflow passed source validation and unsigned universal packaging, then exposed a draft-only API 404 in asset lookup. Changed the lookup to `gh release view`, uploaded the five manifest-selected assets serially with `beta-mac.yml` last, downloaded them again, and verified every SHA-256 against the manifest and GitHub digest.
+- Published the GitHub Pre-release and reinstalled its downloaded universal ZIP at `/Applications/FORGE.app` after moving earlier bundles recoverably to Trash. One physical FORGE app remains. It reports `1.1.0-beta.1`, packaged `app.asar`, and embedded release commit `8350aab`.
+- Signing and notarization remain unavailable. The public beta is ad-hoc signed/unsigned, macOS reports no usable signature, and unattended trusted replacement is not claimed.
+
 ## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
 
 The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable updater choices. Stored Preview settings migrate to Beta; Beta permits newer beta, rc, or stable versions and rejects alpha. Packaging now cleans stale output, writes an exact hash-bearing build manifest, and makes installation and serial upload select artifacts from that manifest.
