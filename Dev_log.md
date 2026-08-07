@@ -1,10 +1,10 @@
 # FORGE Developer Log
 
-## 2026-08-07 — FORGE beta 2.1 reset and UI/file workflow repair
+## 2026-08-07 — FORGE 2.1.0-beta.2 reset and UI/file workflow repair
 
 ### Why
 
-The broken release line was discarded back to commit `8350aab` after reports that UI actions returned no visible result, AI model catalogs did not load, and panel resizing made the editor unreadable. The superseded GitHub releases `v1.1.0-beta.1` and `v1.1.0-beta.2` were removed with their release tags.
+The broken release line was discarded back to commit `8350aab` after reports that UI actions returned no visible result, AI model catalogs did not load, and panel resizing made the editor unreadable. The superseded GitHub releases `v1.1.0-beta.1` and `v1.1.0-beta.2` were removed with their release tags. The intermediate `v2.1.0-beta.1` publication was also removed because corrected artifacts must be identified as beta.2; no beta.1 package is supported for installation.
 
 ### Implementation
 
@@ -18,7 +18,7 @@ The broken release line was discarded back to commit `8350aab` after reports tha
 
 ### Validation
 
-The current source passed typecheck, lint, 25 test files / 99 tests, production build, and `git diff --check`. Release identity is `2.1.0-beta.1`, public name **FORGE beta 2.1**, and target tag `v2.1.0-beta.1`.
+The current source passed typecheck, lint, 25 test files / 100 tests, production build, and `git diff --check`. Release identity is `2.1.0-beta.2`, public name **FORGE beta 2.1**, and target tag `v2.1.0-beta.2`. DMG acceptance is isolated from `/Applications` and source installation.
 
 ## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
 

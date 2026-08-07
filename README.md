@@ -41,8 +41,8 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 
 ## Install FORGE on macOS
 
-1. Open the [`FORGE beta 2.1` Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.1).
-2. Download `FORGE-2.1.0-beta.1-universal.dmg`.
+1. Open the [`FORGE beta 2.1` Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2).
+2. Download `FORGE-2.1.0-beta.2-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
@@ -63,7 +63,7 @@ npm run install:mac
 
 The packaged app includes **Check for updates** and **Releases** controls. Stable is the default. Beta accepts strictly newer beta, release-candidate, or stable versions after explicit selection; a legacy Preview preference migrates to Beta. Until Developer ID signing is configured, use the verified DMG for manual replacement.
 
-Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. FORGE beta 2.1 reports `FORGE v2.1.0-beta.1`, `Channel: beta`, the exact commit, and `file:// packaged app.asar`. Diagnostics omit credentials, workspace names, and private local paths.
+Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. FORGE beta 2.1 reports `FORGE v2.1.0-beta.2`, `Channel: beta`, the exact commit, and `file:// packaged app.asar`. Diagnostics omit credentials, workspace names, and private local paths.
 
 ## Development
 
@@ -116,7 +116,7 @@ Generated packages are written to `dist_electron/`, excluded from Git and memory
 
 ## Release automation
 
-Pushing annotated tag `v2.1.0-beta.1` runs `.github/workflows/package-mac.yml`, validates source, creates or reconciles a draft, packages a universal app, selects assets from the manifest, uploads and hash-verifies them serially, publishes `beta-mac.yml` last, then publishes the `FORGE beta 2.1` GitHub Pre-release. A manual workflow run creates a downloadable Actions artifact without publishing. Read [Releasing FORGE](RELEASING.md), [Release Channels](docs/RELEASE_CHANNELS.md), and [Beta 2.1 Verification](docs/V2.1.0_BETA1_VERIFICATION.md).
+Pushing annotated tag `v2.1.0-beta.2` runs `.github/workflows/package-mac.yml`, validates source, creates or reconciles a draft, packages a universal app, selects assets from the manifest, uploads and hash-verifies them serially, publishes `beta-mac.yml` last, then publishes the `FORGE beta 2.1` GitHub Pre-release. A manual workflow run creates a downloadable Actions artifact without publishing. Read [Releasing FORGE](RELEASING.md), [Release Channels](docs/RELEASE_CHANNELS.md), and [Beta 2.1 Verification](docs/V2.1.0_BETA2_VERIFICATION.md).
 
 For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 
@@ -173,7 +173,7 @@ Tier 0 read-only tools may run automatically. Tier 1 reversible changes require 
 - [Persistent Tasks](docs/PERSISTENT_TASKS.md)
 - [Task Recovery](docs/TASK_RECOVERY.md)
 - [Build Artifact Policy](docs/BUILD_ARTIFACT_POLICY.md)
-- [Beta 2.1 Verification](docs/V2.1.0_BETA1_VERIFICATION.md)
+- [Beta 2.1 Verification](docs/V2.1.0_BETA2_VERIFICATION.md)
 
 ## Security notes
 

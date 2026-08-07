@@ -99,11 +99,11 @@ Login shells receive a small explicit environment with the current user home, sh
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE beta 2.1 reports `2.1.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.1.0-beta.1-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE beta 2.1 reports `2.1.0-beta.2`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.1.0-beta.2-dev` and `development`.
 
 Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 
-Existing settings that contain the former Preview preference migrate to Beta. This supports the alpha.3-to-beta.1 transition but does not permit future alpha builds on the Beta channel.
+Existing settings that contain the former Preview preference migrate to Beta. This supports the alpha.3-to-Beta transition but does not permit future alpha builds on the Beta channel.
 
 For a local source build, first run `npm run package:mac:universal`, then `npm run install:mac`. Installation verifies `build-manifest.json`, requires duplicates to be resolved, backs up the old system bundle to Trash, and installs exactly `/Applications/FORGE.app`.
 

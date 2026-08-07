@@ -94,7 +94,7 @@ External web research is off by default and has no environment-variable bypass. 
 
 The update channel defaults to **Stable**, including settings with no recognized channel. Choose **Beta** to allow newer beta, release-candidate, or stable versions. A legacy stored `preview` value migrates to `beta`. Bounded GitHub Release discovery filters drafts, malformed versions, incompatible prereleases, unsafe metadata, and non-forward versions before selecting an exact feed. Stable accepts only normal semantic versions. The selected feed resets downgrade permission, and the returned version is checked again before download. This preference contains no secret.
 
-Beta does not accept future alpha versions. The legacy preference migration exists only to move an installed alpha.3 forward to beta.1 under the corrected discovery policy.
+Beta does not accept future alpha versions. The legacy preference migration moves an installed alpha.3 forward to the Beta channel under the corrected discovery policy.
 
 Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. A persistent task or saved approval record never revives an expired permission. The persistent per-workspace action log and linked task events are stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
 
@@ -114,7 +114,7 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `2.1.0-beta.1` (`FORGE beta 2.1`).
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `2.1.0-beta.2` (`FORGE beta 2.1`).
 2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
 3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`; use `package:mac:all` for one clean combined artifact directory.
 4. Commit on a feature/release branch, push it, open a pull request, and merge only after checks pass.

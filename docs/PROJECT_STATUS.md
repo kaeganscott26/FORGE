@@ -2,7 +2,7 @@
 
 **Updated:** August 7, 2026
 
-**Working version:** `2.1.0-beta.1` — FORGE beta 2.1
+**Working version:** `2.1.0-beta.2` — FORGE beta 2.1
 
 **Baseline:** reset to commit `8350aab`, then repaired on `main`
 
@@ -12,7 +12,7 @@
 
 The repository was deliberately reset from the broken post-`8350aab` release line. The current source adds a full interactive project explorer, text-first file editing, readable responsive panel sizing, provider model discovery, and visible action failures.
 
-The two superseded GitHub releases (`v1.1.0-beta.1` and `v1.1.0-beta.2`) were deleted with their exact release tags. The new public target is the annotated `v2.1.0-beta.1` Pre-release named **FORGE beta 2.1**.
+The two superseded GitHub releases (`v1.1.0-beta.1` and `v1.1.0-beta.2`) were deleted with their exact release tags. The superseded `v2.1.0-beta.1` release was also removed so patched artifacts are published only as the annotated `v2.1.0-beta.2` Pre-release named **FORGE beta 2.1**.
 
 ## Implemented capability matrix
 
@@ -33,7 +33,7 @@ The current tree passed:
 
 - `npm run typecheck`
 - `npm run lint`
-- `npm test` — 25 test files / 99 tests
+- `npm test` — 25 test files / 100 tests
 - `npm run build`
 - `git diff --check`
 
@@ -41,7 +41,7 @@ The workspace file tests cover recursive listing, arbitrary UTF-8 extension read
 
 ## Release state
 
-Version and package manifests report `2.1.0-beta.1`. The intended tag is `v2.1.0-beta.1`, Beta channel, `beta-mac.yml`, and the public release name **FORGE beta 2.1**.
+Version and package manifests report `2.1.0-beta.2`. The intended tag is `v2.1.0-beta.2`, Beta channel, `beta-mac.yml`, and the public release name **FORGE beta 2.1**.
 
 Local source validation is complete. Final release verification still requires the exact pushed commit, annotated tag target, GitHub Actions result, universal assets, public hashes, packaged `file://` runtime, installed-app smoke tests, and updater checks. Developer ID signing and notarization are not configured; trusted unattended macOS replacement is not claimed.
 

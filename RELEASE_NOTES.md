@@ -1,6 +1,6 @@
 # FORGE beta 2.1
 
-FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the core workspace experience before publication as `v2.1.0-beta.1`.
+FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the core workspace experience before publication as `v2.1.0-beta.2`.
 
 ## Workspace explorer and editor
 
@@ -26,8 +26,8 @@ The reset baseline and this repair pass passed:
 
 - `npm run typecheck`
 - `npm run lint`
-- `npm test` — 25 test files / 99 tests
+- `npm test` — 25 test files / 100 tests
 - `npm run build`
 - `git diff --check`
 
-The release is a GitHub Pre-release on the Beta channel. macOS Developer ID signing and notarization are not configured, so unattended replacement is not claimed as trusted. Public workflow, asset hashes, packaged runtime, and installed-app acceptance must still be checked against the final release commit.
+The release is a GitHub Pre-release on the Beta channel. macOS Developer ID signing and notarization are not configured, so unattended replacement is not claimed as trusted. Public workflow, asset hashes, and packaged runtime are checked against the final release commit; installation acceptance is performed from a mounted DMG in an isolated temporary location rather than over an existing app.
