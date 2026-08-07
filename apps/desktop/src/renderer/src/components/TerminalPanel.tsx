@@ -18,7 +18,20 @@ export default function TerminalPanel({ workspaceKey }: { workspaceKey: string }
   useEffect(() => { setSessions([]); selectSession(''); setError(''); void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }, [workspaceKey]);
   useEffect(() => {
     if (!host.current) return undefined;
-    const instance = new Terminal({ convertEol: true, cursorBlink: true, fontSize: 12, theme: { background: '#090d11', foreground: '#d9e2ea', cursor: '#b8ff4d' }, scrollback: 5_000 });
+    const instance = new Terminal({
+      convertEol: true,
+      cursorBlink: true,
+      fontSize: 12,
+      theme: {
+        background: '#090d11',
+        foreground: '#d9e2ea',
+        cursor: '#b8ff4d',
+        selectionBackground: '#28445c',
+        selectionInactiveBackground: '#111820',
+        selectionForeground: '#f4f8fb'
+      },
+      scrollback: 5_000
+    });
     const addon = new FitAddon(); instance.loadAddon(addon); instance.open(host.current); addon.fit(); terminal.current = instance; fit.current = addon;
     const report = async (promise: ReturnType<typeof forgeInvoke>): Promise<void> => { const result = await promise; if (!result.success) setError(result.error.message); };
     const input = instance.onData((value) => { const sessionId = activeIdRef.current; if (sessionId) void report(forgeInvoke('terminal.input', { sessionId, data: value })); });

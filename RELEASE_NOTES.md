@@ -36,6 +36,7 @@ Persistent state never grants permanent approval. Tier 1 and Tier 2 execution re
 - Rejects input after exit and creates a new writable PTY on Restart.
 - Reconciles canonical macOS `/tmp` and `/private/tmp` workspace paths during restart.
 - Supplies a bounded non-secret login environment with user identity and common Homebrew/user-local CLI paths.
+- Uses readable active and inactive selection colors so selected terminal rows no longer appear as an opaque gray rendering block.
 - Documents scoped Gatekeeper handling for separately installed signed CLIs instead of disabling macOS security.
 
 ## Local-model tools
