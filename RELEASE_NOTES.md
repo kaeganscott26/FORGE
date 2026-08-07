@@ -9,6 +9,7 @@ FORGE 1.1.0-beta.1 makes long-running work belong to the workspace rather than a
 - Replaces raw duplicate-path errors with an offer to open the existing file or choose another name.
 - Saves new-file edits through the normal workspace write path.
 - Adds Command/Ctrl+S save, Command/Ctrl+O workspace open, Command/Ctrl+Z undo, and platform redo shortcuts without stealing undo from focused form fields.
+- Lets Monaco handle undo and redo when its native edit context is focused, avoiding duplicate history actions from the window shortcut fallback.
 
 ## Workspace-owned persistent tasks
 
