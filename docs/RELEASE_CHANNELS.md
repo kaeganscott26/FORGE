@@ -1,4 +1,4 @@
-# FORGE Release Channels
+# 📦 FORGE Release Channels
 
 FORGE exposes logical user channels. Provider metadata names are an internal implementation detail and never become user authority.
 
@@ -10,13 +10,13 @@ FORGE exposes logical user channels. Provider metadata names are an internal imp
 
 All channels are forward-only. Equal versions, downgrades, malformed versions, drafts, unpublished releases, incompatible prerelease flags, unsupported identifiers, unsafe asset URLs, and missing metadata are rejected before Electron Updater receives a feed.
 
-## Preference migration
+## 🔄 Preference migration
 
 Settings written by alpha builds may contain `preview`. FORGE normalizes that legacy value to `beta`; it does not retain a third executable channel. The Beta channel accepts only newer beta, release-candidate, or stable versions and never selects alpha builds.
 
 Stable remains the default when no recognized channel is stored. Selecting Beta never authorizes a downgrade.
 
-## Discovery and feed selection
+## 🔎 Discovery and feed selection
 
 FORGE retrieves a bounded set of published Releases from the fixed repository and then:
 
@@ -29,7 +29,7 @@ FORGE retrieves a bounded set of published Releases from the fixed repository an
 
 The current public beta identity is `2.1.0-beta.2`. Stable ignores every prerelease.
 
-## Publication
+## 🚀 Publication
 
 The current public beta target is the release named **FORGE beta 2.1** with annotated tag `v2.1.0-beta.2`. An annotated prerelease tag produces a GitHub Pre-release and `beta-mac.yml`; a normal tag produces a stable release and `latest-mac.yml`. Metadata is uploaded only after the DMG, ZIP, and both blockmaps have been uploaded and hash-verified.
 
@@ -43,6 +43,6 @@ The supported beta asset family is:
 
 The GitHub workflow validates source before packaging. A green job alone is insufficient: tag, workflow head, embedded commit, remote hashes, installed diagnostics, terminal behavior, AI routing, task persistence, and updater behavior must also be verified.
 
-## Signing limitation
+## ⚠️ Signing limitation
 
 Without configured Apple Developer ID and notarization credentials, the workflow creates an ad-hoc/unsigned beta. Discovery and hash validation remain testable, but unattended in-app replacement is not a trusted installation path. Use the independently verified DMG and report signing state accurately.

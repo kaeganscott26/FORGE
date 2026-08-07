@@ -1,8 +1,8 @@
-# FORGE Core Architecture
+# 🧩 FORGE Core Architecture
 
-`@forge/core` is the runtime-independent application layer for FORGE. Electron can consume it now; the CLI, local AI server, and plugins can consume the same contracts later. The package owns no UI, IPC, packaging, or process-wide global state.
+`@forge/core` is the runtime-independent foundation package for FORGE. The current desktop runtime composes `@forge/workspace`, `@forge/storage`, and related services directly; `@forge/core` defines a reusable boundary that Electron, a future CLI, a local AI server, or plugins can consume without inheriting UI, IPC, packaging, or process-wide global state.
 
-## Folder layout
+## 🗂️ Folder layout
 
 ```text
 packages/core/
@@ -25,7 +25,7 @@ packages/core/
 
 The public package supports both the unified `@forge/core` import and focused subpath imports such as `@forge/core/filesystem` and `@forge/core/search`.
 
-## Responsibilities
+## 🎯 Responsibilities
 
 ### Filesystem
 
@@ -81,7 +81,7 @@ The manager exposes `loadProject()`, `saveProject()`, `updateProject()`, and `li
 
 `createForgeCore()` is the only wiring function. It creates or accepts a filesystem adapter, requires an explicit recent-workspace persistence choice, and constructs workspace, project, and keyword-search services. It returns ordinary object references; it does not cache instances or register globals.
 
-## Dependency graph
+## 🔗 Dependency graph
 
 ```text
 createForgeCore
@@ -100,7 +100,7 @@ Markdown functions ────────────────> marked (no 
 
 Dependencies point inward to contracts. The filesystem layer imports no other core module; workspace depends only on filesystem; projects depend on filesystem and the workspace contract; search depends only on filesystem. Markdown is independent. This direction prevents circular dependencies.
 
-## Runtime architecture
+## 🏗️ Runtime architecture
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ flowchart LR
 
 Solid arrows are implemented dependencies. Dashed arrows are contract-defined extension points.
 
-## Future extension points
+## 🔭 Future extension points
 
 - Add filesystem adapters for sandboxed plugin access, remote stores, or encrypted vault content without changing managers.
 - Add a platform-specific recent-workspace store while retaining the same `WorkspaceManager` API.

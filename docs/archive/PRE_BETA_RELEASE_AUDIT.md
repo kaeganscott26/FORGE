@@ -1,4 +1,6 @@
-# Pre-Beta Release Audit
+# 🗃️ Pre-Beta Release Audit
+
+> **Historical record.** This audit captured the repository before the beta preparation line. It does not describe the supported `v2.1.0-beta.2` release; use the [current project status](../PROJECT_STATUS.md) for present-day evidence.
 
 Captured: `2026-08-06T19:51:23Z`
 

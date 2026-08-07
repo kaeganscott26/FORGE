@@ -1,6 +1,8 @@
-# FORGE Developer Log
+# 🗂️ FORGE Changelog
 
-## 2026-08-07 — FORGE 2.1.0-beta.2 reset and UI/file workflow repair
+> This file preserves dated implementation and release history. For the supported product, start with the [documentation index](docs/README.md), [project status](docs/PROJECT_STATUS.md), and [current release notes](RELEASE_NOTES.md).
+
+## ✨ 2026-08-07 — FORGE 2.1.0-beta.2 reset and UI/file workflow repair
 
 ### Why
 

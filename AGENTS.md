@@ -1,6 +1,6 @@
-# FORGE Agent Architecture
+# 🛡️ FORGE Agent Architecture
 
-## Purpose and authority
+## 🧭 Purpose and authority
 
 The AI is not the owner of the workspace and is not the primary application interface.
 
@@ -12,7 +12,7 @@ The model may change. The workspace intelligence layer must remain stable.
 
 FORGE gives an agent only the active conversation, a bounded selection of workspace documentation and source, Git evidence, project metadata, persistent-task summaries, retrieved durable memory, and explicit tool results. Conversation messages, persistent tasks, and durable memory are stored in the active workspace's `.forge/metadata.sqlite`; starting, clearing, switching, or deleting a conversation never silently deletes files, Git state, indexed knowledge, persistent tasks, or durable memory. Provider adapters translate between provider-native formats and FORGE's internal messages and tool calls. Changing a provider does not change policy enforcement or workspace ownership.
 
-## Persistent task authority
+## ✅ Persistent task authority
 
 A task belongs to the workspace, not to the current agent.
 
@@ -22,7 +22,7 @@ Do not repeat completed or externally verified work. Do not mark a task step com
 
 A persisted task never grants permanent execution permission. Each executable step returns through the existing tool registry, policy, approval, executor, and audit log. Background operations may survive agent turnover only where technically safe; a missing process without verified completion evidence is blocked, not silently restarted or marked complete.
 
-## Tool use
+## 🛠️ Tool use
 
 The AI may request tools, but it does not execute them directly.
 
@@ -34,7 +34,7 @@ The execution rule is permanent:
 
 The model must never claim an action succeeded until FORGE returns a successful result. It must report failures, timeouts, cancellation, truncation, warnings, affected paths, exit codes, and rollback information accurately.
 
-## Approval contract
+## 🔐 Approval contract
 
 - Tier 0 read-only workspace and Git inspection may run automatically when tools are enabled.
 - Tier 1 reversible changes require Run once approval unless an exact workspace/tool/scope session permission is active. Session permissions expire within one hour and are cleared when the workspace changes.
@@ -42,7 +42,7 @@ The model must never claim an action succeeded until FORGE returns a successful 
 
 The agent must never silently create, modify, move, rename, overwrite, delete, stage, unstage, commit, pull, push, run a command, install software, contact an external service, alter credentials, or publish a release. It must provide a truthful reason and expected effect. FORGE shows the exact command, target, working directory, branch or files, network use, external-data disclosure, and generated diff when applicable.
 
-## Files, shell, Git, and web boundaries
+## 🗂️ Files, shell, Git, and web boundaries
 
 Workspace paths are relative to the active workspace. FORGE rejects absolute paths through normal tools, traversal, and symlink escapes. File writes are atomic, prefer targeted patches, refuse paths with unsaved editor content, and create rollback data when replacing or deleting existing content.
 
@@ -52,7 +52,7 @@ Git tools use the existing Git service. Tokens are never embedded in URLs or out
 
 Web tools are disabled until configured. They display the exact query or URL, block file and local-network URLs, validate redirects and DNS destinations, bound responses, preserve source URLs, and never upload workspace files automatically. Sending private source, documentation, diffs, or terminal output outside the configured AI context requires explicit disclosure and approval.
 
-## Secrets, logging, and reporting
+## 🧾 Secrets, logging, and reporting
 
 API keys and GitHub tokens remain encrypted with Electron `safeStorage` and macOS Keychain. The agent must not request credential values unless the operation explicitly requires them, must not echo secrets, and must not place them in files, Git URLs, shell output, web requests, conversations, or logs.
 
@@ -60,7 +60,7 @@ Every tool decision is recorded per workspace with timestamp, conversation, mode
 
 Tool-derived evidence is bounded before it re-enters model context and is labeled separately from Workspace Documentation, Source Code, Git, Durable Memory, Terminal, External Web, and Model Inference. The agent must distinguish verified evidence from inference and identify what remains unverified.
 
-## Release and updater authority
+## 📦 Release and updater authority
 
 The model does not select, download, install, tag, or publish application updates. Stable and Beta are logical user choices enforced by FORGE. Stable accepts only strictly newer normal semantic versions. Beta accepts only strictly newer `beta`, `rc`, or normal semantic versions; legacy stored Preview preferences migrate to Beta. Drafts, malformed versions, unsupported prerelease identifiers, equal versions, and downgrades are rejected before Electron Updater receives a feed.
 

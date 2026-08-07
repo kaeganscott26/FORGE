@@ -1,6 +1,6 @@
-# Task Recovery
+# 🧭 Task Recovery
 
-## Resume invariant
+## 🔄 Resume invariant
 
 Persisted state is a lead, not proof. Resuming always audits reality before deciding what is unfinished.
 
@@ -18,7 +18,7 @@ load task
 
 Another model's prose is never completion evidence. Provider/model metadata is provenance only and does not affect routing or authority.
 
-## Reconciliation rules
+## 🧪 Reconciliation rules
 
 - A verified completed observation completes a step and creates a checkpoint.
 - An already completed or skipped step is not repeated.
@@ -31,7 +31,7 @@ Another model's prose is never completion evidence. Provider/model metadata is p
 - A task from another workspace is rejected before reconciliation.
 - A completed or cancelled task is not restarted by Resume.
 
-## Recovery playbooks
+## 🧯 Recovery playbooks
 
 ### Application or AI session interruption
 
@@ -57,7 +57,7 @@ Reconcile tag commit, workflow run, draft/published state, DMG, ZIP, blockmaps, 
 
 Inspect `/Applications` and `~/Applications` for duplicate FORGE bundles, record the selected bundle path, and compare packaged diagnostics with the intended tag/commit. Treat updater cache cleanup or app replacement as a separate explicit action. Never infer installation success from a downloaded DMG.
 
-## Safe handoff checklist
+## 🤝 Safe handoff checklist
 
 The handoff should identify:
 

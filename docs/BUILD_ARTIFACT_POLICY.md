@@ -1,4 +1,4 @@
-# Build Artifact Policy
+# 🧪 Build Artifact Policy
 
 Git history preserves source development. GitHub Releases contain only currently supported public binaries. Local packaging output contains only the newest validated build.
 

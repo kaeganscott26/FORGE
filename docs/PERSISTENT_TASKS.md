@@ -1,6 +1,6 @@
-# Persistent Tasks
+# ✅ Persistent Tasks
 
-## Operating model
+## 🧭 Operating model
 
 Traditional IDEs manage files. AI assistants manage conversations. FORGE manages project understanding and durable workspace execution.
 
@@ -12,7 +12,7 @@ The permanent execution rule still applies:
 
 Creating a task does not grant permission to execute it. Tier 1 and Tier 2 steps still pass through the existing registry, policy engine, approval manager, executor, and action log. There is no approve-the-task-forever mode.
 
-## Implemented data model
+## 🗂️ Implemented data model
 
 Schema version 4 retains the existing workspace tables and adds normalized task state:
 
@@ -29,7 +29,7 @@ All records carry or inherit the active project ID. Storage methods reject forei
 
 Task statuses are `draft`, `ready`, `running`, `waiting`, `blocked`, `paused`, `failed`, `cancelled`, and `completed`. Step statuses are `pending`, `running`, `waiting`, `blocked`, `failed`, `skipped`, and `completed`. Progress is derived from structured steps, not only prose.
 
-## Transitions and evidence
+## 🧪 Transitions and evidence
 
 Every state transition creates a task event. A successful tool result is evidence that a tool ran successfully; it is not automatically proof that all step verification criteria passed. FORGE therefore records a tool-result checkpoint and moves the step to `waiting` unless it is a background process that is still `running`. An explicit verified checkpoint is required to complete the step.
 
@@ -37,7 +37,7 @@ Verified checkpoints that cite an action-log record are accepted only when that 
 
 Completed and skipped steps satisfy dependencies. A dependency-aware resume chooses the first unfinished step whose dependencies are complete. Cyclic and foreign dependencies are rejected at task creation.
 
-## Background processes
+## ⚙️ Background processes
 
 `task.process.start` is an always-approved Tier 2 tool. It starts an executable with an argument array, workspace-contained working directory, filtered environment, timeout, detached process group, and append-only output file under `.forge/task-output/<task-id>/`. FORGE persists the PID, start time, output path, tool request, approval, and audit linkage.
 
@@ -45,7 +45,7 @@ The child may continue without an active model turn and, where the operating sys
 
 Implemented limitation: a child that exits after the application process has ended cannot report its exit code back to the old process. A replacement session must inspect bounded output and any expected artifacts or external state, then record a verified checkpoint. A durable supervisor and event-driven GitHub workflow watcher are planned orchestration, not current functionality.
 
-## Task tools and UI
+## 🛠️ Task tools and UI
 
 The provider-neutral registry exposes:
 
@@ -59,19 +59,19 @@ The renderer has a dedicated **TASKS** view, separate from chat. It shows progre
 
 Cancelling tracking never silently kills a process. If a process is active, FORGE requires the user to choose tracking-only cancellation or separately authorize termination of the exact process. Tracking cancellation cannot undo a remote release, upload, workflow, or Git mutation.
 
-## Release template
+## 📦 Release template
 
 The first reusable workflow is `Release FORGE <version>`. It defines 26 dependency-linked steps from version/branch validation through tests, packages, Git/PR/tag/workflow/assets, installation, updater verification, and final handoff. The template stores risk, required tool, timeout, retries, expected evidence, rollback guidance, and an annotated tag target.
 
 The template is a plan, not an autonomous release bot. Remote pull-request creation, merge, workflow control, release mutation, installation, and publication remain explicit Tier 2 operations. GitHub reconciliation currently consumes bounded web/tool evidence; a dedicated GitHub task adapter and scheduled event watcher remain planned.
 
-## Handoffs
+## 🤝 Handoffs
 
 `task.handoff` atomically writes `.forge/handoffs/<task-slug>-<task-id>.md`. It includes the objective, completed/current/waiting/blocked steps, PIDs, branch/commit/tag/PR/workflow, artifacts, verification, next action, and actions not to repeat.
 
 The Markdown file is safe resume context for a human or replacement agent, but SQLite remains authoritative. Editing the projection does not mutate the task.
 
-## Implemented versus planned
+## 🚧 Implemented versus planned
 
 Implemented now:
 

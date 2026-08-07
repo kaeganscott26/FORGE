@@ -1,6 +1,6 @@
-# Releasing FORGE
+# 🚀 Releasing FORGE
 
-## Release philosophy
+## 🧭 Release philosophy
 
 Release integrity matters because an updater connects source, a tag, a CI runner, public binaries, an installed application, and future update behavior. CI success alone does not prove which source produced a binary or whether the public artifact is the one that was validated.
 
@@ -15,7 +15,7 @@ A verified release proves:
 
 The workspace-owned release task and its observed checkpoints are authoritative. Conversation claims are not.
 
-## Channels and semantic versions
+## 🔢 Channels and semantic versions
 
 - Development uses an unpackaged `-dev` identity and is never published.
 - Beta accepts only strictly newer normal SemVer or prereleases whose first identifier is `beta` or `rc`.
@@ -26,7 +26,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 
-## Branch and pull request strategy
+## 🌿 Branch and pull request strategy
 
 1. Start from synchronized `main` on a named feature or release-preparation branch.
 2. Preserve and inspect the existing worktree before editing.
@@ -40,7 +40,7 @@ Never move or republish a tag to different source. See [Release Channels](docs/R
 
 Commit, push, merge, tag, upload, publication, installation, and remote cleanup remain explicit Tier 2 operations.
 
-## Version bump and authoritative source
+## 📌 Version bump and authoritative source
 
 Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` must report `2.1.0-beta.2`. The public tag is `v2.1.0-beta.2`, and diagnostics report the Beta channel.
 
@@ -55,7 +55,7 @@ git cat-file -t v2.1.0-beta.2
 git rev-parse v2.1.0-beta.2^{}
 ```
 
-## Local source and package validation
+## 🧪 Local source and package validation
 
 From the intended source commit run:
 
@@ -75,7 +75,7 @@ The ARM64 package verifies the native host. The universal package must contain b
 
 Generated binaries, `.forge/`, `.obsidian/`, updater caches, local databases, and temporary logs never enter a source commit.
 
-## GitHub Actions workflow
+## ⚙️ GitHub Actions workflow
 
 Pushing the annotated `v2.1.0-beta.2` tag triggers `.github/workflows/package-mac.yml`. It checks out the tag, installs Node 22 dependencies, runs typecheck/lint/tests, creates or reconciles a draft, packages a universal app, uploads assets serially, and publishes only after upload verification.
 
@@ -83,7 +83,7 @@ A queued runner is waiting, not failed. A GitHub 502 or network interruption is 
 
 Record the workflow run ID, URL, head SHA, conclusion, and release URL.
 
-## Assets, blockmaps, and updater YAML
+## 📦 Assets, blockmaps, and updater YAML
 
 - DMG: manual installation and mounted-bundle inspection.
 - ZIP: Electron Updater payload for macOS.
@@ -96,7 +96,7 @@ For `v2.1.0-beta.2`, upload the universal DMG, universal ZIP, both blockmaps, th
 
 On retry, `scripts/upload-release-assets.sh` downloads an existing same-name asset, compares SHA-256, and skips it only when byte-identical. A wrong hash is a failed integrity condition; never use `--clobber` to hide it.
 
-## Local and remote hash verification
+## 🔐 Local and remote hash verification
 
 Verify the generated manifest first:
 
@@ -122,7 +122,7 @@ main SHA
 
 A missing ZIP, wrong blockmap, stale YAML, remote mismatch, or tag/source mismatch means the release is not verified.
 
-## Installation and duplicate detection
+## 🖥️ Installation and duplicate detection
 
 Audit `/Applications`, `~/Applications`, the repository, mounted volumes, running executables, and reasonable indexed locations. Classify build artifacts separately from installed apps. Quit all FORGE processes and eject mounted FORGE DMGs before replacement.
 
@@ -130,7 +130,7 @@ Move stale installed bundles to Trash; do not permanently delete them before acc
 
 Diagnostics must report `FORGE v2.1.0-beta.2`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
 
-## Packaged runtime acceptance
+## ✅ Packaged runtime acceptance
 
 Verify all of the following against the installed beta:
 
@@ -154,13 +154,13 @@ Persistent Task Verification
 □ Generate handoff
 ```
 
-## Updater verification
+## 🔄 Updater verification
 
 Test Stable and Beta independently. Stable ignores prereleases. Beta permits only newer beta, rc, or stable versions and rejects alphas. Both reject equal/older versions. Verify the selected public release, metadata feed, downloaded payload, and installed result are the same release.
 
 An ad-hoc/unsigned build cannot establish trusted unattended replacement. Discovery and hashes may pass while installation still requires explicit manual handling.
 
-## Recovery and rollback
+## 🧯 Recovery and rollback
 
 After a network or AI interruption, load the persistent release task and audit current Git, process, workflow, release, asset, installation, and hash state. Continue from the first genuinely unfinished step. Never rebuild, retag, reupload, recreate a pull request, or republish because a conversation ended.
 
@@ -168,13 +168,13 @@ If an upload process disappeared but the remote asset exists and matches, reconc
 
 Before publication, leave a failed release draft and correct source with a new commit/tag when required. After publication, never move the tag or silently replace assets. Prepare a strictly newer corrective release. Installation rollback is manual while unsigned; updater downgrades remain forbidden.
 
-## Historical release cleanup policy
+## 🗃️ Historical release cleanup policy
 
 Git history preserves source development. GitHub Releases contain only currently supported public binaries. Local packaging output contains only the newest validated build.
 
 Delete old GitHub Releases and their exact audited release tags only after the public beta has been downloaded, hash-verified, installed, and smoke-tested. Do not delete branches, source commits, early non-release development tags, Actions history, pull requests, issues, or repository history. Deleting a Release and tag removes convenient public access to its historical binary even though the source commit remains recoverable in Git.
 
-## Final checklist
+## 🏁 Final checklist
 
 - [ ] Version, tag, Beta channel, manifests, lockfile, workflow, and docs agree.
 - [ ] Feature PR is merged; local `main` equals `origin/main`.

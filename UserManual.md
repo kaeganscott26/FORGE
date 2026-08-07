@@ -1,12 +1,12 @@
-# FORGE User Manual
+# 📘 FORGE User Manual
 
-## 1. Install and open FORGE
+## 🚀 1. Install and open FORGE
 
-Download the latest DMG from [GitHub Releases](https://github.com/kaeganscott26/FORGE/releases/latest), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder.
+Download the current beta DMG from [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder.
 
 FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It does not move or import the project files themselves.
 
-## 2. Navigate a workspace
+## 🗂️ 2. Navigate a workspace
 
 The Explorer recursively lists project files and folders. Click a folder name or chevron to expand/collapse it; right-click an entry for file actions. **New file** and **New folder** create entries under the selected folder (or the active file's parent). Copy/paste uses **Command/Ctrl+C** and **Command/Ctrl+V**, with collision-safe copy names. **F2** renames the selected entry and **Delete/Backspace** deletes it after confirmation. Select a text file to open it. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo.
 
@@ -14,25 +14,25 @@ FORGE rejects absolute paths, path traversal, and resolved paths outside the ope
 
 Drag the narrow dividers to resize Explorer, editor, workspace intelligence, AI chat, and Source Control. FORGE saves the dimensions in the current workspace and clamps them during window resizing so the editor and panels remain usable. On narrow windows, secondary panels collapse to preserve an editable editor surface.
 
-## 3. Edit and preview files
+## ✍️ 3. Edit and preview files
 
 The Monaco editor opens any UTF-8 text file regardless of extension and rejects binary files with a clear message. It provides language support for major JavaScript/TypeScript, Python, C/C++, Java, Rust, Go, Swift, Kotlin, C#, PHP, Ruby, shell, markup, data, SQL, and configuration files; unknown text extensions remain editable as plain text. A dot in the active tab indicates unsaved work.
 
 Markdown files open in preview mode. Use **Edit** and **Preview** to switch views.
 
-## 4. Use the dashboard
+## 📊 4. Use the dashboard
 
 The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. The context-health number is a lightweight readiness indicator, not a code-quality score.
 
 Goals and persistent tasks are stored only in the workspace's local FORGE database.
 
-## 5. Use source control
+## 🌿 5. Use source control
 
 The Source Control panel shows the active branch and changed files. Select a change to stage it and inspect the parsed diff. Enter a commit message and choose **Commit**. **Pull** and **Push** use the Git remote and credentials already configured on the Mac.
 
 Always confirm the file list and diff before a commit, pull, or push. FORGE operates on the real repository.
 
-## 6. Use workspace conversations
+## 💬 6. Use workspace conversations
 
 Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1` and leave the key blank. FORGE automatically loads the provider catalog when the saved remote key or loopback endpoint is available; **Refresh provider models** repeats the request and **Validate model** checks an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
 
@@ -50,7 +50,7 @@ Every prompt automatically receives FORGE's local-first system frame and bounded
 
 When asking “What should I build next?”, expect FORGE to reason from the current repository and recommend architectural evolution. Generic IDE feature suggestions are intentionally deprioritized unless they strengthen the project's documented architecture.
 
-## 7. Use durable memory
+## 🧠 7. Use durable memory
 
 **Reindex workspace** creates classified, searchable knowledge records from supported project files. Reindexing updates existing records by source path instead of creating duplicates. Machine-specific `.obsidian` state and generated output are excluded by default.
 
@@ -62,7 +62,7 @@ After an AI turn, context disclosure groups the evidence used and shows a heuris
 
 Memory is separate from conversation history. Deleting a memory is an explicit durable-data action and asks for confirmation. Clear Chat and New Chat never delete memory.
 
-## 8. Review and approve agent tools
+## 🛡️ 8. Review and approve agent tools
 
 When Workspace AI requests a tool, open **Agent Actions** in the bottom panel. The request remains visible and shows tool, risk tier, reason, exact target or command, working directory, network use, expected effect, predicted paths, and a file diff when applicable.
 
@@ -74,7 +74,7 @@ Running operations can be cancelled. Completed requests retain their state; loca
 
 Web research is disabled by default. Enable it in Settings only if you want requests to external services. The approval card names the exact query/URL and any project data declared for transfer.
 
-## 9. Use persistent tasks
+## ✅ 9. Use persistent tasks
 
 Choose **TASKS** in the bottom panel. Tasks remain in the opened workspace even when you switch conversations, providers, or models, reload the renderer, or restart FORGE.
 
@@ -87,7 +87,7 @@ Choose **TASKS** in the bottom panel. Tasks remain in the opened workspace even 
 
 A successful tool result is recorded as evidence but does not by itself satisfy every verification criterion. The step completes only after a verified checkpoint. If a saved PID disappears without completion evidence, FORGE blocks the step and asks you to inspect its bounded output/artifacts before retrying.
 
-## 10. Use the integrated terminal
+## 🖥️ 10. Use the integrated terminal
 
 Choose **Terminal** in the bottom panel and select **New**. A user terminal starts at the active workspace and shows the exact working directory. Create or switch multiple sessions, resize the panel, copy output, clear only the visible screen, cancel a process, restart a session, and inspect exit state.
 
@@ -95,7 +95,9 @@ The user terminal is separate from model-requested `shell.run`. The model cannot
 
 Login shells receive a small explicit environment with the current user home, shell identity, and common Homebrew/user CLI paths, so installed tools such as `ollama` and `codex` can be resolved without forwarding API keys or other secret environment variables. macOS may still block an independently installed quarantined CLI until that exact signed binary is approved under **System Settings → Privacy & Security**.
 
-## 11. Update FORGE
+The terminal is designed for your choice of CLI agent. Launch Codex, Claude Code, Ollama, OpenCode, or another installed tool in the active project; FORGE preserves the surrounding workspace while the CLI remains a normal user-controlled process. Read [Integrated Terminal](docs/TERMINAL.md) for the execution boundary and troubleshooting details.
+
+## 🔄 11. Update FORGE
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
@@ -107,7 +109,7 @@ Existing settings that contain the former Preview preference migrate to Beta. Th
 
 For a local source build, first run `npm run package:mac:universal`, then `npm run install:mac`. Installation verifies `build-manifest.json`, requires duplicates to be resolved, backs up the old system bundle to Trash, and installs exactly `/Applications/FORGE.app`.
 
-## 12. Troubleshooting
+## 🧯 12. Troubleshooting
 
 ### macOS blocks the first launch
 
@@ -157,6 +159,6 @@ If a command resolves but macOS reports that it cannot verify the executable, th
 
 Open the task and inspect its saved output path, expected artifacts, and external references. Resume does not rerun it automatically. Record a verified checkpoint if reality proves completion, or retry only after confirming the action is safe and approving its exact tool request.
 
-## 13. Data safety
+## 🔐 13. Data safety
 
 Project files are real files. Git actions are real Git actions. Keep a backup, review changes before remote operations, and do not delete `.forge/metadata.sqlite` unless you intend to remove FORGE's local project metadata, persistent tasks/checkpoints/events, layouts, conversation threads, audit history, and durable memories.

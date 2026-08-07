@@ -1,8 +1,8 @@
-# FORGE Agent Tools
+# 🛡️ FORGE Agent Tools
 
 FORGE 1.1 introduces provider-neutral, policy-controlled tools. A model sees stable tool names and schemas, but it never receives an executor, Node API, shell, credential, or IPC channel. Native provider calls and the strict `forge_tool_request` fallback normalize into the same internal request and are validated before policy evaluation.
 
-## Runtime flow
+## ⚡ Runtime flow
 
 ```text
 Model → Agent → Tool Registry → Policy Engine → Approval Manager
@@ -12,7 +12,7 @@ Model → Agent → Tool Registry → Policy Engine → Approval Manager
 
 Dependency injection keeps the registry/router independent of Electron and prevents circular package ownership. `@forge/agent-tools` coordinates definitions and execution; `@forge/tool-policy` owns risk and session decisions; `@forge/shell` owns child processes and PTYs; `@forge/web` owns external HTTP controls. Existing workspace, Git, storage, AI, and IPC packages remain authoritative for their domains.
 
-## Tools
+## 🧰 Tools
 
 | Tool | Tier | Approval | Effect |
 | --- | ---: | --- | --- |
@@ -31,7 +31,7 @@ Dependency injection keeps the registry/router independent of Electron and preve
 
 Every definition includes purpose, Zod input/output schemas, risk, approval rule, workspace-boundary rule, timeout, audit metadata, cancellation behavior, target/effect descriptions, and network disclosure. Unknown names and invalid arguments fail closed.
 
-## Results and context
+## 🧠 Results and context
 
 Results contain success, affected paths, diff, warnings, error code/details, rollback data, exit code, duration, truncation, and cancellation state where applicable. Automatic Tier 0 results are bounded and redacted before the agent produces its final answer. After an approved Tier 1/2 action, FORGE records the result, asks the agent to continue using the bounded result, persists the continuation in the same workspace conversation, and shows the inspectable raw structured result locally.
 

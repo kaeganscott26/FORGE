@@ -1,14 +1,14 @@
-# FORGE Architecture
+# 🏗️ FORGE Architecture
 
-## System intent
+## 🧭 System intent
 
-FORGE is a local-first development workspace whose AI lives alongside a project rather than replacing it. The project folder is the source of truth. Markdown, source code, architecture, Git, project metadata, durable memory, persistent tasks, and workspace-owned conversations are treated as evidence in one evolving knowledge graph.
+FORGE is a local-first development workspace whose AI lives alongside a project rather than replacing it. The project folder is the source of truth. Markdown, source code, architecture, Git, project metadata, durable memory, persistent tasks, and workspace-owned conversations are treated as bounded evidence in one evolving workspace record. A semantic knowledge graph is a future contract, not a current claim.
 
 Traditional IDEs manage files. AI assistants manage conversations. FORGE manages project understanding and durable workspace execution. The model is a replaceable worker; conversation continuity is not an execution primitive.
 
 Features are accepted when they strengthen that relationship. Generic IDE parity is not an architectural goal.
 
-## Runtime map
+## ⚡ Runtime map
 
 ```text
 Electron main process
@@ -58,7 +58,7 @@ provider call → normalized tool request → schema registry → policy
 
 The model cannot invoke renderer IPC and the renderer cannot turn a model call into permission. Provider adapters may change without replacing registry, policy, approval, executor, or audit behavior.
 
-## Package responsibilities
+## 🧩 Package responsibilities
 
 | Package | Responsibility |
 | --- | --- |
@@ -76,7 +76,7 @@ The model cannot invoke renderer IPC and the renderer cannot turn a model call i
 | `@forge/web` | External URL/DNS/redirect/content/timeout controls and cited results |
 | `@forge/updater` | Bounded GitHub Release discovery, logical-channel filtering, strict SemVer selection, and safe metadata-feed validation |
 
-## Update discovery boundary
+## 🔄 Update discovery boundary
 
 Stable and Beta are FORGE-owned logical channels. A stored legacy `preview` value normalizes to Beta rather than becoming a third authority. `GitHubReleaseDiscovery` retrieves at most 50 published GitHub Releases through the public API, applies a timeout and response-size cap, validates the response schema, excludes drafts and unpublished or malformed entries, and accepts only release assets hosted under this repository's HTTPS release-download path.
 
@@ -84,7 +84,7 @@ Stable selects only a strictly newer normal semantic version. Beta selects only 
 
 The final beta consolidates former preview semantics into an explicit Beta channel. Old alpha binaries are historical evidence, not supported current release identities.
 
-## Workspace boundary and persistence
+## 🗂️ Workspace boundary and persistence
 
 Opening a folder initializes services in this order:
 
@@ -110,7 +110,7 @@ Legacy unthreaded conversation rows are migrated into an **Imported conversation
 
 App-global API/GitHub credentials are deliberately not stored in the project. `SettingsService` encrypts them through Electron `safeStorage` outside the workspace. The preferred provider URL and model are also app-global, while conversations and layout are project-owned.
 
-## Conversation lifecycle
+## 💬 Conversation lifecycle
 
 Each workspace can contain multiple named threads. The active thread ID is stored in that workspace's `workspace_state` row.
 
@@ -122,7 +122,7 @@ Each workspace can contain multiple named threads. The active thread ID is store
 
 The storage and IPC APIs keep conversations separate from memory and tasks by design so later embedding/search backends cannot be accidentally erased by a chat-control action. Originating and last-active conversation IDs are provenance fields, not ownership foreign keys.
 
-## Persistent task lifecycle
+## ✅ Persistent task lifecycle
 
 Persistent tasks are typed workspace state, not renamed chat messages. The task runtime loads a task, inspects Git and known PIDs, accepts bounded verified external observations, reconciles stale state, preserves completed dependencies, and selects the first genuinely unfinished step. A foreign-workspace snapshot fails closed.
 
@@ -132,7 +132,7 @@ Tool results linked through `taskContext` create task evidence and action-log re
 
 The dedicated Tasks renderer presents task state independently of chat. `.forge/handoffs/` contains atomic human-readable projections; SQLite remains authoritative. See [Persistent Tasks](PERSISTENT_TASKS.md) and [Task Recovery](TASK_RECOVERY.md).
 
-## Prompt and context assembly
+## 🧠 Prompt and context assembly
 
 Every user turn follows this pipeline:
 
@@ -169,17 +169,17 @@ Every selected artifact carries a heuristic relevance score and reason. The rend
 
 This is a trust foundation, not yet the full knowledge graph. Concept entities, references, related concepts, and cross-document relationship traversal remain the next architectural layer needed to move from retrieving files to navigating project understanding.
 
-## Provider and model selection
+## 🤖 Provider and model selection
 
 `OpenAIProvider` uses a free-form model ID. `gpt-5.6-sol` is the default only when a user has not saved a preference. The Settings UI can query the provider's `/models` endpoint and validate an exact ID, but saving is not constrained to a compiled allowlist; this supports future model IDs and OpenAI-compatible endpoints.
 
 Unsupported models produce an actionable error and do not overwrite the preference automatically. GPT-5.6 tool-capable turns use the Responses API with flat function definitions and provider aliases mapped back to FORGE's stable dotted tool names. Other compatible models retain Chat Completions with `max_completion_tokens` and a compatibility retry using `max_tokens`. Registry, policy, approval, executor, audit, and internal messages remain provider-neutral.
 
-## Layout architecture
+## 🪟 Layout architecture
 
 The renderer exposes drag handles between Explorer/editor, editor/intelligence, workspace-context/chat, and main workspace/source control. Changes are clamped in storage and debounced to the active workspace's `workspace_state.layout_json`. This contract provides slots for future context and memory panels without coupling persistence to current React components.
 
-## Future intelligence contracts
+## 🔭 Future intelligence contracts
 
 `packages/ai/src/intelligence.ts` defines vendor-neutral boundaries without pretending the features are implemented:
 
@@ -193,7 +193,7 @@ The renderer exposes drag handles between Explorer/editor, editor/intelligence, 
 
 These are extension points, not a plugin roadmap. Implementations should remain local-first, auditable, and project-folder grounded.
 
-## Trust and known debt
+## 🛡️ Trust and known debt
 
 - Renderer sandboxing is enabled and verified in development and packaged runtime. Executable plugin tools remain disabled; future extensions must pass through the same registry/policy/approval/audit path.
 - The beta remains unsigned and unnotarized unless final workflow evidence proves configured credentials, so it does not currently provide trusted unattended macOS installation or automatic update application.
@@ -206,7 +206,7 @@ These are extension points, not a plugin roadmap. Implementations should remain 
 - Signed, notarized releases are required for trusted unattended macOS updates.
 - Persistent tasks do not yet provide unattended multi-step orchestration, a durable process supervisor, or scheduled GitHub watchers. All executable and remote steps remain approval controlled.
 
-## Source authority
+## 📌 Source authority
 
 1. Source under `apps/` and `packages/`.
 2. Current root and `docs/` documentation.

@@ -1,8 +1,8 @@
-# FORGE User Configuration
+# ⚙️ FORGE User Configuration
 
 This guide covers Git integration, AI API integration, and macOS release credentials. Do not put real secrets in the repository.
 
-## Git integration
+## 🌿 Git integration
 
 FORGE uses the system `git` executable and the repository's existing configuration. Open **GitHub** in the app to save a username and fine-grained personal access token. Grant only the selected repositories and the minimum Contents read/write permission needed for pull and push.
 
@@ -30,7 +30,7 @@ git fetch --prune origin
 git push --dry-run origin HEAD
 ```
 
-## AI API integration
+## 🤖 AI API integration
 
 Open **Settings** in FORGE to save the API key, base URL, and model. The API key is encrypted with macOS Keychain-backed storage and is never returned to the renderer after saving.
 
@@ -71,7 +71,7 @@ launchctl unsetenv OPENAI_BASE_URL
 
 The default applies only when neither a saved preference nor `OPENAI_MODEL` exists. Existing saved model IDs, including older GPT-4o configurations, are preserved for backwards compatibility.
 
-### Model discovery and validation
+### 🔎 Model discovery and validation
 
 The model field accepts any non-empty ID. This is deliberate: FORGE does not require a source update whenever OpenAI or an OpenAI-compatible provider introduces a model.
 
@@ -82,13 +82,13 @@ The model field accepts any non-empty ID. This is deliberate: FORGE does not req
 
 GPT-5.6 tool-capable turns use `<API base URL>/responses`, flat Responses function tools, and provider aliases mapped back to FORGE's stable tool names. Other compatible models use Chat Completions; FORGE sends `max_completion_tokens` and retries with legacy `max_tokens` only when an older compatible endpoint rejects the newer parameter. Model routing changes provider protocol only—the same registry, policy, approval, executor, and audit boundaries apply.
 
-### Conversation and workspace configuration
+### 🧠 Conversation and workspace configuration
 
 AI credentials and the preferred model are app-global and encrypted outside project folders. Conversation and task state are not: threads, the selected thread, persistent task steps/checkpoints/events, audit links, and panel layout are stored in `<workspace>/.forge/metadata.sqlite`. Opening another folder therefore switches all workspace state without changing the API credentials. Assigning provider/model metadata to a task is provenance, not ownership or execution authority.
 
 The Settings build diagnostic is intentionally separate from user configuration. It contains only application version, release channel, build commit/date, runtime and renderer modes, platform, and architecture; it never includes saved secrets or private local paths.
 
-## Tool and update configuration
+## 🛡️ Tool and update configuration
 
 External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabling web research does not approve a request: each `web.search`, `web.fetch`, or `web.open` remains Tier 2 and shows its exact query/URL and declared project-data transfer.
 
@@ -98,7 +98,7 @@ Beta does not accept future alpha versions. The legacy preference migration move
 
 Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. A persistent task or saved approval record never revives an expired permission. The persistent per-workspace action log and linked task events are stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
 
-## GitHub Release integration
+## 📦 GitHub Release integration
 
 The package publisher targets `kaeganscott26/FORGE`. GitHub Actions uses its generated `GITHUB_TOKEN` to create a draft version-tag release, attach DMG, ZIP, blockmaps, and channel YAML serially, verify byte-identical assets on retry, and publish only after the upload sequence succeeds. Prerelease tags create GitHub Pre-releases; stable tags create normal Latest releases.
 
@@ -112,7 +112,7 @@ For signed and notarized releases, add these repository Actions secrets:
 
 Never use placeholder certificate identities. If `CSC_LINK` is absent, the workflow deliberately publishes an unsigned build and in-app automatic installation is not expected to work on macOS.
 
-## Version and release procedure
+## 🚀 Version and release procedure
 
 1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `2.1.0-beta.2` (`FORGE beta 2.1`).
 2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.

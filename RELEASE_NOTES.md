@@ -1,8 +1,8 @@
-# FORGE beta 2.1
+# ✨ FORGE beta 2.1
 
 FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the core workspace experience before publication as `v2.1.0-beta.2`.
 
-## Workspace explorer and editor
+## 🗂️ Workspace explorer and editor
 
 - Recursively displays the project tree and lets folders expand and collapse independently.
 - Adds explorer actions for new files, new folders, rename, delete, copy, and paste.
@@ -12,7 +12,7 @@ FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the 
 - Adds Monaco language mapping for major JavaScript/TypeScript, Python, C/C++, Java, Rust, Go, Swift, Kotlin, C#, PHP, Ruby, shell, markup, data, SQL, and configuration files.
 - Keeps Command/Ctrl+S, Command/Ctrl+O, undo, and redo behavior scoped correctly so focused editor and form controls retain native editing shortcuts.
 
-## UI and AI repairs
+## 🧠 UI and AI repairs
 
 - Constrains persisted panel dimensions and adds responsive fallbacks so the editor and intelligence surfaces retain readable minimum widths.
 - Forces an editor model refresh when switching files and enables Monaco automatic layout and word wrap.
@@ -20,7 +20,7 @@ FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the 
 - Automatically loads provider models when a saved remote key or loopback Ollama-compatible endpoint is available, while retaining manual refresh and model validation.
 - Accepts OpenAI-compatible model catalogs returned as either `data` or Ollama-style `models`.
 
-## Verification
+## 🧪 Verification
 
 The reset baseline and this repair pass passed:
 
