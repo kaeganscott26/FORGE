@@ -31,7 +31,7 @@ if [[ ${#assets[@]} -ne 5 ]]; then
   echo "Expected exactly five manifest-selected release assets; found ${#assets[@]}." >&2
   exit 1
 fi
-remote_names="$(gh api "repos/$repository/releases/tags/$tag" --jq '.assets[].name')"
+remote_names="$(gh release view "$tag" --repo "$repository" --json assets --jq '.assets[].name')"
 
 for asset in "${assets[@]}"; do
   name="$(basename "$asset")"
