@@ -1,18 +1,18 @@
 # FORGE Project Status
 
-**Updated:** August 6, 2026
+**Updated:** August 7, 2026
 
 **Working version:** 1.1.0-beta.1
 
-**Source branch:** `feature/persistent-task-engine` until reviewed and merged
+**Source branch:** `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
 ## Current state
 
-The repair and workspace-owned persistent-task milestone is implemented in source. After editor, terminal CLI, local-model, and approval-projection repairs, the clean beta source gate passed dependency installation, typecheck, lint, 25 test files / 95 tests, production build, and a production audit with zero vulnerabilities. The full exact-commit package, installed acceptance, public workflow, remote hashes, and public-artifact reinstallation remain mandatory before release verification.
+The repair and workspace-owned persistent-task milestone is released as `v1.1.0-beta.1`. After editor, terminal CLI, local-model, approval-projection, terminal-selection, and Monaco history repairs, the clean beta source gate passed dependency installation, typecheck, lint, 25 test files / 96 tests, production build, and a production audit with zero vulnerabilities. Exact-commit packaging, installed acceptance, public hashes, and public-artifact reinstallation passed.
 
-Historical Releases and release tags remain intact while validation proceeds. The pre-cleanup state is recorded in [PRE_BETA_RELEASE_AUDIT.md](archive/PRE_BETA_RELEASE_AUDIT.md). The old 4.5 GB local packaging tree was moved recoverably to Trash after audit; installed applications have not yet been removed.
+Historical Releases and release tags remain intact. The pre-cleanup state is recorded in [PRE_BETA_RELEASE_AUDIT.md](archive/PRE_BETA_RELEASE_AUDIT.md). Stale application bundles were moved recoverably to Trash, and the downloaded public universal ZIP is installed at the single physical path `/Applications/FORGE.app`.
 
 ## Implemented capability matrix
 
@@ -42,14 +42,7 @@ Implemented background starts can survive the initiating AI turn while the main 
 
 The intended release identity is `1.1.0-beta.1`, annotated tag `v1.1.0-beta.1`, Beta channel, and `beta-mac.yml`. Beta accepts newer beta, rc, or stable versions; it rejects alpha. Stable accepts only stable.
 
-The release is not yet verified. Required remaining gates include:
-
-1. complete beta source suite and clean ARM64/universal packages;
-2. local installation at exactly `/Applications/FORGE.app` and packaged acceptance;
-3. branch push, pull request, checks, merge, and synchronized main;
-4. rebuild/accept the exact final main commit;
-5. annotated tag, public workflow, serial assets, independent remote hashes, and public reinstall;
-6. only then remove audited obsolete Releases/tags and stale local installations/artifacts.
+The release payload is verified at `8350aab8d498073b2335dfb8a1d7caa227865514`, published as a GitHub Pre-release, and installed from the independently downloaded public ZIP. The five public asset digests match the release manifest. `main` later advanced only for the PR #15 draft-release lookup repair; the annotated release tag remains on the verified application source commit.
 
 ## Known limitations
 

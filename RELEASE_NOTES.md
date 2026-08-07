@@ -1,6 +1,6 @@
 # FORGE 1.1.0-beta.1
 
-FORGE 1.1.0-beta.1 makes long-running work belong to the workspace rather than an AI conversation. It also repairs editor creation/shortcuts, terminal CLI execution, workspace discovery recovery, GPT-5.6 tool routing, and keyless local-model tools. This release is a beta and will initially be published as a GitHub Pre-release.
+FORGE 1.1.0-beta.1 makes long-running work belong to the workspace rather than an AI conversation. It also repairs editor creation/shortcuts, terminal CLI execution, workspace discovery recovery, GPT-5.6 tool routing, and keyless local-model tools. This beta is published as a GitHub Pre-release.
 
 ## Editor workflow repairs
 
@@ -56,6 +56,6 @@ Persistent state never grants permanent approval. Tier 1 and Tier 2 execution re
 
 ## Release status and limitations
 
-Source implementation and pre-beta regression validation are complete. Exact merged-commit packaging, local installed acceptance, tag/workflow provenance, public asset hash comparison, and public-artifact reinstallation are required before the beta is declared verified. Historical releases and tags must not be removed until those gates pass.
+The beta payload is verified at tag commit `8350aab8d498073b2335dfb8a1d7caa227865514`. ARM64 and universal packages, installed runtime behavior, the local-model file-tool round trip, and all five public universal asset hashes passed. The downloaded public ZIP was reinstalled at `/Applications/FORGE.app`; earlier app bundles were moved recoverably to Trash. Historical releases and tags remain intact.
 
-No Apple Developer ID or notarization credentials are currently configured. Unless the release workflow proves otherwise, the beta is ad-hoc signed/unsigned and cannot provide a trusted unattended macOS replacement chain.
+No Apple Developer ID or notarization credentials are configured. The beta is ad-hoc signed/unsigned, Gatekeeper reports no usable signature, and the release cannot provide a trusted unattended macOS replacement chain.
