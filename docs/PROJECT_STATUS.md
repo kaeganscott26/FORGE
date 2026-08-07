@@ -41,9 +41,19 @@ The workspace file tests cover recursive listing, arbitrary UTF-8 extension read
 
 ## Release state
 
-Version and package manifests report `2.1.0-beta.2`. The intended tag is `v2.1.0-beta.2`, Beta channel, `beta-mac.yml`, and the public release name **FORGE beta 2.1**.
+Version and package manifests report `2.1.0-beta.2`. The final source commit is `c5d9268ebabca8bc9ad0a4c36859ca74a617a553`; `main`, `origin/main`, and annotated tag `v2.1.0-beta.2` all resolve to it. GitHub Actions run [31193206048](https://github.com/kaeganscott26/FORGE/actions/runs/31193206048) passed source validation, packaging, serial asset upload/hash verification, and publication. The public release is [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2) with five assets.
 
-Local source validation is complete. Final release verification still requires the exact pushed commit, annotated tag target, GitHub Actions result, universal assets, public hashes, packaged `file://` runtime, installed-app smoke tests, and updater checks. Developer ID signing and notarization are not configured; trusted unattended macOS replacement is not claimed.
+The public DMG was downloaded independently, matched GitHub's SHA-256 `b1e7780fd49188867ec4b88d2c87a4ef02f8390b94431219a4dd9791e9592b79`, mounted read-only, and launched from its temporary mounted path with a temporary user-data directory. It reported `2.1.0-beta.2`, loaded `file://.../app.asar`, exposed the repaired `file.copy` path, and produced no runtime error. `/Applications/FORGE.app` and `~/Applications/FORGE.app` were not overwritten or used for this acceptance test. Developer ID signing and notarization are not configured; trusted unattended macOS replacement is not claimed.
+
+Public asset digests reported by GitHub:
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `FORGE-2.1.0-beta.2-universal.dmg` | 251638068 | `b1e7780fd49188867ec4b88d2c87a4ef02f8390b94431219a4dd9791e9592b79` |
+| `FORGE-2.1.0-beta.2-universal.dmg.blockmap` | 257978 | `c107c4969b5a876d388f06f3480b5fc8c1bbf7fd4c17e5417a9d27961d2e16f6` |
+| `FORGE-2.1.0-beta.2-universal.zip` | 247544239 | `29b7684a5d1de8d24890ab40054fb72096d940d9fc68eae2ba7b347596efabd7` |
+| `FORGE-2.1.0-beta.2-universal.zip.blockmap` | 258850 | `14741feb38914aa77d5552714a8e323d69961ec2eb085f6971ee2c3ef38d2ee2` |
+| `beta-mac.yml` | 531 | `315b39152cba85e2a4a368419bd4268b6af570ffe75d33b8a945fde5ef3f25b3` |
 
 ## Known limitations
 

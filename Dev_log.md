@@ -20,6 +20,8 @@ The broken release line was discarded back to commit `8350aab` after reports tha
 
 The current source passed typecheck, lint, 25 test files / 100 tests, production build, and `git diff --check`. Release identity is `2.1.0-beta.2`, public name **FORGE beta 2.1**, and target tag `v2.1.0-beta.2`. DMG acceptance is isolated from `/Applications` and source installation.
 
+GitHub Actions run `31193206048` passed from the exact tagged commit and published the five beta.2 assets. The public DMG digest matched GitHub's reported SHA-256 and its read-only mounted runtime loaded the repaired packaged UI. No existing application installation was replaced.
+
 ## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
 
 The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable updater choices. Stored Preview settings migrate to Beta; Beta permits newer beta, rc, or stable versions and rejects alpha. Packaging now cleans stale output, writes an exact hash-bearing build manifest, and makes installation and serial upload select artifacts from that manifest.
