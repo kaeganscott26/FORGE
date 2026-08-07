@@ -1,53 +1,92 @@
 # 🧠 Workspace Before Model
 
-FORGE explores a simple idea: the AI should be replaceable, but the workspace should not be.
+FORGE is built around one principle: **the agent is replaceable; the project memory is not.**
 
-## ✨ The problem with a chat-first workflow
+## The problem with model-owned context
 
-AI-assisted programming can feel magical until the context disappears. A new model, a cleared chat, a different IDE, or a terminal session can force a developer to re-explain the project: what matters, what changed, what has been verified, and what must not be repeated.
+AI-assisted programming is fast until the useful context is trapped inside one session, one provider, or one tool. Change agents, clear a chat, open a different terminal, or come back later and the project has to be explained again.
 
-That friction is not just a prompt problem. It is a workspace-ownership problem.
+That is not primarily a model problem. It is an ownership problem.
 
-FORGE keeps project understanding attached to the project instead of attaching it to one provider’s conversation format. The folder, documentation, Git evidence, structured tasks, checkpoints, memory, and audit trail remain the durable record. A model sees bounded context from that record; it does not become the record.
+FORGE makes the workspace own the durable record: source files, documentation, architecture, Git history, task checkpoints, terminal evidence, decisions, conversations, and memory stay attached to the project instead of to one LLM.
 
-## 🔁 Choose agents by task
+## Intelligence is not the agent
 
-Different work calls for different strengths. A large refactor may suit Codex. Offline experimentation may suit Ollama. A specialist agent introduced tomorrow may be the right tool for a new job.
+FORGE separates two responsibilities that are often bundled together.
 
-| Question | FORGE's answer |
-| --- | --- |
-| Which AI IDE should I lock into? | You do not have to. Keep the workspace and choose an agent per task. |
-| What happens when I change models? | The project files, docs, task history, and workspace memory stay put. |
-| Can a CLI agent work here? | Yes. Launch it in the user-controlled terminal at the active workspace. |
-| Does an AI conversation own the task? | No. Tasks and checkpoints are workspace-owned and survive chat changes. |
+**Workspace intelligence** organizes what the project knows. It collects evidence, ranks relevance, tracks chronology, preserves durable decisions, filters stale context, and prepares the smallest useful context package for the next task.
 
-The terminal makes this practical. FORGE can host the same real project folder where you launch OpenAI Codex, Claude Code, Ollama, OpenCode, or another installed CLI. These tools are not absorbed into a proprietary abstraction; they stay themselves, while the workspace stays coherent.
+**The agent** reasons and acts. That agent may be Codex, Ollama, a hosted OpenAI-compatible model, Claude Code, OpenCode, or another runtime introduced later.
 
-## 🧭 What remains stable
+FORGE should not need to become a better chatbot every time a better model appears. It should make each model inherit a better workspace.
 
-FORGE is built around a few durable invariants:
+## Same project, different agents
 
-- **Files are real.** The project directory remains the source of truth; FORGE does not create a hidden remote copy.
-- **Documentation is evidence.** Architecture, decisions, and release records shape context and guide the next contributor.
-- **Tasks survive conversations.** Structured task state, checkpoints, artifacts, and handoffs live with the workspace.
-- **Memory is explicit.** Derived indexed knowledge and durable memories have different semantics and never silently delete source files.
-- **Authority is bounded.** Models request actions; FORGE validates, approves, executes, and records them through a policy boundary.
-- **The model is replaceable.** Provider adapters can change without changing workspace ownership or policy.
+A broad refactor may suit Codex. Offline work may suit Ollama. A specialist CLI may be better for another job. Those choices should change the executor, not reset the project.
 
-## ⚡ Why this improves vibe-coding
+FORGE keeps stable:
 
-Vibe-coding works best when ideas can move quickly without losing the reasoning behind them. FORGE reduces the cost of returning to a project because the project carries its own context:
+- the real project directory;
+- architecture and documentation;
+- Git evidence and chronology;
+- task state and verified checkpoints;
+- durable memory and prior decisions;
+- terminal observations and tool history;
+- the capabilities the workspace exposes to agents.
 
-1. Open the workspace instead of reconstructing it from a chat transcript.
-2. Let the chosen agent inspect bounded, relevant evidence.
-3. Use the terminal when a CLI agent or normal tool is the best fit.
-4. Preserve task checkpoints and reviewable Git evidence as work progresses.
-5. Switch agents without resetting the project’s memory of what has happened.
+The model changes. The environment does not.
 
-FORGE is not trying to build a smarter chatbot. It is trying to build a workspace where many kinds of intelligence can work responsibly over the same long-term project context.
+## Tool capability belongs to the workspace
 
-## 🏗️ Architectural consequence
+A local model should not become non-agentic simply because it is local. If an Ollama model can reason well enough to use a tool, FORGE should be able to expose the same filesystem, Git, shell, task, search, and project-context capabilities that a hosted model receives.
 
-This philosophy leads directly to the runtime design: Electron main-process services own privileged operations; the renderer is a constrained interface; the workspace database owns conversations, tasks, layout, memory, and audit records; and providers adapt into a stable policy and tool contract.
+Provider adapters translate FORGE's stable contracts into the format a model understands. Capability does not need to be reimplemented for every provider.
 
-Read [Architecture](ARCHITECTURE.md) for the implementation map and [Integrated Terminal](TERMINAL.md) for the human-controlled CLI boundary.
+This creates an important distinction:
+
+> **Model capability determines how well the agent reasons. FORGE determines what the agent can consistently understand and operate.**
+
+## Authority is not orchestration
+
+FORGE should protect the workspace without preventing legitimate work.
+
+The human controls authority: allow an operation once, allow it for the current session, persist a permission, or deny it.
+
+The agent controls execution within that authority. A complex task should not fail simply because it required six reads, three edits, a test run, and another correction.
+
+Workspace containment, validation, cancellation, backups, auditing, timeouts, and resource limits are useful. Arbitrary tool-count and reasoning-round ceilings are not a substitute for safety.
+
+The design rule is simple:
+
+> **Bound resources, not agency.**
+
+## Why this matters for long-running projects
+
+Software development leaves a trail of decisions that source code alone cannot explain. A useful workspace remembers not only what exists, but why it exists, what failed before, what was verified, and what remains unresolved.
+
+That record should be understandable by a new model or a new human engineer without depending on the original conversation that produced it.
+
+FORGE is therefore less interested in owning the smartest model than in building the durable environment where intelligence can accumulate across the entire life of a project.
+
+## Architectural consequence
+
+The architecture follows directly from that philosophy:
+
+```text
+workspace evidence
+      ↓
+FORGE intelligence layer
+context · memory · chronology · relevance
+      ↓
+replaceable agent adapter
+Codex · Ollama · hosted model · future runtime
+      ↓
+FORGE capability layer
+filesystem · Git · shell · tasks · web
+      ↓
+verified project state feeds back into workspace intelligence
+```
+
+The built-in chat can remain useful, but it is one interface and one agent client—not the operating model of the product.
+
+Read [Architecture](ARCHITECTURE.md) for the implementation boundary and [Integrated Terminal](TERMINAL.md) for the CLI-agent workflow.
