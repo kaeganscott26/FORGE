@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { resolveEditorShortcut } from './editor-shortcuts';
+import { describe, expect, it, vi } from 'vitest';
+import { isEditableShortcutTarget, resolveEditorShortcut } from './editor-shortcuts';
 
 const event = (code: string, overrides: Partial<KeyboardEvent> = {}) => ({
   altKey: false, code, ctrlKey: false, metaKey: true, shiftKey: false, ...overrides
@@ -20,5 +20,21 @@ describe('editor shortcuts', () => {
   it('ignores modified and unrelated combinations', () => {
     expect(resolveEditorShortcut(event('KeyS', { altKey: true }))).toBeNull();
     expect(resolveEditorShortcut(event('KeyP'))).toBeNull();
+  });
+
+  it('leaves Monaco-native and form editing history with the focused control', () => {
+    class FakeHTMLElement {
+      isContentEditable = false;
+      constructor(public tagName: string, private readonly inMonaco = false) {}
+      closest(selector: string): object | null { return selector === '.monaco-editor' && this.inMonaco ? {} : null; }
+    }
+    vi.stubGlobal('HTMLElement', FakeHTMLElement);
+    try {
+      expect(isEditableShortcutTarget(new FakeHTMLElement('DIV', true) as unknown as EventTarget)).toBe(true);
+      expect(isEditableShortcutTarget(new FakeHTMLElement('TEXTAREA') as unknown as EventTarget)).toBe(true);
+      expect(isEditableShortcutTarget(new FakeHTMLElement('BUTTON') as unknown as EventTarget)).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
