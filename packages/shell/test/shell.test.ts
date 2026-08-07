@@ -2,13 +2,22 @@ import { mkdtemp, realpath, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filteredEnvironment, ShellService, TerminalService } from '../src';
+import { filteredEnvironment, ShellService, terminalEnvironment, TerminalService } from '../src';
 
 describe('shell and terminal services', () => {
   it('filters the parent environment and blocks secret-like requested variables', () => {
     const environment = filteredEnvironment({ SAFE_VALUE: 'yes', API_TOKEN: 'no' }, ['SAFE_VALUE']);
     expect(environment.SAFE_VALUE).toBe('yes'); expect(environment.API_TOKEN).toBeUndefined();
     expect(() => filteredEnvironment({ API_TOKEN: 'no' }, ['API_TOKEN'])).toThrow(/Secret-like/);
+  });
+
+  it('builds a safe interactive environment with common user CLI locations', () => {
+    const environment = terminalEnvironment('/bin/zsh');
+    expect(environment.HOME).toBe(os.homedir());
+    expect(environment.SHELL).toBe('/bin/zsh');
+    expect(environment.TERM_PROGRAM).toBe('FORGE');
+    expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local/bin')]));
+    expect(environment.OPENAI_API_KEY).toBeUndefined();
   });
 
   it('enforces output limits and timeouts', async () => {

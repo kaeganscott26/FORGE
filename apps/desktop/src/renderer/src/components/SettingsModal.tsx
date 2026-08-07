@@ -9,6 +9,11 @@ const getData = async <T,>(channel: Parameters<typeof forgeInvoke>[0], request?:
   return result.data as T;
 };
 
+const isLoopbackProvider = (value: string): boolean => {
+  try { return ['localhost', '127.0.0.1', '::1'].includes(new URL(value).hostname.toLowerCase()); }
+  catch { return false; }
+};
+
 export default function SettingsModal({ onClose, initialSection = 'api' }: { onClose: () => void; initialSection?: 'api' | 'github' }): JSX.Element {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null);
@@ -28,6 +33,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const [modelStatus, setModelStatus] = useState<ModelValidationResult | null>(null);
   const apiSection = useRef<HTMLElement>(null);
   const githubSection = useRef<HTMLElement>(null);
+  const keylessLocalProvider = isLoopbackProvider(apiBaseUrl);
 
   useEffect(() => {
     getData<UserSettings>('settings.get').then((value) => {
@@ -72,7 +78,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
     try {
       const result = await getData<ModelValidationResult>('settings.model.validate', { apiBaseUrl, apiModel, apiKey: apiKey || undefined });
       setModelStatus(result);
-      setMessage(result.exists ? `Model ${result.model} is available to this API key.` : `Model ${result.model} was not found. You may save it for a compatible provider, but requests will fail until it becomes available.`);
+      setMessage(result.exists ? `Model ${result.model} is available from this provider.` : `Model ${result.model} was not found. You may save it for a compatible provider, but requests will fail until it becomes available.`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
@@ -104,15 +110,15 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
         </section>}
         {!settings.secureStorageAvailable && <div className="settings-warning">OS secure storage is unavailable. FORGE will not save new secrets.</div>}
         <section className="settings-section" ref={apiSection}>
-          <div className="settings-section-title"><div><span>AI ASSISTANT</span><h3>API integration</h3></div><em className={settings.apiKeyConfigured ? 'configured' : ''}>{settings.apiKeyConfigured ? 'Key saved' : 'Not configured'}</em></div>
+          <div className="settings-section-title"><div><span>AI ASSISTANT</span><h3>API integration</h3></div><em className={settings.apiKeyConfigured || keylessLocalProvider ? 'configured' : ''}>{settings.apiKeyConfigured ? 'Key saved' : keylessLocalProvider ? 'Local provider' : 'Not configured'}</em></div>
           <label>API base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label>
-          <p className="settings-help">The default tracks FORGE's current recommended GPT-5.x model. Model IDs are not hardcoded: choose a provider result or enter any future/compatible model ID.</p>
+          <p className="settings-help">The default tracks FORGE's current recommended GPT-5.x model. For a local Ollama server, use http://127.0.0.1:11434/v1 and leave the API key blank. Compatible local models receive the same policy-controlled FORGE file tools.</p>
           <label>Model ID<input list="forge-provider-models" value={apiModel} onChange={(event) => { setApiModel(event.target.value); setModelStatus(null); }} placeholder="gpt-5.6-sol" /></label>
           <datalist id="forge-provider-models">{models.map((model) => <option key={model.id} value={model.id}>{model.ownedBy}</option>)}</datalist>
-          <div className="model-actions"><button onClick={refreshModels} disabled={busy || (!settings.apiKeyConfigured && !apiKey)}>Refresh provider models</button><button onClick={validateModel} disabled={busy || !apiModel.trim() || (!settings.apiKeyConfigured && !apiKey)}>Validate model</button>{modelStatus && <em className={modelStatus.exists ? 'model-valid' : 'model-invalid'}>{modelStatus.exists ? 'Available' : 'Not found'}</em>}</div>
-          <label>API key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings.apiKeyConfigured ? 'Saved — enter a new key to replace it' : 'Enter API key'} /></label>
+          <div className="model-actions"><button onClick={refreshModels} disabled={busy || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Refresh provider models</button><button onClick={validateModel} disabled={busy || !apiModel.trim() || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Validate model</button>{modelStatus && <em className={modelStatus.exists ? 'model-valid' : 'model-invalid'}>{modelStatus.exists ? 'Available' : 'Not found'}</em>}</div>
+          <label>API key (optional for loopback providers)<input type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings.apiKeyConfigured ? 'Saved — enter a new key to replace it' : keylessLocalProvider ? 'Not required for this local provider' : 'Enter API key'} /></label>
           {settings.apiKeyConfigured && <button className="settings-link danger" onClick={() => { setClearApiKey(true); setApiKey(''); }}>Remove saved API key</button>}
-          <button onClick={testApi} disabled={busy || !settings.apiKeyConfigured}>Test saved model and API connection</button>
+          <button onClick={testApi} disabled={busy || (!settings.apiKeyConfigured && !keylessLocalProvider)}>Test saved model and API connection</button>
         </section>
 
         <section className="settings-section" ref={githubSection}>

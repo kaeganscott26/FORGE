@@ -6,6 +6,12 @@ The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable up
 
 Agent tool continuation now permits a capped three-round/five-call Tier 0 sequence so structured missing-path recovery can actually inspect the root and continue in one user turn. Any approval-required request stops the loop. Foreign or invented task links are removed before execution and cannot attach evidence across workspaces.
 
+The final beta repair pass opens a newly created blank file immediately, adds save/open/undo/redo shortcuts, gives user PTYs a bounded non-secret CLI environment, and supports keyless loopback OpenAI-compatible providers. A live local Ollama `llama3.2:3b` request returned a structured file-tool call; FORGE still validates and approval-gates it before any workspace action. Task checkpoint approval projection is now separate from step-evidence projection.
+
+The development-runtime money test created and saved `draft-2.txt`, reopened the duplicate through the human collision prompt, ran Codex 0.147.0 and Ollama 0.32.1 inside the FORGE PTY, and configured Ollama without an API key. `llama3.2:3b` requested `file.read`; FORGE recorded one automatic Tier 0 success in 3 ms and the local model answered `draft-two-content` from the observed result. Small-model plain-JSON calls are promoted only when they exactly match an offered tool, repeated calls are deduplicated, and loopback providers see a focused file-tool catalog.
+
+After the final repair, a clean `npm ci` source gate passed typecheck, lint, 25 test files / 95 tests, production build, and `npm audit --omit=dev` with zero vulnerabilities. npm reported one unapproved install script in the transitive Windows-only `electron-winstaller`; it did not execute and is outside the macOS beta path.
+
 Before the conversion, the complete repair/task-engine source gate passed 21 files / 78 tests, typecheck, lint, and production build. The beta conversion then passed focused IPC, updater, and task checks (3 files / 20 tests). The 4.5 GB historical local packaging tree was fully hashed in `docs/archive/PRE_BETA_RELEASE_AUDIT.md` and moved recoverably to Trash. Installed applications and all GitHub Releases/tags remain untouched pending final beta acceptance.
 
 This is preparation evidence, not release proof. Exact final-main packaging, local installed runtime checks, public workflow/assets, downloaded hash equality, public installation, updater behavior, and post-verification historical cleanup remain open.

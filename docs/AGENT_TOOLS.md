@@ -41,6 +41,12 @@ Filesystem inspection starts at the workspace root. A missing read/list/search p
 
 FORGE may continue an agent turn for up to three bounded tool rounds and five total tool requests when every completed request was authorized automatically under Tier 0. This lets the model consume a missing-path recovery result, inspect the root, and continue with an observed path. The loop stops immediately for an approval-required request; it never turns persistence or recovery into authorization.
 
+If a compatible provider emits strict plain JSON naming an actually offered tool, the adapter promotes it to the same validated request structure as a native call. Unoffered names remain text and cannot reach the router. If the provider repeats an already completed call, FORGE deduplicates it and performs one no-tools synthesis pass over the bounded observed results. This protects small compatible models from repeating a completed file read while preserving genuine validated calls for a different next tool.
+
 Existing tools accept optional `taskContext` containing an exact task/step ID. The router never changes the tool's risk because it belongs to a task. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
 
+OpenAI-compatible loopback providers may run without an API key. For example, Ollama at `http://127.0.0.1:11434/v1` can list local models and receive a focused provider-neutral file-tool set: list, read, search, create, write, patch, rename/move, and directory creation. This avoids flooding small local models with unrelated Git/release/task tools. Model capability still matters, and all returned calls remain subject to normal validation, tiering, approval, execution, and audit. Remote providers continue to require authentication and retain the full catalog.
+
 A provider-supplied task link is accepted only when the task and step exist in the active workspace. A stale, foreign, or invented link is stripped before execution, so an otherwise valid tool request can run without attaching evidence to the wrong task.
+
+Approval projection and evidence projection are separate. A direct `task.checkpoint` request records its pending/approved/rejected decision against the task step, but the checkpoint result is not reprocessed as ordinary step tool evidence. Task-context file/shell results and direct task process starts retain both links.

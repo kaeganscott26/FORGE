@@ -8,7 +8,7 @@ FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It
 
 ## 2. Navigate a workspace
 
-The Explorer lists directories and supported text files recursively. Select a file to open it. Use **New file** to create a relative path, **Save** to write changes, and **Delete** only after reviewing the confirmation.
+The Explorer lists directories and supported text files recursively. Select a file to open it. **New file** creates the requested relative path and immediately opens its bundled offline editor; type content and choose **Save** or press **Command/Ctrl+S** to write it. If that path exists, FORGE offers to open the existing file or prompts for another name instead of showing a raw filesystem error. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo. Use **Delete** only after reviewing the confirmation.
 
 FORGE rejects absolute paths, path traversal, and resolved paths outside the opened workspace.
 
@@ -34,7 +34,9 @@ Always confirm the file list and diff before a commit, pull, or push. FORGE oper
 
 ## 6. Use workspace conversations
 
-Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. Use **Refresh provider models** to load IDs available to the current key and **Validate model** to check an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
+Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1`, choose a loaded tool-capable model, and leave the key blank. Use **Refresh provider models** to load IDs available from the provider and **Validate model** to check an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
+
+Compatible local models receive a focused set of FORGE workspace file tools through the same policy router as hosted models. Read-only inspection may run automatically; file creation and writes still require explicit approval. The focused catalog avoids confusing smaller models with unrelated Git, release, shell, and task actions. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
 
 Each project has its own conversations. Switching from FORGE to another folder automatically shows that folder's active thread; histories are never shared between workspace databases.
 
@@ -91,6 +93,8 @@ Choose **Terminal** in the bottom panel and select **New**. A user terminal star
 
 The user terminal is separate from model-requested `shell.run`. The model cannot type into a user session. Agent shell requests appear under Agent Actions and require one-time approval. FORGE rejects normal terminal working directories outside the workspace, and terminal output is not automatically indexed into memory.
 
+Login shells receive a small explicit environment with the current user home, shell identity, and common Homebrew/user CLI paths, so installed tools such as `ollama` and `codex` can be resolved without forwarding API keys or other secret environment variables. macOS may still block an independently installed quarantined CLI until that exact signed binary is approved under **System Settings → Privacy & Security**.
+
 ## 11. Update FORGE
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
@@ -146,6 +150,8 @@ Open **Agent Actions**, inspect the exact scope, and choose Run once, the offere
 ### Terminal session will not start
 
 Confirm the app was packaged with `node-pty` unpacked and that its `spawn-helper` is executable. From source, rerun `npm install`; FORGE's postinstall repairs the helper permission and missing Electron vendor app.
+
+If a command resolves but macOS reports that it cannot verify the executable, the PTY is working and Gatekeeper is blocking that separately installed CLI. Verify the binary's origin and signature, then approve only that exact executable through macOS security controls or reinstall it from a trusted source. FORGE does not disable Gatekeeper globally.
 
 ### A task says a process disappeared
 

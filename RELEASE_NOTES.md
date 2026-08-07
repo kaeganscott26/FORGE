@@ -1,6 +1,14 @@
 # FORGE 1.1.0-beta.1
 
-FORGE 1.1.0-beta.1 makes long-running work belong to the workspace rather than an AI conversation. It also repairs terminal input, workspace discovery recovery, and GPT-5.6 tool routing. This release is a beta and will initially be published as a GitHub Pre-release.
+FORGE 1.1.0-beta.1 makes long-running work belong to the workspace rather than an AI conversation. It also repairs editor creation/shortcuts, terminal CLI execution, workspace discovery recovery, GPT-5.6 tool routing, and keyless local-model tools. This release is a beta and will initially be published as a GitHub Pre-release.
+
+## Editor workflow repairs
+
+- Opens every newly created blank file immediately in Monaco instead of leaving the editor closed.
+- Uses the packaged local Monaco runtime rather than depending on an external loader.
+- Replaces raw duplicate-path errors with an offer to open the existing file or choose another name.
+- Saves new-file edits through the normal workspace write path.
+- Adds Command/Ctrl+S save, Command/Ctrl+O workspace open, Command/Ctrl+Z undo, and platform redo shortcuts without stealing undo from focused form fields.
 
 ## Workspace-owned persistent tasks
 
@@ -27,6 +35,14 @@ Persistent state never grants permanent approval. Tier 1 and Tier 2 execution re
 - Preserves the active xterm input callback instead of allowing renderer lifecycle changes to drop keyboard events.
 - Rejects input after exit and creates a new writable PTY on Restart.
 - Reconciles canonical macOS `/tmp` and `/private/tmp` workspace paths during restart.
+- Supplies a bounded non-secret login environment with user identity and common Homebrew/user-local CLI paths.
+- Documents scoped Gatekeeper handling for separately installed signed CLIs instead of disabling macOS security.
+
+## Local-model tools
+
+- Allows keyless loopback OpenAI-compatible providers such as Ollama while continuing to require keys for remote hosts.
+- Lists and validates local models, sends a focused policy-controlled file-tool catalog, and accepts compatible Chat Completions tool calls.
+- Retries older compatible endpoints with `max_tokens` when they reject `max_completion_tokens`.
 
 ## Beta release and packaging policy
 

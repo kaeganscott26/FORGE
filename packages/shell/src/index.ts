@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import * as pty from 'node-pty';
 
@@ -51,6 +52,31 @@ export function filteredEnvironment(requested: Record<string, string> = {}, allo
     environment[name] = value;
   }
   return environment;
+}
+
+export function terminalEnvironment(shell: string): Record<string, string> {
+  const home = os.homedir();
+  const username = os.userInfo().username;
+  const inherited = filteredEnvironment();
+  const pathEntries = [
+    `${home}/.local/bin`,
+    `${home}/.opencode/bin`,
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    ...(inherited.PATH ?? '').split(path.delimiter)
+  ].filter(Boolean);
+  return {
+    ...inherited,
+    HOME: home,
+    USER: username,
+    LOGNAME: username,
+    SHELL: shell,
+    TERM: inherited.TERM ?? 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'FORGE',
+    PATH: [...new Set(pathEntries)].join(path.delimiter)
+  };
 }
 
 export class ShellService {
@@ -161,7 +187,7 @@ export class TerminalService {
     const id = requestedId ?? randomUUID();
     if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
     const shell = process.env.SHELL && path.isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
-    const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: filteredEnvironment() as Record<string, string> });
+    const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
     const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id, session);

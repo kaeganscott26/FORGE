@@ -67,7 +67,7 @@ launchctl unsetenv OPENAI_MODEL
 launchctl unsetenv OPENAI_BASE_URL
 ```
 
-`.env.example` documents supported names, but the packaged app does not automatically load a repository `.env` file. Saved in-app values take precedence over environment values for base URL and model; a saved key takes precedence over `OPENAI_API_KEY`.
+`.env.example` documents supported names, but the packaged app does not automatically load a repository `.env` file. Saved in-app values take precedence over environment values for base URL and model; a saved key takes precedence over `OPENAI_API_KEY`. Remote providers require a key. Loopback OpenAI-compatible providers at `localhost`, `127.0.0.1`, or `::1` may run keyless; Ollama's conventional base URL is `http://127.0.0.1:11434/v1`.
 
 The default applies only when neither a saved preference nor `OPENAI_MODEL` exists. Existing saved model IDs, including older GPT-4o configurations, are preserved for backwards compatibility.
 
@@ -75,7 +75,7 @@ The default applies only when neither a saved preference nor `OPENAI_MODEL` exis
 
 The model field accepts any non-empty ID. This is deliberate: FORGE does not require a source update whenever OpenAI or an OpenAI-compatible provider introduces a model.
 
-- **Refresh provider models** calls `<API base URL>/models` using the entered key, or the stored key when the input is blank.
+- **Refresh provider models** calls `<API base URL>/models` using the entered key, the stored key when the input is blank, or no authorization header for a keyless loopback provider.
 - **Validate model** checks for an exact ID in that response.
 - A missing ID can still be saved for a compatible provider or future availability, but chat requests will display an unsupported/unavailable error until the provider accepts it.
 - **Test saved model and API connection** validates the already stored URL, key, and model.

@@ -10,7 +10,7 @@
 
 ## Current state
 
-The repair and workspace-owned persistent-task milestone is implemented in source. The pre-beta source gate passed dependency installation with zero reported vulnerabilities, typecheck, lint, 21 test files / 78 tests, and production build before the beta identity conversion. Focused beta IPC, updater, and task checks then passed 3 files / 20 tests. The full beta gate, exact-commit packaging, installed acceptance, public workflow, remote hashes, and public-artifact reinstallation remain mandatory before release verification.
+The repair and workspace-owned persistent-task milestone is implemented in source. After editor, terminal CLI, local-model, and approval-projection repairs, the clean beta source gate passed dependency installation, typecheck, lint, 25 test files / 95 tests, production build, and a production audit with zero vulnerabilities. The full exact-commit package, installed acceptance, public workflow, remote hashes, and public-artifact reinstallation remain mandatory before release verification.
 
 Historical Releases and release tags remain intact while validation proceeds. The pre-cleanup state is recorded in [PRE_BETA_RELEASE_AUDIT.md](archive/PRE_BETA_RELEASE_AUDIT.md). The old 4.5 GB local packaging tree was moved recoverably to Trash after audit; installed applications have not yet been removed.
 
@@ -18,7 +18,7 @@ Historical Releases and release tags remain intact while validation proceeds. Th
 
 | Area | Implemented behavior |
 | --- | --- |
-| Provider routing | GPT-5.6 tool turns use `/v1/responses`; provider-neutral messages, tool requests, and direct-response support remain internal |
+| Provider routing | GPT-5.6 tool turns use `/v1/responses`; keyless loopback/Ollama uses compatible Chat Completions; provider-neutral requests retain one policy path |
 | Workspace recovery | Root-first discovery, structured missing-path suggestions, and a capped Tier 0 continuation loop prevent a missing assumed directory from ending a scan |
 | Tool policy | Tier 0 reads; Tier 1 one-time or exact expiring session approval; Tier 2 always explicit |
 | Filesystem | Workspace containment, symlink escape rejection, atomic writes, diffs, backups, dirty-editor protection |
@@ -26,7 +26,7 @@ Historical Releases and release tags remain intact while validation proceeds. Th
 | Approval and audit | Retained request/result UI, per-workspace audit records, task references, and secret redaction |
 | Persistent tasks | Schema-v4 tasks, steps, dependencies, checkpoints, artifacts, external references, approvals, events, reconciliation, UI, and Markdown handoffs |
 | Background operations | Task-linked local PID, output path, bounded output, audit reference, and restart reconciliation |
-| Integrated terminal | Workspace-owned `node-pty`, renderer xterm, input/resize/output/terminate/restart, exit rejection, canonical cwd handling |
+| Editor and terminal | New blank files activate Monaco; save/open/undo/redo shortcuts; workspace-owned PTY with safe CLI environment, restart, and canonical cwd handling |
 | Renderer boundary | Context isolation, no Node integration, sandbox, allowlisted preload, navigation denial, packaged `file://` renderer |
 | Update discovery | Stable/Beta logical policy, legacy Preview migration, bounded GitHub response, strict forward SemVer, selected safe feed |
 | Packaging | Clean ARM64/universal commands, beta metadata, exact hash-bearing manifest, manifest-driven install/upload |

@@ -5,6 +5,7 @@ export interface OpenAIModelValidation { model: string; exists: boolean; availab
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const LOCAL_FILE_TOOLS = new Set(['file.list', 'file.read', 'file.search', 'file.create', 'file.write', 'file.patch', 'file.rename', 'file.move', 'directory.create']);
 
 interface ProviderErrorBody { error?: { message?: string; code?: string; param?: string }; message?: string; }
 
@@ -34,7 +35,7 @@ export class OpenAIProvider {
     this.model = this.normalizeModel(opts.model);
   }
 
-  async isConfigured(): Promise<boolean> { return Boolean(this.apiKey); }
+  async isConfigured(): Promise<boolean> { return Boolean(this.apiKey) || this.isLoopbackProvider(); }
 
   async listModels(): Promise<OpenAIModelInfo[]> {
     const response = await this.authorizedFetch(`${this.baseUrl}/models`);
@@ -96,7 +97,8 @@ export class OpenAIProvider {
   async chatWithTools(messages: ChatMessage[], tools: AgentToolDescriptor[], model = this.model): Promise<AgentProviderResponse> {
     const selectedModel = this.normalizeModel(model);
     const providerNames = new Map<string, string>();
-    const aliasedTools = tools.map((tool, index) => {
+    const availableTools = this.isLoopbackProvider() ? tools.filter((tool) => LOCAL_FILE_TOOLS.has(tool.name)) : tools;
+    const aliasedTools = availableTools.map((tool, index) => {
       const alias = `forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       providerNames.set(alias, tool.name);
       return { alias, tool };
@@ -115,7 +117,14 @@ export class OpenAIProvider {
       tool_choice: 'auto',
       max_completion_tokens: 1_600
     };
-    const response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+    let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+    if (!response.ok) {
+      const errorText = await response.clone().text();
+      if (response.status === 400 && /max_completion_tokens|unknown parameter|unsupported parameter/i.test(errorText)) {
+        const { max_completion_tokens: _ignored, ...compatibleRequest } = request;
+        response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...compatibleRequest, max_tokens: 1_600 }) });
+      }
+    }
     if (!response.ok) throw await this.providerError(response, `AI request failed for model "${selectedModel}"`);
     const data = await response.json() as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown[] } }> };
     const message = data.choices?.[0]?.message;
@@ -125,7 +134,12 @@ export class OpenAIProvider {
       let args: unknown; try { args = JSON.parse(call.function.arguments); } catch { throw new Error('The provider returned malformed tool arguments.'); }
       return { id: typeof call.id === 'string' ? call.id : crypto.randomUUID(), name: providerNames.get(call.function.name) ?? call.function.name, arguments: args, provider: this.id };
     });
-    return { content: typeof message?.content === 'string' ? message.content : '', toolCalls, modelId: selectedModel };
+    const content = typeof message?.content === 'string' ? message.content : '';
+    if (toolCalls.length === 0) {
+      const textCall = this.textToolCall(content, availableTools, providerNames);
+      if (textCall) return { content: '', toolCalls: [textCall], modelId: selectedModel };
+    }
+    return { content, toolCalls, modelId: selectedModel };
   }
 
   private async responsesWithTools(
@@ -177,11 +191,30 @@ export class OpenAIProvider {
   }
 
   private async authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.apiKey) throw new Error('OpenAI API key is not configured.');
+    if (!this.apiKey && !this.isLoopbackProvider()) throw new Error('An API key is required for remote AI providers. Loopback providers such as Ollama may run without one.');
     return fetch(url, {
       ...init,
-      headers: { ...init.headers, Authorization: `Bearer ${this.apiKey}` }
+      headers: this.apiKey ? { ...init.headers, Authorization: `Bearer ${this.apiKey}` } : init.headers
     });
+  }
+
+  private isLoopbackProvider(): boolean {
+    const hostname = new URL(this.baseUrl).hostname.toLowerCase();
+    return ['localhost', '127.0.0.1', '::1'].includes(hostname);
+  }
+
+  private textToolCall(content: string, tools: AgentToolDescriptor[], providerNames: ReadonlyMap<string, string>): AgentProviderResponse['toolCalls'][number] | null {
+    const trimmed = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    if (!trimmed.startsWith('{')) return null;
+    try {
+      const value = JSON.parse(trimmed) as { name?: unknown; tool?: unknown; parameters?: unknown; arguments?: unknown };
+      const requestedName = value.name ?? value.tool;
+      const requestedArguments = value.parameters ?? value.arguments;
+      if (typeof requestedName !== 'string' || !requestedArguments || typeof requestedArguments !== 'object' || Array.isArray(requestedArguments)) return null;
+      const stableName = providerNames.get(requestedName) ?? requestedName;
+      if (!tools.some((tool) => tool.name === stableName)) return null;
+      return { id: crypto.randomUUID(), name: stableName, arguments: requestedArguments, provider: this.id };
+    } catch { return null; }
   }
 
   private async providerError(response: Response, prefix: string): Promise<Error> {

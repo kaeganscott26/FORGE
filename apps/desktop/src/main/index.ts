@@ -14,6 +14,8 @@ import { boundedToolEvidence, ToolRouter, parseStructuredToolFallback, type Prov
 import { ShellService, TerminalService } from '@forge/shell';
 import { WebService } from '@forge/web';
 import { TaskRuntime } from '@forge/tasks';
+import { looksLikeRepeatedToolRequest, toolCallKey } from './agent-continuation';
+import { taskApprovalLink, taskEvidenceLink } from './task-links';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -110,14 +112,8 @@ function registerHandlers(): void {
   const resolveConversation = async (conversationId?: string) => storage.conversationState(conversationId);
   const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId))
     .map((entry) => ({ role: entry.role, content: entry.content }));
-  const taskLink = (request: { input: unknown; toolName?: string }): { taskId: string; stepId: string } | null => {
-    const link = (request.input as { taskContext?: unknown } | null)?.taskContext as { taskId?: unknown; stepId?: unknown } | undefined;
-    if (typeof link?.taskId === 'string' && typeof link.stepId === 'string') return { taskId: link.taskId, stepId: link.stepId };
-    const direct = request.input as { taskId?: unknown; stepId?: unknown } | null;
-    return request.toolName === 'task.process.start' && typeof direct?.taskId === 'string' && typeof direct.stepId === 'string' ? { taskId: direct.taskId, stepId: direct.stepId } : null;
-  };
   const recordTaskOutcome = async (request: { id: string; input: unknown; toolName?: string }, result: any): Promise<string | null> => {
-    const link = taskLink(request); if (!link) return null;
+    const link = taskEvidenceLink(request); if (!link) return null;
     try { await taskRuntime.recordToolOutcome(link.taskId, link.stepId, request.id, result); return null; }
     catch (error) { return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`; }
   };
@@ -134,18 +130,31 @@ function registerHandlers(): void {
     const toolOutcomes: ToolRequestOutcome[] = [];
     const taskLinkWarnings: string[] = [];
     const continuationHistory: AgentMessage[] = [...history, { role: 'user', content: prompt }];
+    const executedCallKeys = new Set<string>();
+    const synthesizeObservedResults = async (): Promise<string> => {
+      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
+      return (await agent.askWithContext(`The required FORGE tool has already completed. Do not output JSON and do not request another tool. Answer the original request using only these observed Tool Result records.\n\n${evidence}`, continuationHistory)).content;
+    };
     let modelContent = '';
     let completedRounds = 0;
     for (; completedRounds < 3; completedRounds += 1) {
       const calls: ProviderToolCall[] = [...turn.toolCalls];
       const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
       if (fallback) calls.push(fallback);
-      if (calls.length === 0) { modelContent = turn.content; break; }
-      if (toolOutcomes.length + calls.length > 5) throw new Error('The model requested too many tools in one turn.');
+      if (calls.length === 0) {
+        if (toolOutcomes.length && looksLikeRepeatedToolRequest(turn.content)) {
+          modelContent = await synthesizeObservedResults();
+        } else modelContent = turn.content;
+        break;
+      }
+      const freshCalls = calls.filter((call) => !executedCallKeys.has(toolCallKey(call)));
+      if (freshCalls.length === 0) { modelContent = await synthesizeObservedResults(); break; }
+      if (toolOutcomes.length + freshCalls.length > 5) throw new Error('The model requested too many tools in one turn.');
       const roundOutcomes: ToolRequestOutcome[] = [];
-      for (const originalCall of calls) {
+      for (const originalCall of freshCalls) {
+        executedCallKeys.add(toolCallKey(originalCall));
         let call = originalCall;
-        const link = taskLink({ input: originalCall.arguments, toolName: originalCall.name });
+        const link = taskEvidenceLink({ input: originalCall.arguments, toolName: originalCall.name });
         if (link) {
           try {
             const task = await taskRuntime.get(link.taskId);
@@ -159,7 +168,7 @@ function registerHandlers(): void {
         roundOutcomes.push(outcome); toolOutcomes.push(outcome);
       }
       for (const outcome of roundOutcomes) {
-        const link = taskLink(outcome.request); if (!link) continue;
+        const link = taskApprovalLink(outcome.request); if (!link) continue;
         if (outcome.result) { const warning = await recordTaskOutcome(outcome.request, outcome.result); if (warning) taskLinkWarnings.push(warning); }
         else await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: outcome.request.id, decision: 'pending', scope: `${link.taskId}:${link.stepId}:${outcome.request.toolName}` });
       }
@@ -238,7 +247,7 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.toolRequestsList, async () => { const project = await storage.dashboard(); return (project ? toolRouter.listRequests(project.id) : []) as any; });
   register(IPC_CHANNELS.toolRequestApprove, async (request) => {
     const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.');
-    const link = taskLink(pending);
+    const link = taskApprovalLink(pending);
     if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: request.choice, scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now(), expiresAt: request.choice === 'session' ? Date.now() + 30 * 60_000 : undefined });
     const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
     const taskWarning = await recordTaskOutcome(pending, result);
@@ -252,7 +261,7 @@ function registerHandlers(): void {
     }
     return result as any;
   });
-  register(IPC_CHANNELS.toolRequestReject, async (request) => { const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.'); await toolRouter.reject(request.requestId, await toolContext()); const link = taskLink(pending); if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: 'rejected', scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now() }); return undefined; });
+  register(IPC_CHANNELS.toolRequestReject, async (request) => { const pending = toolRouter.requestById(request.requestId); if (!pending) throw new Error('Unknown tool request.'); await toolRouter.reject(request.requestId, await toolContext()); const link = taskApprovalLink(pending); if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: 'rejected', scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now() }); return undefined; });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
   register(IPC_CHANNELS.toolActionsList, async (request) => storage.listActions(request) as any);
   register(IPC_CHANNELS.editorDirtyUpdate, async (request) => { dirtyEditorPaths.clear(); for (const value of request.paths) if (value && !value.split(/[\\/]/).includes('..')) dirtyEditorPaths.add(value); return undefined; });
