@@ -20,16 +20,17 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 ## Main features
 
 - Native Electron application for macOS
-- Recursive project explorer and Monaco code editor
+- Recursive, expandable project explorer with file and folder management
+- Monaco code editor for UTF-8 text files and major coding languages
 - Markdown preview
 - Git status, diff, staging, commit, pull, and push controls
-- Resizable Explorer, editor, workspace-intelligence, AI chat, and source-control regions with per-workspace layout persistence
+- Resizable Explorer, editor, workspace-intelligence, AI chat, and source-control regions with constrained readable minimums and per-workspace layout persistence
 - SQLite-backed goals, structured task steps/checkpoints/events, conversation threads, active-thread state, layout, and memories per workspace
 - Dedicated Tasks view with dependency-aware resume, process/output tracking, audit evidence, retry/cancel semantics, and Markdown handoffs
 - New Chat and Clear Chat controls that reset conversation state without deleting project intelligence
 - Classified workspace-knowledge indexing, confidence-filtered lexical retrieval, and architecture-first prompt assembly from documentation, Git, metadata, source snapshots, and durable memory
 - Context disclosure grouped by evidence class with relevance scores and selection reasons
-- In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, provider model discovery, and availability validation
+- In-app AI settings for an encrypted API key, compatible base URL, free-form model ID, automatic/manual provider model discovery, and availability validation
 - In-app GitHub settings for an encrypted personal access token used by HTTPS pull/push
 - GitHub Release update checks in packaged builds
 - Policy-controlled provider-neutral agent tools with risk tiers, approvals, cancellation, structured results, and a per-workspace audit log
@@ -40,8 +41,8 @@ Privileged file, Git, storage, and AI work runs in Electron's main process. The 
 
 ## Install FORGE on macOS
 
-1. Open the [`v1.1.0-beta.1` FORGE Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v1.1.0-beta.1).
-2. Download `FORGE-1.1.0-beta.1-universal.dmg`.
+1. Open the [`FORGE beta 2.1` Pre-release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.1).
+2. Download `FORGE-2.1.0-beta.1-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
@@ -62,7 +63,7 @@ npm run install:mac
 
 The packaged app includes **Check for updates** and **Releases** controls. Stable is the default. Beta accepts strictly newer beta, release-candidate, or stable versions after explicit selection; a legacy Preview preference migrates to Beta. Until Developer ID signing is configured, use the verified DMG for manual replacement.
 
-Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. The beta reports `FORGE v1.1.0-beta.1`, `Channel: beta`, the exact commit, and `file:// packaged app.asar`. Diagnostics omit credentials, workspace names, and private local paths.
+Open **Settings** to copy the build diagnostic whenever the UI does not match the expected release. FORGE beta 2.1 reports `FORGE v2.1.0-beta.1`, `Channel: beta`, the exact commit, and `file:// packaged app.asar`. Diagnostics omit credentials, workspace names, and private local paths.
 
 ## Development
 
@@ -115,7 +116,7 @@ Generated packages are written to `dist_electron/`, excluded from Git and memory
 
 ## Release automation
 
-Pushing annotated tag `v1.1.0-beta.1` runs `.github/workflows/package-mac.yml`, validates source, creates or reconciles a draft, packages a universal app, selects assets from the manifest, uploads and hash-verifies them serially, publishes `beta-mac.yml` last, then publishes a GitHub Pre-release. A manual workflow run creates a downloadable Actions artifact without publishing. Read [Releasing FORGE](RELEASING.md), [Release Channels](docs/RELEASE_CHANNELS.md), and [Beta Verification](docs/V1.1.0_BETA_VERIFICATION.md).
+Pushing annotated tag `v2.1.0-beta.1` runs `.github/workflows/package-mac.yml`, validates source, creates or reconciles a draft, packages a universal app, selects assets from the manifest, uploads and hash-verifies them serially, publishes `beta-mac.yml` last, then publishes the `FORGE beta 2.1` GitHub Pre-release. A manual workflow run creates a downloadable Actions artifact without publishing. Read [Releasing FORGE](RELEASING.md), [Release Channels](docs/RELEASE_CHANNELS.md), and [Beta 2.1 Verification](docs/V2.1.0_BETA1_VERIFICATION.md).
 
 For trusted distribution and working in-app automatic installation, configure these GitHub Actions secrets:
 
@@ -172,7 +173,7 @@ Tier 0 read-only tools may run automatically. Tier 1 reversible changes require 
 - [Persistent Tasks](docs/PERSISTENT_TASKS.md)
 - [Task Recovery](docs/TASK_RECOVERY.md)
 - [Build Artifact Policy](docs/BUILD_ARTIFACT_POLICY.md)
-- [1.1.0 Beta Verification](docs/V1.1.0_BETA_VERIFICATION.md)
+- [Beta 2.1 Verification](docs/V2.1.0_BETA1_VERIFICATION.md)
 
 ## Security notes
 

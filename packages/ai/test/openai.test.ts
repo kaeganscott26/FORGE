@@ -47,6 +47,12 @@ describe('OpenAIProvider models', () => {
     await expect(remote.listModels()).rejects.toThrow(/API key is required for remote/);
   });
 
+  it('accepts Ollama-compatible model catalogs that use a models array', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ models: [{ name: 'qwen2.5-coder:7b' }] }), { status: 200 })));
+    const provider = new OpenAIProvider({ baseUrl: 'http://127.0.0.1:11434/v1' });
+    expect(await provider.listModels()).toEqual([{ id: 'qwen2.5-coder:7b', ownedBy: undefined }]);
+  });
+
   it('adapts dotted FORGE tool names to provider-safe aliases and restores them', async () => {
     let url = '';
     let body: any;

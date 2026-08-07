@@ -30,6 +30,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ProviderModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelValidationResult | null>(null);
   const apiSection = useRef<HTMLElement>(null);
   const githubSection = useRef<HTMLElement>(null);
@@ -46,6 +47,28 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
     if (!settings) return;
     window.requestAnimationFrame(() => (initialSection === 'github' ? githubSection.current : apiSection.current)?.scrollIntoView({ block: 'start' }));
   }, [initialSection, settings]);
+
+  const loadModels = async (manual = false): Promise<void> => {
+    if (manual) { setBusy(true); setError(null); setMessage(null); }
+    setModelsLoading(true);
+    try {
+      const available = await getData<ProviderModel[]>('settings.models.list', { apiBaseUrl, apiKey: apiKey || undefined });
+      setModels(available);
+      if (manual) setMessage(`${available.length} provider models loaded.`);
+    } catch (cause) {
+      if (manual) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setModelsLoading(false);
+      if (manual) setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!settings || (!settings.apiKeyConfigured && !keylessLocalProvider)) return;
+    void loadModels();
+    // Loading is intentionally triggered when the saved provider becomes known or the URL changes.
+    // Manual refresh remains available for providers whose model catalog changes during a session.
+  }, [settings?.apiBaseUrl, settings?.apiKeyConfigured, keylessLocalProvider]);
 
   const save = async (): Promise<void> => {
     setBusy(true); setError(null); setMessage(null);
@@ -64,13 +87,8 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   };
 
   const refreshModels = async (): Promise<void> => {
-    setBusy(true); setError(null); setMessage(null); setModelStatus(null);
-    try {
-      const available = await getData<ProviderModel[]>('settings.models.list', { apiBaseUrl, apiKey: apiKey || undefined });
-      setModels(available);
-      setMessage(`${available.length} provider models loaded. You can still enter any future model ID manually.`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
+    setModelStatus(null);
+    await loadModels(true);
   };
 
   const validateModel = async (): Promise<void> => {
@@ -115,7 +133,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
           <p className="settings-help">The default tracks FORGE's current recommended GPT-5.x model. For a local Ollama server, use http://127.0.0.1:11434/v1 and leave the API key blank. Compatible local models receive the same policy-controlled FORGE file tools.</p>
           <label>Model ID<input list="forge-provider-models" value={apiModel} onChange={(event) => { setApiModel(event.target.value); setModelStatus(null); }} placeholder="gpt-5.6-sol" /></label>
           <datalist id="forge-provider-models">{models.map((model) => <option key={model.id} value={model.id}>{model.ownedBy}</option>)}</datalist>
-          <div className="model-actions"><button onClick={refreshModels} disabled={busy || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Refresh provider models</button><button onClick={validateModel} disabled={busy || !apiModel.trim() || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Validate model</button>{modelStatus && <em className={modelStatus.exists ? 'model-valid' : 'model-invalid'}>{modelStatus.exists ? 'Available' : 'Not found'}</em>}</div>
+          <div className="model-actions"><button onClick={refreshModels} disabled={busy || modelsLoading || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>{modelsLoading ? 'Loading models…' : 'Refresh provider models'}</button><button onClick={validateModel} disabled={busy || !apiModel.trim() || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Validate model</button>{modelStatus && <em className={modelStatus.exists ? 'model-valid' : 'model-invalid'}>{modelStatus.exists ? 'Available' : 'Not found'}</em>}</div>
           <label>API key (optional for loopback providers)<input type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings.apiKeyConfigured ? 'Saved — enter a new key to replace it' : keylessLocalProvider ? 'Not required for this local provider' : 'Enter API key'} /></label>
           {settings.apiKeyConfigured && <button className="settings-link danger" onClick={() => { setClearApiKey(true); setApiKey(''); }}>Remove saved API key</button>}
           <button onClick={testApi} disabled={busy || (!settings.apiKeyConfigured && !keylessLocalProvider)}>Test saved model and API connection</button>

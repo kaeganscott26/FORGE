@@ -21,7 +21,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
       return { success: true, data: { currentVersion: 'development', state: 'development', message: 'Update checks run in the packaged app.' } } as any;
     case 'app.build.info':
     case 'app.build.info.copy':
-      return { success: true, data: { version: '1.1.0-beta.1-dev', channel: 'development', commit: 'unavailable in browser preview', buildDate: new Date().toISOString(), runtime: 'development', rendererSource: 'development URL', platform: navigator.platform, architecture: 'browser' } } as any;
+      return { success: true, data: { version: '2.1.0-beta.1-dev', channel: 'development', commit: 'unavailable in browser preview', buildDate: new Date().toISOString(), runtime: 'development', rendererSource: 'development URL', platform: navigator.platform, architecture: 'browser' } } as any;
     case 'settings.get':
       return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false, webResearchEnabled: false, updateChannel: 'stable' } } as any;
     case 'workspace.layout.get':

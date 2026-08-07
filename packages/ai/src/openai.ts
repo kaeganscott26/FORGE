@@ -40,9 +40,10 @@ export class OpenAIProvider {
   async listModels(): Promise<OpenAIModelInfo[]> {
     const response = await this.authorizedFetch(`${this.baseUrl}/models`);
     if (!response.ok) throw await this.providerError(response, 'Could not list models');
-    const payload = await response.json() as { data?: Array<{ id?: unknown; owned_by?: unknown }> };
-    if (!Array.isArray(payload.data)) throw new Error('The AI provider returned an invalid model list. You can still enter a model ID manually.');
-    return payload.data
+    const payload = await response.json() as { data?: Array<{ id?: unknown; owned_by?: unknown }>; models?: Array<{ name?: unknown; id?: unknown; owned_by?: unknown }> };
+    const rawModels = Array.isArray(payload.data) ? payload.data : Array.isArray(payload.models) ? payload.models.map((model) => ({ id: model.id ?? model.name, owned_by: model.owned_by })) : null;
+    if (!rawModels) throw new Error('The AI provider returned an invalid model list. You can still enter a model ID manually.');
+    return rawModels
       .filter((model): model is { id: string; owned_by?: unknown } => typeof model.id === 'string' && Boolean(model.id.trim()))
       .map((model) => ({ id: model.id, ownedBy: typeof model.owned_by === 'string' ? model.owned_by : undefined }))
       .sort((left, right) => left.id.localeCompare(right.id));

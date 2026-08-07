@@ -1,5 +1,25 @@
 # FORGE Developer Log
 
+## 2026-08-07 — FORGE beta 2.1 reset and UI/file workflow repair
+
+### Why
+
+The broken release line was discarded back to commit `8350aab` after reports that UI actions returned no visible result, AI model catalogs did not load, and panel resizing made the editor unreadable. The superseded GitHub releases `v1.1.0-beta.1` and `v1.1.0-beta.2` were removed with their release tags.
+
+### Implementation
+
+- Added recursive explorer rendering with independent folder expand/collapse, selection, context actions, new file/folder, rename, delete, and copy/paste.
+- Added collision-safe workspace copy semantics and keyboard shortcuts for explorer file management.
+- Removed the extension allowlist from text reads; UTF-8 text is editable regardless of extension and binary content is rejected clearly.
+- Expanded Monaco language identification for major coding languages and reset the editor model when switching files.
+- Clamped persisted panel dimensions, corrected them during window resize, and added narrow-window layout fallbacks.
+- Added automatic provider model catalog loading for saved remote credentials and loopback Ollama-compatible endpoints, including `models` payloads.
+- Converted previously ignored renderer action failures into visible notices.
+
+### Validation
+
+The current source passed typecheck, lint, 25 test files / 99 tests, production build, and `git diff --check`. Release identity is `2.1.0-beta.1`, public name **FORGE beta 2.1**, and target tag `v2.1.0-beta.1`.
+
 ## 2026-08-06 — FORGE 1.1.0-beta.1 release preparation
 
 The authoritative version is now `1.1.0-beta.1`, with logical Beta and Stable updater choices. Stored Preview settings migrate to Beta; Beta permits newer beta, rc, or stable versions and rejects alpha. Packaging now cleans stale output, writes an exact hash-bearing build manifest, and makes installation and serial upload select artifacts from that manifest.

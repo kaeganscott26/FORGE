@@ -8,15 +8,15 @@ FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It
 
 ## 2. Navigate a workspace
 
-The Explorer lists directories and supported text files recursively. Select a file to open it. **New file** creates the requested relative path and immediately opens its bundled offline editor; type content and choose **Save** or press **Command/Ctrl+S** to write it. If that path exists, FORGE offers to open the existing file or prompts for another name instead of showing a raw filesystem error. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo. Use **Delete** only after reviewing the confirmation.
+The Explorer recursively lists project files and folders. Click a folder name or chevron to expand/collapse it; right-click an entry for file actions. **New file** and **New folder** create entries under the selected folder (or the active file's parent). Copy/paste uses **Command/Ctrl+C** and **Command/Ctrl+V**, with collision-safe copy names. **F2** renames the selected entry and **Delete/Backspace** deletes it after confirmation. Select a text file to open it. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo.
 
 FORGE rejects absolute paths, path traversal, and resolved paths outside the opened workspace.
 
-Drag the narrow dividers to resize Explorer, editor, workspace intelligence, AI chat, and Source Control. FORGE saves the dimensions in the current workspace, so each project can keep a layout suited to its own documents and conversations.
+Drag the narrow dividers to resize Explorer, editor, workspace intelligence, AI chat, and Source Control. FORGE saves the dimensions in the current workspace and clamps them during window resizing so the editor and panels remain usable. On narrow windows, secondary panels collapse to preserve an editable editor surface.
 
 ## 3. Edit and preview files
 
-The Monaco editor supports Markdown, TypeScript, JavaScript, JSON, Python, C, C++, CSS, HTML, and plain text. A dot in the active tab indicates unsaved work.
+The Monaco editor opens any UTF-8 text file regardless of extension and rejects binary files with a clear message. It provides language support for major JavaScript/TypeScript, Python, C/C++, Java, Rust, Go, Swift, Kotlin, C#, PHP, Ruby, shell, markup, data, SQL, and configuration files; unknown text extensions remain editable as plain text. A dot in the active tab indicates unsaved work.
 
 Markdown files open in preview mode. Use **Edit** and **Preview** to switch views.
 
@@ -34,7 +34,7 @@ Always confirm the file list and diff before a commit, pull, or push. FORGE oper
 
 ## 6. Use workspace conversations
 
-Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1`, choose a loaded tool-capable model, and leave the key blank. Use **Refresh provider models** to load IDs available from the provider and **Validate model** to check an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
+Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1` and leave the key blank. FORGE automatically loads the provider catalog when the saved remote key or loopback endpoint is available; **Refresh provider models** repeats the request and **Validate model** checks an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
 
 Compatible local models receive a focused set of FORGE workspace file tools through the same policy router as hosted models. Read-only inspection may run automatically; file creation and writes still require explicit approval. The focused catalog avoids confusing smaller models with unrelated Git, release, shell, and task actions. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
 
@@ -99,7 +99,7 @@ Login shells receive a small explicit environment with the current user home, sh
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The beta reports `1.1.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `1.1.0-beta.1-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE beta 2.1 reports `2.1.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.1.0-beta.1-dev` and `development`.
 
 Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 

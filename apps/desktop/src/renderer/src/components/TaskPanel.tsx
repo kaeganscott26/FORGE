@@ -10,6 +10,7 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
   const selected = useMemo(() => tasks.find((task) => task.id === selectedId) ?? tasks[0], [selectedId, tasks]);
   const refresh = async (preferredId?: string): Promise<void> => { const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values); const nextId = preferredId ?? selectedId; if (nextId && values.some((task) => task.id === nextId)) setSelectedId(nextId); else setSelectedId(values[0]?.id ?? ''); };
   const act = async (operation: () => Promise<Task>): Promise<void> => { try { setBusy(true); setError(''); const task = await operation(); await refresh(task.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
+  const refreshFromButton = async (): Promise<void> => { try { setError(''); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   useEffect(() => { setTasks([]); setSelectedId(''); setError(''); void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }, [workspaceKey]);
   const create = async (): Promise<void> => {
     const title = window.prompt('Persistent task title:'); if (!title?.trim()) return;
@@ -34,7 +35,7 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
   const current = selected?.steps.find((step) => step.id === selected.currentStepId);
   const checkpoint = selected?.checkpoints.at(-1);
   return <div className="task-panel">
-    <div className="task-toolbar"><strong>WORKSPACE TASKS</strong><button onClick={() => void create()} disabled={busy}>New task</button><button onClick={() => void createRelease()} disabled={busy}>Release workflow</button><button onClick={() => void refresh()} disabled={busy}>Refresh</button></div>
+    <div className="task-toolbar"><strong>WORKSPACE TASKS</strong><button onClick={() => void create()} disabled={busy}>New task</button><button onClick={() => void createRelease()} disabled={busy}>Release workflow</button><button onClick={() => void refreshFromButton()} disabled={busy}>Refresh</button></div>
     <aside className="task-list">{tasks.length ? tasks.map((task) => { const complete = task.steps.filter((step) => step.status === 'completed' || step.status === 'skipped').length; return <button key={task.id} className={task.id === selected?.id ? 'active' : ''} onClick={() => setSelectedId(task.id)}><b>{task.title}</b><span>{task.status} · {complete}/{task.steps.length}</span><small>{task.progressSummary}</small></button>; }) : <p className="muted">No persistent tasks. A task remains in this workspace even when chat, model, provider, or application sessions change.</p>}</aside>
     <section className="task-detail">{selected ? <>
       <header><div><h3>{selected.title}</h3><p>{selected.description ?? selected.taskType}</p></div><em className={`task-status ${selected.status}`}>{selected.status}</em></header>

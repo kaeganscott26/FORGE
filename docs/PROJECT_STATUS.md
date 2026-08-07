@@ -1,66 +1,57 @@
 # FORGE Project Status
 
-**Updated:** August 6, 2026
+**Updated:** August 7, 2026
 
-**Working version:** 1.1.0-beta.1
+**Working version:** `2.1.0-beta.1` — FORGE beta 2.1
 
-**Source branch:** `feature/persistent-task-engine` until reviewed and merged
+**Baseline:** reset to commit `8350aab`, then repaired on `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
 ## Current state
 
-The repair and workspace-owned persistent-task milestone is implemented in source. After editor, terminal CLI, local-model, and approval-projection repairs, the clean beta source gate passed dependency installation, typecheck, lint, 25 test files / 95 tests, production build, and a production audit with zero vulnerabilities. The full exact-commit package, installed acceptance, public workflow, remote hashes, and public-artifact reinstallation remain mandatory before release verification.
+The repository was deliberately reset from the broken post-`8350aab` release line. The current source adds a full interactive project explorer, text-first file editing, readable responsive panel sizing, provider model discovery, and visible action failures.
 
-Historical Releases and release tags remain intact while validation proceeds. The pre-cleanup state is recorded in [PRE_BETA_RELEASE_AUDIT.md](archive/PRE_BETA_RELEASE_AUDIT.md). The old 4.5 GB local packaging tree was moved recoverably to Trash after audit; installed applications have not yet been removed.
+The two superseded GitHub releases (`v1.1.0-beta.1` and `v1.1.0-beta.2`) were deleted with their exact release tags. The new public target is the annotated `v2.1.0-beta.1` Pre-release named **FORGE beta 2.1**.
 
 ## Implemented capability matrix
 
 | Area | Implemented behavior |
 | --- | --- |
-| Provider routing | GPT-5.6 tool turns use `/v1/responses`; keyless loopback/Ollama uses compatible Chat Completions; provider-neutral requests retain one policy path |
-| Workspace recovery | Root-first discovery, structured missing-path suggestions, and a capped Tier 0 continuation loop prevent a missing assumed directory from ending a scan |
-| Tool policy | Tier 0 reads; Tier 1 one-time or exact expiring session approval; Tier 2 always explicit |
-| Filesystem | Workspace containment, symlink escape rejection, atomic writes, diffs, backups, dirty-editor protection |
-| Git and shell | Protected Git service; argument-array shell spawn with workspace cwd, bounds, cancellation, and process-tree controls |
-| Approval and audit | Retained request/result UI, per-workspace audit records, task references, and secret redaction |
-| Persistent tasks | Schema-v4 tasks, steps, dependencies, checkpoints, artifacts, external references, approvals, events, reconciliation, UI, and Markdown handoffs |
-| Background operations | Task-linked local PID, output path, bounded output, audit reference, and restart reconciliation |
-| Editor and terminal | New blank files activate Monaco; save/open/undo/redo shortcuts; workspace-owned PTY with safe CLI environment, restart, and canonical cwd handling |
-| Renderer boundary | Context isolation, no Node integration, sandbox, allowlisted preload, navigation denial, packaged `file://` renderer |
-| Update discovery | Stable/Beta logical policy, legacy Preview migration, bounded GitHub response, strict forward SemVer, selected safe feed |
-| Packaging | Clean ARM64/universal commands, beta metadata, exact hash-bearing manifest, manifest-driven install/upload |
-| Signing/notarization | Not configured in repository; final workflow state must be inspected |
+| Explorer | Recursive tree, independent folder expand/collapse, selection, right-click action menu, refresh |
+| File management | New file/folder, rename, delete, recursive copy/paste, collision-safe copy names, workspace containment |
+| Editor | Any UTF-8 text file, binary rejection, Monaco model reset per path, word wrap, automatic layout, major-language mapping |
+| Keyboard | Command/Ctrl+S save, Command/Ctrl+O workspace open, Command/Ctrl+Z undo, platform redo, Command/Ctrl+C/V explorer copy/paste, Command/Ctrl+N new file, Command/Ctrl+Shift+N new folder, F2 rename, Delete/Backspace delete |
+| Responsive UI | Clamped persisted dimensions, resize-time correction, minimum readable editor/intelligence widths, narrow-window panel fallbacks |
+| AI models | Automatic catalog loading for saved remote credentials and loopback Ollama-compatible providers, manual refresh, validation, `data`/`models` catalog compatibility |
+| Action reporting | Visible error notices for renderer IPC, Git, terminal, tool approval, clipboard, model, and release failures |
+| Security boundary | Context isolation, no Node integration, sandbox, allowlisted preload, workspace path and symlink containment |
 
-## Persistent task boundary
+## Validation evidence
 
-Tasks belong to the workspace SQLite database, not to a conversation or provider. Resume audits current Git, known local processes, and supplied external observations; it preserves verified checkpoints and selects the first dependency-ready unfinished step. Conversation deletion does not delete a task. Every executable step still uses the existing policy and approval path.
+The current tree passed:
 
-Implemented background starts can survive the initiating AI turn while the main process remains active. Durable exit supervision across a full application restart, scheduled GitHub polling, and autonomous multi-step execution are not implemented. A later session reconciles persisted PID/remote observations rather than trusting stale running state.
+- `npm run typecheck`
+- `npm run lint`
+- `npm test` — 25 test files / 99 tests
+- `npm run build`
+- `git diff --check`
 
-## Beta release state
+The workspace file tests cover recursive listing, arbitrary UTF-8 extension reads, writes, and copy without overwrite. Editor tests cover normalized paths, parent/child path handling, and copy-name collision behavior.
 
-The intended release identity is `1.1.0-beta.1`, annotated tag `v1.1.0-beta.1`, Beta channel, and `beta-mac.yml`. Beta accepts newer beta, rc, or stable versions; it rejects alpha. Stable accepts only stable.
+## Release state
 
-The release is not yet verified. Required remaining gates include:
+Version and package manifests report `2.1.0-beta.1`. The intended tag is `v2.1.0-beta.1`, Beta channel, `beta-mac.yml`, and the public release name **FORGE beta 2.1**.
 
-1. complete beta source suite and clean ARM64/universal packages;
-2. local installation at exactly `/Applications/FORGE.app` and packaged acceptance;
-3. branch push, pull request, checks, merge, and synchronized main;
-4. rebuild/accept the exact final main commit;
-5. annotated tag, public workflow, serial assets, independent remote hashes, and public reinstall;
-6. only then remove audited obsolete Releases/tags and stale local installations/artifacts.
+Local source validation is complete. Final release verification still requires the exact pushed commit, annotated tag target, GitHub Actions result, universal assets, public hashes, packaged `file://` runtime, installed-app smoke tests, and updater checks. Developer ID signing and notarization are not configured; trusted unattended macOS replacement is not claimed.
 
 ## Known limitations
 
-1. Apple Developer ID signing and notarization are not configured; unattended replacement cannot be called trusted.
-2. Public unauthenticated GitHub discovery is subject to GitHub rate limits and fails closed.
-3. Web search uses a bounded public HTML endpoint rather than a contracted search API.
+1. Apple Developer ID signing and notarization are not configured.
+2. Public unauthenticated GitHub discovery is subject to rate limits and fails closed.
+3. Retrieval remains lexical; embeddings and a persisted semantic graph remain planned.
 4. File rollback backups are recovery aids rather than transactional storage.
-5. Tool-result context bounds are character-based rather than tokenizer-aware.
-6. Retrieval remains lexical; embeddings and a persisted semantic graph remain planned.
-7. OAuth device flow is not implemented; GitHub uses a user-created Keychain-backed encrypted token.
-8. Persistent tasks do not provide unattended full workflow orchestration, a cross-restart supervisor, or scheduled external-service watchers.
+5. Persistent tasks do not provide unattended full workflow orchestration or a cross-restart supervisor.
 
 ## Repository authority
 
