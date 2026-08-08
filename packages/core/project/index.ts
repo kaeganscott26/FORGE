@@ -125,8 +125,8 @@ function parseProject(content: string, sourcePath: string): ForgeProject {
 }
 
 export class ProjectManager {
-  private readonly fileSystem: FileSystem;
-  private readonly workspaceProvider: WorkspaceProvider;
+  private fileSystem: FileSystem;
+  private workspaceProvider: WorkspaceProvider;
   private readonly clock: Clock;
 
   constructor(dependencies: ProjectManagerDependencies) {
