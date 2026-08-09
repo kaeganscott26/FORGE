@@ -8704,8 +8704,8 @@ let rendererSource = "file:// development build";
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "6f8ab5c46a28464c12bdc04984155503f71c2b6b",
-    buildDate: "2026-08-09T11:59:56.428Z",
+    commit: "b2ef0ecd59045eea41720ae257de866f85738487",
+    buildDate: "2026-08-09T12:00:21.017Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
