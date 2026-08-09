@@ -248,6 +248,19 @@ function createWindow(): void {
 }
 
 app.setName('FORGE');
+const ownsSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!ownsSingleInstanceLock) {
+  app.quit();
+} else {
+app.on('second-instance', (_event, commandLine) => {
+  const startupWorkspace = commandLine.find((argument) => argument.startsWith('--workspace='))?.slice('--workspace='.length);
+  if (startupWorkspace) void openWorkspaceAt(startupWorkspace).catch(() => undefined);
+  if (mainWindow?.isMinimized()) mainWindow.restore();
+  mainWindow?.show();
+  mainWindow?.focus();
+});
+
 app.whenReady().then(async () => {
   const developmentIcon = join(process.cwd(), 'apps/desktop/resources/ForgeIcon-1024.png');
   if (process.platform === 'darwin' && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
@@ -255,3 +268,4 @@ app.whenReady().then(async () => {
   catch (error) { dialog.showErrorBox('FORGE could not start', error instanceof Error ? error.message : String(error)); app.quit(); }
 });
 app.on('window-all-closed', async () => { terminalService.dispose(); await storage.close(); if (process.platform !== 'darwin') app.quit(); });
+}
