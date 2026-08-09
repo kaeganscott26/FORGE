@@ -33,7 +33,7 @@ describe('workspace-owned persistent tasks', () => {
     await storage.setTaskStepState(task.id, 'upload', 'running', { summary: 'Upload process started.', externalProcessId: 99123, incrementAttempts: true });
     const blocked = await tasks.resume(task.id, { observedAt: 1, workspaceId: task.workspaceId, processes: [{ pid: 99123, state: 'missing' }], stepObservations: [] }); expect(blocked.status).toBe('blocked');
     const reconciled = await tasks.resume(task.id, { observedAt: 2, workspaceId: task.workspaceId, processes: [{ pid: 99123, state: 'missing' }], stepObservations: [{ stepId: 'upload', state: 'completed', verified: true, summary: 'Remote DMG exists and SHA matches.', evidence: { sha256: 'abc' } }] });
-    expect(reconciled.steps.find((step) => step.id === 'upload')?.status).toBe('completed'); expect(reconciled.currentStepId).toBe('zip'); expect(reconciled.status).toBe('waiting'); await storage.close();
+    expect(reconciled.steps.find((step) => step.id === 'upload')?.status).toBe('completed'); expect(reconciled.currentStepId).toBe('zip'); expect(reconciled.status).toBe('ready'); await storage.close();
   });
 
   it('fails a verified hash mismatch and generates a durable Markdown handoff', async () => {
@@ -54,26 +54,26 @@ describe('workspace-owned persistent tasks', () => {
     const task = await tasks.create({ title: 'Persistent build', taskType: 'build', resumeInstructions: 'Inspect PID and output before advancing.', steps: [{ id: 'build', name: 'Build', purpose: 'Build in background.', riskTier: 2, requiredTool: 'task.process.start', verificationCriteria: ['Exit zero'] }] });
     const started = await tasks.startBackground(task.id, 'build', { command: 'npm', args: ['run', 'build'], workingDirectory: '.', timeoutMs: 1000, reason: 'build', expectedOutcome: 'bundle' }, 'audit-1');
     expect(started.process.pid).toBe(777); expect(outputPath).toContain(`.forge${path.sep}task-output`); expect(started.task.processIds).toContain(777); expect(started.task.steps[0]).toMatchObject({ status: 'running', externalProcessId: 777, approvalState: 'consumed' }); expect(started.task.steps[0].auditReferences).toEqual([]);
-    await storage.appendAction({ id: 'audit-1', timestamp: 10, workspaceId: task.workspaceId, conversationId: 'conversation', modelId: 'model', toolName: 'task.process.start', sanitizedInputs: {}, riskTier: 2, executionDurationMs: 1, approvalDecision: 'run-once', success: true, result: { pid: 777 }, resultSummary: 'Background process started.', affectedPaths: [outputPath], exitCode: null });
+    await storage.appendAction({ id: 'audit-1', timestamp: 10, workspaceId: task.workspaceId, conversationId: 'conversation', modelId: 'model', toolName: 'task.process.start', sanitizedInputs: {}, executionDurationMs: 1, approvalDecision: 'automatic', success: true, result: { pid: 777 }, resultSummary: 'Background process started.', affectedPaths: [outputPath], exitCode: null });
     const linked = await tasks.recordToolOutcome(task.id, 'build', 'audit-1', { requestId: 'audit-1', toolName: 'task.process.start', success: true, output: { pid: 777 }, affectedPaths: [outputPath], warnings: [], durationMs: 1 });
     expect(linked.status).toBe('running'); expect(linked.steps[0].auditReferences).toContain('audit-1'); expect(linked.checkpoints.at(-1)?.name).toContain('tool result observed'); await storage.close();
   });
 
   it('keeps a successful tool result waiting until an audit-backed checkpoint verifies completion', async () => {
     const { storage, tasks } = await runtime(); const task = await tasks.create({ title: 'Read verification', taskType: 'verification', resumeInstructions: 'Verify the read result before completing.', steps: [{ id: 'read', name: 'Read README', purpose: 'Observe the workspace README.', riskTier: 0, requiredTool: 'file.read', verificationCriteria: ['README content was observed'] }] });
-    await storage.appendAction({ id: 'read-audit', timestamp: 10, workspaceId: task.workspaceId, conversationId: 'conversation', modelId: 'model', toolName: 'file.read', sanitizedInputs: { path: 'README.md' }, riskTier: 0, executionDurationMs: 1, approvalDecision: 'automatic', success: true, result: { content: '# FORGE' }, resultSummary: 'README read.', affectedPaths: [], exitCode: null });
+    await storage.appendAction({ id: 'read-audit', timestamp: 10, workspaceId: task.workspaceId, conversationId: 'conversation', modelId: 'model', toolName: 'file.read', sanitizedInputs: { path: 'README.md' }, executionDurationMs: 1, approvalDecision: 'automatic', success: true, result: { content: '# FORGE' }, resultSummary: 'README read.', affectedPaths: [], exitCode: null });
     const observed = await tasks.recordToolOutcome(task.id, 'read', 'read-audit', { requestId: 'read-audit', toolName: 'file.read', success: true, output: { content: '# FORGE' }, affectedPaths: [], warnings: [], durationMs: 1 });
     expect(observed.status).toBe('waiting'); expect(observed.steps[0]).toMatchObject({ status: 'waiting', attempts: 1 }); expect(observed.steps[0].startedAt).toBeTypeOf('number'); expect(observed.checkpoints.at(-1)).toMatchObject({ verified: true, auditReferences: ['read-audit'] });
     const verified = await tasks.checkpoint(task.id, { stepId: 'read', name: 'README verified', summary: 'The audited result contains the expected README.', verified: true, auditReference: 'read-audit' });
     expect(verified.status).toBe('completed'); expect(verified.events.some((event) => event.type === 'task.completed')).toBe(true); await storage.close();
   });
 
-  it('requires fresh policy approval after restart even when an older session approval was recorded', async () => {
+  it('resumes an eligible step after restart even when an older approval record exists', async () => {
     const { root, storage, tasks } = await runtime(); const task = await tasks.create({ title: 'Approval restart', taskType: 'build', resumeInstructions: 'Request a new exact approval.', assignedProvider: 'provider-before', assignedModel: 'model-before', steps: [{ id: 'build', name: 'Build', purpose: 'Run the build.', riskTier: 2, requiredTool: 'task.process.start', verificationCriteria: ['Exit zero'] }] });
     await storage.recordTaskApproval(task.id, 'build', { decision: 'session', scope: `${task.id}:build:task.process.start`, decidedAt: 1, expiresAt: Date.now() + 60_000 }); await storage.close();
     const reopened = new StorageService(); await reopened.init(root); const replacement = new TaskRuntime({ storage: reopened, workspaceRoot: () => root });
     const resumed = await replacement.resume(task.id, { observedAt: 2, workspaceId: task.workspaceId, processes: [], stepObservations: [] });
-    expect(resumed.status).toBe('waiting'); expect(resumed.resumabilityState).toBe('approval-required'); expect(resumed.assignedProvider).toBe('provider-before'); expect(resumed.assignedModel).toBe('model-before'); expect(resumed.events.some((event) => event.type === 'task.started')).toBe(true); await reopened.close();
+    expect(resumed.status).toBe('ready'); expect(resumed.resumabilityState).toBe('resumable'); expect(resumed.assignedProvider).toBe('provider-before'); expect(resumed.assignedModel).toBe('model-before'); expect(resumed.events.some((event) => event.type === 'task.started')).toBe(true); await reopened.close();
   });
 
   it('persists provider-neutral external evidence and artifacts during reconciliation', async () => {

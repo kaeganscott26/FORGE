@@ -3,9 +3,9 @@ import type { GitService } from '@forge/git';
 import type { StorageService } from '@forge/storage';
 import type { FileNode } from '@forge/ipc';
 import type { MemoryEntry } from '@forge/memory';
-import type { ContextAssemblyResult, ContextBudgetPolicy, WorkspaceArtifact, AgentContextEnvelope } from './types';
+import type { CompiledWorkspaceContext, ContextBudgetPolicy, WorkspaceArtifact, AgentContextEnvelope } from './types';
 
-const DEFAULT_CONTEXT_BUDGET = 14_000;
+const DEFAULT_CONTEXT_BUDGET = 28_000;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 
 export interface ProjectContext {
@@ -59,29 +59,29 @@ export class WorkspaceContextEngine {
 
   async buildContext(query = '', memories?: MemoryEntry[] | null): Promise<ProjectContext> {
     const context: ProjectContext = { projectName: null, rootPath: null, files: [], documents: [], sourceFiles: [], packageJson: null, gitStatus: null, recentCommits: null, metadata: null, memories: memories ?? null };
-    try { const info = this.workspace.info(); if (info) { context.projectName = info.name ?? null; context.rootPath = info.rootPath ?? null; } } catch {}
+    try { const info = this.workspace.info(); if (info) { context.projectName = info.name ?? null; context.rootPath = info.rootPath ?? null; } } catch { /* unopened workspace */ }
     try { context.files = this.flattenFiles(await this.workspace.list('')); } catch { context.files = []; }
 
     const candidatePaths = [...new Set(context.files.filter((file) => file.type === 'file' && DOCUMENT_PATTERN.test(file.path)).map((file) => file.path))].slice(0, 10);
     for (const documentPath of candidatePaths) {
-      try { const file = await this.workspace.readFile(documentPath); context.documents.push({ path: documentPath, content: file.content }); } catch {}
+      try { const file = await this.workspace.readFile(documentPath); context.documents.push({ path: documentPath, content: file.content }); } catch { /* unreadable evidence */ }
     }
-    try { const packageJson = await this.workspace.readFile('package.json'); context.packageJson = { path: packageJson.path, content: packageJson.content }; } catch {}
-    try { context.gitStatus = await this.git.status(); } catch {}
-    try { const commits = await this.git.log(12); context.recentCommits = commits.map((commit) => ({ hash: commit.hash, message: commit.message, author: commit.author, timestamp: commit.timestamp })); } catch {}
-    try { context.metadata = await this.storage.dashboard(); } catch {}
+    try { const packageJson = await this.workspace.readFile('package.json'); context.packageJson = { path: packageJson.path, content: packageJson.content }; } catch { /* optional configuration */ }
+    try { context.gitStatus = await this.git.status(); } catch { /* Git may be unavailable */ }
+    try { const commits = await this.git.log(12); context.recentCommits = commits.map((commit) => ({ hash: commit.hash, message: commit.message, author: commit.author, timestamp: commit.timestamp })); } catch { /* Git history may be unavailable */ }
+    try { context.metadata = await this.storage.dashboard(); } catch { /* storage may not be initialized */ }
 
     const queryTokens = new Set(query.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
     const changedPaths = new Set(context.gitStatus && typeof context.gitStatus === 'object' && 'files' in context.gitStatus && Array.isArray((context.gitStatus as { files?: unknown }).files) ? ((context.gitStatus as { files: Array<{ path?: unknown }> }).files).map((file) => String(file.path ?? '')) : []);
     const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'py', 'c', 'cpp', 'rs', 'go', 'java']);
     const sourceCandidates = context.files.filter((file) => file.type === 'file' && sourceExtensions.has(file.extension?.toLowerCase() ?? '')).map((file) => ({ path: file.path, changed: changedPaths.has(file.path), score: (changedPaths.has(file.path) ? 100 : 0) + [...queryTokens].reduce((score, token) => score + (file.path.toLowerCase().includes(token) ? 10 : 0), 0) })).filter((candidate) => candidate.changed || candidate.score > 0).sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, 6);
     for (const candidate of sourceCandidates) {
-      try { const file = await this.workspace.readFile(candidate.path); context.sourceFiles.push({ path: candidate.path, content: file.content, changed: candidate.changed, relevance: candidate.changed ? 96 : 84, reason: candidate.changed ? 'Changed implementation file.' : 'Source path matches the current question.' }); } catch {}
+      try { const file = await this.workspace.readFile(candidate.path); context.sourceFiles.push({ path: candidate.path, content: file.content, changed: candidate.changed, relevance: candidate.changed ? 96 : 84, reason: candidate.changed ? 'Changed implementation file.' : 'Source path matches the current question.' }); } catch { /* unreadable source evidence */ }
     }
     return context;
   }
 
-  async assemble(query: string, memories?: MemoryEntry[] | null, characterBudget = DEFAULT_CONTEXT_BUDGET): Promise<ContextAssemblyResult> {
+  async assemble(query: string, memories?: MemoryEntry[] | null, characterBudget = DEFAULT_CONTEXT_BUDGET): Promise<CompiledWorkspaceContext> {
     const context = await this.buildContext(query, memories);
     const artifacts: WorkspaceArtifact[] = [];
     const add = (artifact: WorkspaceArtifact): void => { if (artifact.content.trim()) artifacts.push(artifact); };
@@ -103,7 +103,7 @@ export class WorkspaceContextEngine {
 
   async envelope(query: string, memories?: MemoryEntry[] | null, characterBudget?: number): Promise<AgentContextEnvelope> {
     const compiled = await this.assemble(query, memories, characterBudget);
-    return { query, systemPrompt: compiled.systemPrompt, artifacts: compiled.artifacts, omittedArtifactIds: compiled.omittedArtifactIds, generatedAt: Date.now() };
+    return { ...compiled, query, generatedAt: Date.now() };
   }
 }
 

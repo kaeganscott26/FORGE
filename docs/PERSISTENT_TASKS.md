@@ -10,7 +10,7 @@ The permanent execution rule still applies:
 
 > The model requests work. FORGE owns state, authorizes tools, records progress, and verifies outcomes.
 
-Creating a task does not grant permission to execute it. Tier 1 and Tier 2 steps still pass through the existing registry, policy engine, approval manager, executor, and action log. There is no approve-the-task-forever mode.
+Creating a task does not grant permission to execute it. Every non-read step still passes through the existing registry, side-effect policy, approval manager, executor, and action log. There is no approve-the-task-forever mode.
 
 ## 🗂️ Implemented data model
 
@@ -39,7 +39,7 @@ Completed and skipped steps satisfy dependencies. A dependency-aware resume choo
 
 ## ⚙️ Background processes
 
-`task.process.start` is an always-approved Tier 2 tool. It starts an executable with an argument array, workspace-contained working directory, filtered environment, timeout, detached process group, and append-only output file under `.forge/task-output/<task-id>/`. FORGE persists the PID, start time, output path, tool request, approval, and audit linkage.
+`task.process.start` requires an explicit Run once approval. It starts an executable with an argument array, workspace-contained working directory, filtered environment, timeout, detached process group, and append-only output file under `.forge/task-output/<task-id>/`. FORGE persists the PID, start time, output path, tool request, approval, and audit linkage.
 
 The child may continue without an active model turn and, where the operating system permits, after the Electron process exits. FORGE does not poll it continuously. On resume it checks the saved PID. If the PID is gone and there is no verified completion evidence, the step becomes blocked instead of being rerun or falsely completed.
 

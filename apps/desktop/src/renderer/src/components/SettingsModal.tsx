@@ -151,7 +151,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
         <section className="settings-section">
           <div className="settings-section-title"><div><span>TOOLS & UPDATES</span><h3>External research and release channel</h3></div><em className={webResearchEnabled ? 'configured' : ''}>{webResearchEnabled ? 'Web enabled' : 'Web disabled'}</em></div>
           <label className="settings-check"><input type="checkbox" checked={webResearchEnabled} onChange={(event) => setWebResearchEnabled(event.target.checked)} /> Enable structured external web research</label>
-          <p className="settings-help">Web tools remain approval-gated, show the exact query or URL, block local networks, and never upload workspace files automatically.</p>
+          <p className="settings-help">Web tools run through the agentic tool runtime, retain exact query or URL audit records, block local networks, and never upload workspace files automatically.</p>
           <label>Update channel<select value={updateChannel} onChange={(event) => setUpdateChannel(event.target.value as 'stable' | 'beta')}><option value="stable">Stable (default)</option><option value="beta">Beta (beta, release candidate)</option></select></label>
           <p className="settings-help">Stable installations never receive beta builds unless Beta is selected explicitly. Existing Preview preferences migrate to Beta.</p>
         </section>

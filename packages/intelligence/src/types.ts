@@ -29,6 +29,13 @@ export interface AgentContextEnvelope extends CompiledWorkspaceContext {
   generatedAt: number;
 }
 
+/** A provider-neutral context packet owned by the active workspace. */
+export interface WorkspaceContextPacket extends AgentContextEnvelope {
+  invalidatedAt?: number;
+  invalidationReasons: readonly string[];
+  projectObservations: readonly { id: string; kind: string; timestamp: number; payload: unknown }[];
+}
+
 /**
  * Agent adapters consume FORGE context. They own model-specific transport and execution.
  * FORGE remains responsible for project evidence, memory, chronology, permissions, and tools.

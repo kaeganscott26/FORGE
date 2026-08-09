@@ -159,7 +159,7 @@ export class OpenAIProvider {
         parameters: tool.parameters
       })),
       tool_choice: 'auto',
-      max_output_tokens: 1_600
+      max_output_tokens: 10_000
     };
     const response = await this.authorizedFetch(`${this.baseUrl}/responses`, {
       method: 'POST',

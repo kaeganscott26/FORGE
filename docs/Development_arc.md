@@ -1,5 +1,9 @@
 The FORGE development arc
 
+9. Intelligence is now explicitly separate from native chat
+
+The project runtime is being refactored so workspace intelligence is usable before, during, and after any particular model request. The context engine, durable SQLite state, tasks, memory, Git observations, and audit records remain project-owned. Native chat is one agent client of those services, and its continuation loop uses observed workspace progress rather than a five-call or three-round ceiling. Runtime events now propagate durable changes to the renderer, and the workspace includes an in-app public-web browser surface for user-directed research.
+
 1. The original workspace idea
 FORGE started from a much simpler premise: put the things you were already bouncing between—project files, Markdown knowledge, Git, an editor, and AI context—inside one project-owned environment.
 The crucial conceptual move was very early: the project folder is the durable thing, not the conversation.

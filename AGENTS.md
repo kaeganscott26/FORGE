@@ -1,5 +1,13 @@
 # 🛡️ FORGE Agent Architecture
 
+## 🧠 Intelligence and agent-runtime boundary
+
+FORGE Intelligence is provider-neutral, persistent, and workspace-owned. It compiles bounded context packets from source, documentation, Git, tasks, memory, terminal observations, and audit evidence without requiring a chat completion. Native chat is one optional Agent Runtime consumer; it does not own project state or define workspace intelligence.
+
+Agent execution follows inspect, plan, act, observe, and verify. It may perform long, meaningful sequences when workspace state changes. Exact normalized requests against an unchanged observed workspace state are redundant and may be suppressed; a small fixed number of calls or continuation rounds is not a valid stopping condition.
+
+Runtime events are durable-operation notifications, not hidden reasoning. They may report workspace, file, Git, task, memory, tool, terminal, and agent lifecycle changes to the renderer. They must include workspace identity and must not contain secrets or provider chain-of-thought.
+
 ## 🧭 Purpose and authority
 
 The AI is not the owner of the workspace and is not the primary application interface.

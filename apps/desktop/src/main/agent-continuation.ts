@@ -19,3 +19,22 @@ function stableValue(value: unknown): unknown {
 export function toolCallKey(call: { name: string; arguments: unknown }): string {
   return `${call.name}:${JSON.stringify(stableValue(call.arguments))}`;
 }
+
+/**
+ * Suppresses only a call whose normalized input has already produced an observed
+ * result against the same workspace revision. It intentionally has no call-count
+ * limit: meaningful work can continue as long as the workspace changes.
+ */
+export class ProgressAwareLoopGuard {
+  private readonly observations = new Map<string, { revision: string; result: string }>();
+
+  shouldRun(call: { name: string; arguments: unknown }, revision: string): boolean {
+    return this.observations.get(toolCallKey(call))?.revision !== revision;
+  }
+
+  record(call: { name: string; arguments: unknown }, revision: string, result: unknown): void {
+    this.observations.set(toolCallKey(call), { revision, result: JSON.stringify(result).slice(0, 16_000) });
+  }
+
+  observedResults(): string[] { return [...this.observations.values()].map((entry) => entry.result); }
+}

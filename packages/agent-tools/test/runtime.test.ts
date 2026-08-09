@@ -9,14 +9,10 @@ const fakeShell = { run: async () => ({ stdout: '', stderr: '', exitCode: 0, sig
 const fakeWeb = { search: async () => ({ query: '', results: [] }), fetch: async () => ({}) } as any;
 
 describe('agent tool runtime', () => {
-  it('defines every tool with schemas, risk, timeout, audit, cancellation, and boundary metadata', () => {
+  it('defines every tool with schemas, timeout, audit, cancellation, and boundary metadata', () => {
     const registry = createToolRegistry(); const definitions = registry.list();
     expect(definitions.map((entry) => entry.name)).toContain('shell.run');
     expect(definitions.map((entry) => entry.name)).toContain('web.search');
-    expect(definitions.find((entry) => entry.name === 'task.inspect')?.riskTier).toBe(0);
-    expect(definitions.find((entry) => entry.name === 'task.create')?.riskTier).toBe(1);
-    expect(definitions.find((entry) => entry.name === 'task.process.start')?.riskTier).toBe(2);
-    expect(definitions.find((entry) => entry.name === 'task.process.start')?.approval).toBe('always');
     expect(definitions.every((entry) => entry.inputSchema && entry.outputSchema && entry.timeoutMs > 0 && entry.audit && typeof entry.cancellable === 'boolean')).toBe(true);
     expect(registry.parse({ id: 'linked-write', name: 'file.create', provider: 'test', arguments: { path: 'note.md', content: '', reason: 'Create task output.', taskContext: { taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' } } }).input.taskContext).toEqual({ taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' });
   });
@@ -42,24 +38,47 @@ describe('agent tool runtime', () => {
     expect(searchResult.result?.output).toMatchObject({ success: true, missing: true, requestedPath: 'missing/search', matches: [] });
   });
 
+  it('returns a continuation offset instead of abandoning a truncated search', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-search-page-')); await writeFile(path.join(root, 'matches.txt'), 'needle one\nneedle two\nneedle three\n');
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const first = await router.request({ id: 'search-page-1', name: 'file.search', provider: 'test', arguments: { query: 'needle', maxResults: 2 } }, context);
+    expect(first.result?.output).toMatchObject({ truncated: true, continuation: { offset: 2 } });
+    const second = await router.request({ id: 'search-page-2', name: 'file.search', provider: 'test', arguments: { query: 'needle', maxResults: 2, offset: 2 } }, context);
+    expect(second.result?.output).toMatchObject({ truncated: false, matches: [{ line: 3, text: 'needle three' }] });
+  });
+
   it('creates visible diffs and applies approved atomic patches with rollback backups', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-tools-')); await writeFile(path.join(root, 'note.txt'), 'before\n');
     const records: AuditRecord[] = []; const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set() });
     const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
     const pending = await router.request({ id: 'patch-1', name: 'file.patch', provider: 'test', arguments: { path: 'note.txt', expected: 'before', replacement: 'after', reason: 'Update the fixture.' } }, context);
-    expect(pending.result).toBeUndefined(); expect(pending.request.diff).toContain('-before'); expect(pending.request.state).toBe('pending');
-    const result = await router.approve('patch-1', context, 'run-once');
+    expect(pending.result).toBeUndefined(); expect(pending.request.state).toBe('pending'); expect(pending.request.diff).toContain('-before');
+    const result = await router.approve(pending.request.id, context, 'run-once');
     expect(result.success).toBe(true); expect(result.rollback?.backupPath).toContain('.forge/backups/');
     expect(await readFile(path.join(root, 'note.txt'), 'utf8')).toBe('after\n'); expect(records.at(-1)?.approvalDecision).toBe('run-once');
     expect(records.at(-1)?.id).toBe('patch-1');
+  });
+
+  it('reuses only an exact session-scoped reversible approval', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-session-scope-')); await writeFile(path.join(root, 'one.txt'), 'one'); await writeFile(path.join(root, 'two.txt'), 'two');
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const first = await router.request({ id: 'session-1', name: 'file.write', provider: 'test', arguments: { path: 'one.txt', content: 'updated', reason: 'Update one.' } }, context);
+    await router.approve(first.request.id, context, 'session');
+    const sameScope = await router.request({ id: 'session-2', name: 'file.write', provider: 'test', arguments: { path: 'one.txt', content: 'updated again', reason: 'Update one again.' } }, context);
+    const differentScope = await router.request({ id: 'session-3', name: 'file.write', provider: 'test', arguments: { path: 'two.txt', content: 'blocked', reason: 'Update two.' } }, context);
+    expect(sameScope.result?.success).toBe(true);
+    expect(differentScope.request.state).toBe('pending');
   });
 
   it('blocks writes to unsaved editor paths and redacts secrets in validation audit records', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-dirty-')); await writeFile(path.join(root, 'note.txt'), 'before');
     const records: AuditRecord[] = []; const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set(['note.txt']) });
     const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
-    await router.request({ id: 'write-1', name: 'file.write', provider: 'test', arguments: { path: 'note.txt', content: 'after', reason: 'test dirty protection' } }, context);
-    expect((await router.approve('write-1', context, 'run-once')).error?.message).toContain('unsaved');
+    const write = await router.request({ id: 'write-1', name: 'file.write', provider: 'test', arguments: { path: 'note.txt', content: 'after', reason: 'test dirty protection' } }, context);
+    const writeResult = await router.approve(write.request.id, context, 'run-once');
+    expect(writeResult.error?.message).toContain('unsaved');
     await expect(router.request({ id: 'bad', name: 'unknown.tool', provider: 'test', arguments: { authorization: 'Bearer secret', note: 'sk-abcdefghijklmnopqrstuvwxyz' } }, context)).rejects.toThrow(/Unknown tool/);
     expect(records.at(-1)?.sanitizedInputs).toEqual({ authorization: '[REDACTED]', note: '[REDACTED]' });
   });

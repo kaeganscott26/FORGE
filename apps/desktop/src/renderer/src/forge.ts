@@ -1,4 +1,4 @@
-import type { IPCChannel, IPCResult, TerminalEventView } from '@forge/ipc';
+import type { IPCChannel, IPCResult, RuntimeEvent, TerminalEventView } from '@forge/ipc';
 
 async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCResult<any>> {
   // Provide lightweight mock data for common channels when running in a browser dev server
@@ -23,7 +23,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
     case 'app.build.info.copy':
       return { success: true, data: { version: '2.1.0-beta.2-dev', channel: 'development', commit: 'unavailable in browser preview', buildDate: new Date().toISOString(), runtime: 'development', rendererSource: 'development URL', platform: navigator.platform, architecture: 'browser' } } as any;
     case 'settings.get':
-      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false, webResearchEnabled: false, updateChannel: 'stable' } } as any;
+      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false, webResearchEnabled: true, updateChannel: 'stable' } } as any;
     case 'workspace.layout.get':
       return { success: true, data: { explorerWidth: 245, intelligenceWidth: 360, bottomHeight: 240, contextHeight: 300 } } as any;
     default:
@@ -48,6 +48,11 @@ export async function forgeInvoke<C extends IPCChannel>(channel: C, request?: un
 export function onTerminalEvent(listener: (event: TerminalEventView) => void): () => void {
   const fw = (window as any).forge;
   return fw && typeof fw.onTerminalEvent === 'function' ? fw.onTerminalEvent(listener) : () => undefined;
+}
+
+export function onRuntimeEvent(listener: (event: RuntimeEvent) => void): () => void {
+  const fw = (window as any).forge;
+  return fw && typeof fw.onRuntimeEvent === 'function' ? fw.onRuntimeEvent(listener) : () => undefined;
 }
 
 export default forgeInvoke;

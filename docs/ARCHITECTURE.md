@@ -200,3 +200,20 @@ Next implementation work should move context compilation behind this boundary, a
 2. Current root and `docs/` documentation.
 3. Package/build configuration and CI workflows.
 4. Generated output only as validation evidence, never architecture authority.
+# FORGE Runtime Architecture
+
+FORGE is organized around project-owned intelligence, not a chat transcript:
+
+workspace + Git + tasks + memory + terminal + audit
+→ FORGE Intelligence
+→ provider-neutral workspace context and provenance
+→ native chat, CLI agents, and future adapters
+→ typed tools, observations, runtime events, and SQLite updates.
+
+The intelligence package assembles provider-neutral workspace evidence independently of a completion. It selects fresh architecture, documentation, source, Git, metadata, and durable-memory artifacts under a bounded context policy. Conversations consume workspace evidence; they never own it.
+
+The native-agent-runtime module is the native-chat execution adapter. It runs inspect, tool, observe, and continue cycles against shared intelligence and tool services. It has no small fixed round or call limit. A progress-aware guard suppresses only an identical normalized call against an unchanged workspace revision; elapsed runtime remains bounded by FORGE_AGENT_MAX_RUNTIME_MS.
+
+The main process publishes typed runtime events after durable workspace, file, Git, task, memory, tool, terminal, and agent operations. Renderer panels consume these events for task and tool activity rather than relying solely on polling.
+
+The embedded Browser surface is a separate sandboxed WebContentsView. It accepts public HTTP(S) pages only, uses the same URL/DNS safety validation as web research, blocks unexpected windows, and never receives Node integration.

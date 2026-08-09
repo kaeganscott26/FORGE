@@ -67,7 +67,7 @@ describe('OpenAIProvider models', () => {
     expect(body.tools[0].name).toBe('forge_0_file_read');
     expect(body.tools[0].function).toBeUndefined();
     expect(body.input).toEqual([{ role: 'user', content: 'read it' }]);
-    expect(body.max_output_tokens).toBe(1_600);
+    expect(body.max_output_tokens).toBe(10_000);
     expect(body.reasoning_effort).toBeUndefined();
     expect(response.toolCalls).toEqual([{ id: 'call-1', name: 'file.read', arguments: { path: 'README.md' }, provider: 'openai' }]);
     expect(response.modelId).toBe('gpt-5.6-sol-2026-08-01');
@@ -92,7 +92,7 @@ describe('OpenAIProvider models', () => {
     await provider.chatWithTools([{ role: 'user', content: 'hello' }], [{ name: 'git.status', description: 'Read Git status', parameters: { type: 'object' } }], 'compatible-model');
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     expect(body.tools[0].function.name).toBe('forge_0_git_status');
-    expect(body.max_completion_tokens).toBe(1_600);
+    expect(body.max_completion_tokens).toBe(10_000);
   });
 
   it('retries compatible tool providers that require max_tokens', async () => {
@@ -104,7 +104,7 @@ describe('OpenAIProvider models', () => {
     }));
     const provider = new OpenAIProvider({ baseUrl: 'http://localhost:11434/v1', model: 'local-model' });
     const result = await provider.chatWithTools([{ role: 'user', content: 'read' }], [{ name: 'file.read', description: 'Read', parameters: { type: 'object' } }]);
-    expect(bodies[0].max_completion_tokens).toBe(1_600);
+    expect(bodies[0].max_completion_tokens).toBe(10_000);
     expect(bodies[1].max_tokens).toBe(1_600);
     expect(result.toolCalls[0]?.name).toBe('file.read');
   });

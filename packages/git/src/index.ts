@@ -1,5 +1,6 @@
 import simpleGit, { type SimpleGit } from 'simple-git';
 import type { DiffLine, GitBranch, GitCommit, GitDiff, GitDiffFile, GitStatus } from '@forge/ipc';
+export * from './github';
 
 const safeFiles = (files: string[]) => files.map((file) => { if (!file || file.startsWith('/') || file.split(/[\\/]/).includes('..')) throw new Error('Git paths must be workspace-relative.'); return file; });
 const toCommit = (entry: { hash: string; author_name: string; author_email: string; message: string; date: string }): GitCommit => ({ hash: entry.hash, shortHash: entry.hash.slice(0, 7), author: entry.author_name, email: entry.author_email, message: entry.message, timestamp: new Date(entry.date).getTime() });
@@ -17,6 +18,7 @@ export class GitService {
   async commit(message: string, files?: string[]): Promise<GitCommit> { if (!message.trim()) throw new Error('Commit message is required.'); const git = this.ready(); if (files?.length) await git.add(safeFiles(files)); await git.commit(message.trim()); const latest = (await git.log({ maxCount: 1 })).latest; if (!latest) throw new Error('Git did not return the new commit.'); return toCommit(latest); }
   async pull(): Promise<void> { const git = await this.remoteGit(); const branch = (await git.branch()).current; await git.pull('origin', branch); }
   async push(): Promise<void> { const git = await this.remoteGit(); const branch = (await git.branch()).current; await git.push('origin', branch, ['--set-upstream']); }
+  async originUrl(): Promise<string> { const origin = await this.ready().remote(['get-url', 'origin']); if (typeof origin !== 'string' || !origin.trim()) throw new Error('The active Git repository has no origin remote.'); return origin.trim(); }
   async diff(staged: boolean): Promise<GitDiff> { const text = await this.ready().diff(staged ? ['--cached', '--no-color'] : ['--no-color']); return parseDiff(text); }
   private ready(): SimpleGit { if (!this.git) throw new Error('The opened workspace is not a Git repository.'); return this.git; }
   private async remoteGit(): Promise<SimpleGit> {

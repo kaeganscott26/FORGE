@@ -6,15 +6,15 @@ Model output, renderer input, workspace paths, terminal output, Git metadata, we
 
 The renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, and `webSecurity: true`. The sandboxed CommonJS preload exposes only fixed, allowlisted request channels plus a fixed terminal-event subscription. New windows and unexpected navigation are denied. The packaged renderer loads from `file://` inside `app.asar`; no localhost server is required.
 
-## ✅ Risk and approval
+## ✅ Side effects and approval
 
-- Tier 0: read-only workspace/Git tools may run automatically.
-- Tier 1: reversible changes require approval. “Allow exact scope this session” binds workspace, tool, and a hashed path/path-set scope, expires in at most one hour, and is cleared on workspace change.
-- Tier 2: deletes, command execution, dependency changes, commits, remote Git, external requests, credentials, and releases always require a fresh Run once decision.
+- Read-only workspace/Git tools may run automatically.
+- Reversible workspace changes require approval. “Allow exact scope this session” binds workspace, tool, and a hashed path/path-set scope, expires in at most one hour, and is cleared on workspace change.
+- Deletes, command execution, dependency changes, commits, remote Git, external requests, credentials, and releases always require a fresh Run once decision.
 
-The approval card shows tool, tier, reason, target, working directory, network use, external-data description, expected effect, predicted paths, and a diff for file writes. Completed and rejected requests remain visible for the runtime, and the persistent audit log survives restarts.
+The approval card shows tool, side effect, reason, target, working directory, network use, external-data description, expected effect, predicted paths, and a diff for file writes. Completed and rejected requests remain visible for the runtime, and the persistent audit log survives restarts.
 
-Persistent task rows record approval history but do not confer authority. On resume, every unfinished Tier 1 or Tier 2 step must create or use a currently valid exact tool request under the existing policy. There is no whole-task approval and a consumed or expired decision cannot be replayed.
+Persistent task rows record approval history but do not confer authority. On resume, every unfinished non-read step must create or use a currently valid exact tool request under the existing policy. There is no whole-task approval and a consumed or expired decision cannot be replayed.
 
 ## 🗂️ Filesystem controls
 
@@ -24,13 +24,13 @@ Normal tools accept only relative paths. Resolution canonicalizes the workspace 
 
 `shell.run` never concatenates a command string. It spawns an approved executable with an argument array, validates the working directory, provides only `PATH`, locale, terminal, temporary-directory values plus explicitly allowlisted non-secret variables, caps timeout/output, supports cancellation, and terminates the process group. Secret-like environment names are blocked.
 
-`task.process.start` applies the same executable, argument, environment, working-directory, and Tier 2 controls, then detaches the process and appends output under the active workspace's `.forge/task-output/`. FORGE records PID/output/audit evidence but does not treat process start as step completion. Cancellation of task tracking never silently terminates a process or remote operation.
+`task.process.start` applies the same executable, argument, environment, working-directory, and explicit-approval controls, then detaches the process and appends output under the active workspace's `.forge/task-output/`. FORGE records PID/output/audit evidence but does not treat process start as step completion. Cancellation of task tracking never silently terminates a process or remote operation.
 
 The integrated terminal is a user-controlled PTY, not an agent permission bypass. `node-pty` runs in main, is unpacked from `app.asar`, and its native module/helper are universal in the universal package. The renderer can create, resize, write to, terminate, restart, clear, copy, and switch sessions through fixed IPC. Terminal `cwd` is workspace-contained. Recent output is memory-bounded and not automatically indexed.
 
 ## 🔐 Web and secret controls
 
-Web research defaults off. Only HTTP(S) is accepted. Credential-bearing URLs, file URLs, localhost, `.local`, private/link-local/multicast IPs, unsafe DNS answers, and unsafe redirects are blocked. DNS is checked both before the request and again by the actual connection resolver to limit rebinding attacks. Redirect count, timeout, content type, and response size are bounded. No browser automation is implemented.
+Web research is enabled by default for a configured workspace and can be disabled in Settings. Only HTTP(S) is accepted. Credential-bearing URLs, file URLs, localhost, `.local`, private/link-local/multicast IPs, unsafe DNS answers, and unsafe redirects are blocked. DNS is checked both before the request and again by the actual connection resolver to limit rebinding attacks. Redirect count, timeout, content type, and response size are bounded. The optional embedded Browser tab uses the same public-URL validation and does not expose browser automation to the agent.
 
 AI provider endpoints must use HTTPS unless they are loopback-only local providers. Provider URLs cannot embed credentials.
 

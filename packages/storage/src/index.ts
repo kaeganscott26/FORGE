@@ -24,15 +24,23 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 6;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
 const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 'blocked', 'failed', 'skipped', 'completed']);
 
 export interface StoredActionRecord {
   id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string;
-  sanitizedInputs: unknown; riskTier: 0 | 1 | 2; executionDurationMs: number;
+  sanitizedInputs: unknown; executionDurationMs: number;
   approvalDecision: 'automatic' | 'run-once' | 'session' | 'rejected' | 'cancelled' | 'validation-failed'; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null;
   rollback?: { available: boolean; instructions?: string; backupPath?: string };
+}
+
+export interface ProjectObservation {
+  id: string;
+  workspaceId: string;
+  kind: string;
+  timestamp: number;
+  payload: unknown;
 }
 
 function normalizeTitle(value?: string): string {
@@ -411,26 +419,47 @@ export class StorageService {
 
   async workspaceId(): Promise<string> { return this.projectId(); }
 
+  /** Durable, bounded project observations used to invalidate stale context. */
+  async recordProjectObservation(kind: string, payload: unknown): Promise<ProjectObservation> {
+    if (!/^[a-z]+(?:[.-][a-z]+)+$/.test(kind)) throw new Error('Project observation kind is invalid.');
+    const workspaceId = await this.projectId(); const timestamp = Date.now();
+    const observation: ProjectObservation = { id: id(), workspaceId, kind, timestamp, payload: sanitizeTaskData(payload) };
+    this.ready().run('BEGIN');
+    try {
+      this.ready().run('INSERT INTO project_observations (id, project_id, kind, timestamp, payload) VALUES (?, ?, ?, ?, ?)', [observation.id, workspaceId, kind, timestamp, JSON.stringify(observation.payload)]);
+      this.ready().run(`INSERT INTO project_context_state (project_id, invalidated_at, invalidation_reasons, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET invalidated_at = excluded.invalidated_at, invalidation_reasons = excluded.invalidation_reasons, updated_at = excluded.updated_at`, [workspaceId, timestamp, JSON.stringify([kind]), timestamp]);
+      this.ready().run('UPDATE projects SET updated_at = ? WHERE id = ?', [timestamp, workspaceId]);
+      this.ready().run('COMMIT');
+    } catch (error) { this.ready().run('ROLLBACK'); throw error; }
+    await this.persist();
+    return observation;
+  }
+
+  async listProjectObservations(limit = 40): Promise<ProjectObservation[]> {
+    const workspaceId = await this.projectId();
+    return this.all('SELECT * FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?', [workspaceId, Math.min(Math.max(limit, 1), 200)]).map((row) => ({ id: String(row.id), workspaceId: String(row.project_id), kind: String(row.kind), timestamp: Number(row.timestamp), payload: parseJson(row.payload, null) }));
+  }
+
   async appendAction(record: StoredActionRecord): Promise<void> {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error('Audit record belongs to another workspace.');
-    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, risk_tier, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.riskTier, record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
     await this.persist();
   }
 
-  async listActions(filters: { conversationId?: string; toolName?: string; riskTier?: 0 | 1 | 2; success?: boolean; from?: number; to?: number } = {}): Promise<StoredActionRecord[]> {
+  async listActions(filters: { conversationId?: string; toolName?: string; success?: boolean; from?: number; to?: number } = {}): Promise<StoredActionRecord[]> {
     const clauses = ['project_id = ?']; const params: SqlValue[] = [await this.projectId()];
     if (filters.conversationId) { clauses.push('conversation_id = ?'); params.push(filters.conversationId); }
     if (filters.toolName) { clauses.push('tool_name = ?'); params.push(filters.toolName); }
-    if (filters.riskTier !== undefined) { clauses.push('risk_tier = ?'); params.push(filters.riskTier); }
     if (filters.success !== undefined) { clauses.push('success = ?'); params.push(filters.success ? 1 : 0); }
     if (filters.from !== undefined) { clauses.push('timestamp >= ?'); params.push(filters.from); }
     if (filters.to !== undefined) { clauses.push('timestamp <= ?'); params.push(filters.to); }
     params.push(500);
     return this.all(`SELECT * FROM action_log WHERE ${clauses.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`, params).map((row) => ({
       id: String(row.id), timestamp: Number(row.timestamp), workspaceId: String(row.project_id), conversationId: String(row.conversation_id), modelId: String(row.model_id), toolName: String(row.tool_name),
-      sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, riskTier: Number(row.risk_tier) as 0 | 1 | 2, approvalDecision: String(row.approval_decision) as StoredActionRecord['approvalDecision'], executionDurationMs: Number(row.execution_duration_ms),
+      sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, approvalDecision: String(row.approval_decision) as StoredActionRecord['approvalDecision'], executionDurationMs: Number(row.execution_duration_ms),
       success: Boolean(row.success), result: row.result_json ? JSON.parse(String(row.result_json)) : { success: Boolean(row.success) }, resultSummary: String(row.result_summary), affectedPaths: row.affected_paths ? JSON.parse(String(row.affected_paths)) as string[] : [], exitCode: row.exit_code === null ? null : Number(row.exit_code), rollback: row.rollback ? JSON.parse(String(row.rollback)) : undefined
     }));
   }
@@ -444,11 +473,22 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, thread_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT, content TEXT NOT NULL, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
-      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, risk_tier INTEGER NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
     const actionColumns = this.all('PRAGMA table_info(action_log)').map((row) => String(row.name));
+    if (actionColumns.includes('risk_tier')) this.ready().run(`
+      DROP INDEX IF EXISTS idx_action_log_project_timestamp;
+      DROP INDEX IF EXISTS idx_action_log_conversation;
+      ALTER TABLE action_log RENAME TO action_log_legacy;
+      CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+        SELECT id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, COALESCE(result_json, '{}'), result_summary, affected_paths, exit_code, rollback FROM action_log_legacy;
+      DROP TABLE action_log_legacy;
+    `);
     if (!actionColumns.includes('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
     const taskColumns = new Set(this.all('PRAGMA table_info(tasks)').map((row) => String(row.name)));
     const addTaskColumn = (name: string, definition: string): void => { if (!taskColumns.has(name)) this.ready().run(`ALTER TABLE tasks ADD COLUMN ${name} ${definition}`); };
@@ -488,6 +528,7 @@ export class StorageService {
       CREATE INDEX IF NOT EXISTS idx_conversations_thread_created ON conversations(thread_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_conversation_threads_project_updated ON conversation_threads(project_id, updated_at);
       CREATE INDEX IF NOT EXISTS idx_action_log_project_timestamp ON action_log(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_project_observations_project_timestamp ON project_observations(project_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_action_log_conversation ON action_log(project_id, conversation_id);
       CREATE INDEX IF NOT EXISTS idx_tasks_project_updated ON tasks(project_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_steps_task_position ON task_steps(task_id, position);

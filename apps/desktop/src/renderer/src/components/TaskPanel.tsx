@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { ConversationState, Task, TaskDraft, TaskHandoff } from '@forge/ipc';
-import { forgeInvoke } from '../forge';
+import { forgeInvoke, onRuntimeEvent } from '../forge';
 
 const data = async <T,>(promise: ReturnType<typeof forgeInvoke>): Promise<T> => { const result = await promise; if (!result.success) throw new Error(result.error.message); return result.data as T; };
 const stepSymbol = (status: Task['steps'][number]['status']): string => status === 'completed' || status === 'skipped' ? '✓' : status === 'running' || status === 'waiting' ? '⏳' : status === 'blocked' || status === 'failed' ? '!' : '□';
@@ -11,7 +11,13 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
   const refresh = async (preferredId?: string): Promise<void> => { const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values); const nextId = preferredId ?? selectedId; if (nextId && values.some((task) => task.id === nextId)) setSelectedId(nextId); else setSelectedId(values[0]?.id ?? ''); };
   const act = async (operation: () => Promise<Task>): Promise<void> => { try { setBusy(true); setError(''); const task = await operation(); await refresh(task.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
   const refreshFromButton = async (): Promise<void> => { try { setError(''); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
-  useEffect(() => { setTasks([]); setSelectedId(''); setError(''); void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))); }, [workspaceKey]);
+  useEffect(() => {
+    setTasks([]); setSelectedId(''); setError('');
+    void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    return onRuntimeEvent((event) => {
+      if (event.type === 'task.changed') void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    });
+  }, [workspaceKey]);
   const create = async (): Promise<void> => {
     const title = window.prompt('Persistent task title:'); if (!title?.trim()) return;
     await act(async () => {
@@ -41,7 +47,7 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
       <header><div><h3>{selected.title}</h3><p>{selected.description ?? selected.taskType}</p></div><em className={`task-status ${selected.status}`}>{selected.status}</em></header>
       <div className="task-facts"><span><b>Progress</b>{completedCount}/{selected.steps.length}</span><span><b>Current</b>{current?.name ?? 'Not started'}</span><span><b>Last checkpoint</b>{checkpoint?.name ?? 'None'}</span><span><b>Updated</b>{new Date(selected.updatedAt).toLocaleString()}</span><span><b>Branch</b>{selected.associatedBranch ?? 'Unrecorded'}</span><span><b>Workflow/release</b>{selected.associatedWorkflowRun ?? selected.associatedReleaseTag ?? 'Unrecorded'}</span><span><b>Active process</b>{selected.processIds.join(', ') || 'None'}</span><span><b>Next action</b>{selected.resumeInstructions}</span></div>
       {selected.interruptionReason && <div className="task-blocker">{selected.interruptionReason}</div>}
-      <div className="task-actions"><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Reconcile & resume</button><button disabled={busy || ['paused', 'completed', 'cancelled'].includes(selected.status)} onClick={() => void pause()}>Pause</button><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void cancel()}>Cancel tracking</button><button disabled={busy || !(selected.originatingConversationId || selected.lastActiveConversationId)} onClick={() => void openConversation()}>Open conversation</button><button onClick={onOpenAudit}>Open audit history</button><button disabled={busy} onClick={() => void handoff()}>Copy handoff</button></div>
+      <div className="task-actions"><button className="accent" disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Run next step</button><button disabled={busy || ['paused', 'completed', 'cancelled'].includes(selected.status)} onClick={() => void pause()}>Pause</button><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void cancel()}>Cancel tracking</button><button disabled={busy || !(selected.originatingConversationId || selected.lastActiveConversationId)} onClick={() => void openConversation()}>Open conversation</button><button onClick={onOpenAudit}>Open audit history</button><button disabled={busy} onClick={() => void handoff()}>Copy handoff</button></div>
       <ol className="task-steps">{selected.steps.map((step) => <li key={step.id} className={step.status}><span>{stepSymbol(step.status)}</span><div><b>{step.name}</b><small>{step.purpose}</small><small>Tier {step.riskTier} · {step.requiredTool ?? 'manual verification'} · attempts {step.attempts}/{step.retryPolicy.maxAttempts}</small>{step.lastError && <em>{step.lastError.message}</em>}<details><summary>Verification evidence</summary><pre>{JSON.stringify({ criteria: step.verificationCriteria, processId: step.externalProcessId, outputPath: step.outputPath, artifacts: step.artifactPaths, auditReferences: step.auditReferences, checkpoints: selected.checkpoints.filter((entry) => entry.stepId === step.id) }, null, 2)}</pre></details></div>{['failed', 'blocked'].includes(step.status) && <button disabled={busy} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.retry.step', { taskId: selected.id, stepId: step.id })))}>Retry</button>}</li>)}</ol>
       <details className="task-events"><summary>Task history ({selected.events.length})</summary>{selected.events.slice().reverse().map((event) => <p key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><b>{event.type}</b>{event.summary}</p>)}</details>
     </> : null}{error && <div className="terminal-error">{error}</div>}</section>

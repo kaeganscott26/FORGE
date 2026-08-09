@@ -10,40 +10,42 @@ Model → Agent → Tool Registry → Policy Engine → Approval Manager
       → Structured Tool Result → bounded, redacted Agent context → User
 ```
 
-Dependency injection keeps the registry/router independent of Electron and prevents circular package ownership. `@forge/agent-tools` coordinates definitions and execution; `@forge/tool-policy` owns risk and session decisions; `@forge/shell` owns child processes and PTYs; `@forge/web` owns external HTTP controls. Existing workspace, Git, storage, AI, and IPC packages remain authoritative for their domains.
+Dependency injection keeps the registry/router independent of Electron and prevents circular package ownership. `@forge/agent-tools` coordinates definitions and execution; `@forge/tool-policy` evaluates concrete side effects and exact-scope session authority without numeric tool-risk tiers; `@forge/shell` owns child processes and PTYs; `@forge/web` owns external HTTP controls. Existing workspace, Git, storage, AI, and IPC packages remain authoritative for their domains.
 
 ## 🧰 Tools
 
-| Tool | Tier | Approval | Effect |
+| Tool | Side effect | Approval | Effect |
 | --- | ---: | --- | --- |
-| `file.list`, `file.read`, `file.search` | 0 | automatic | Bounded workspace inspection |
-| `file.create`, `file.write`, `file.patch`, `file.rename`, `file.move`, `directory.create` | 1 | explicit or exact scoped session | Reversible workspace change |
-| `file.delete` | 2 | always | Backup then remove source path |
-| `terminal.read` | 0 | automatic | Read bounded, redacted recent terminal evidence |
-| `git.status`, `git.diff`, `git.log`, `git.branches` | 0 | automatic | Read Git evidence |
-| `git.stage`, `git.unstage` | 1 | explicit or exact path-set session | Change the index for listed paths |
-| `git.commit`, `git.pull`, `git.push` | 2 | always | Local history or remote mutation |
-| `shell.run` | 2 | always | Spawn one executable with an argument array |
-| `web.search`, `web.fetch`, `web.open` | 2 | always and web enabled | Bounded external research |
-| `task.inspect` | 0 | automatic | Read the active workspace's structured task evidence |
-| `task.create`, `task.resume`, `task.pause`, `task.cancel`, `task.checkpoint`, `task.handoff` | 1 | explicit or exact scoped session | Change reversible task tracking/projections |
-| `task.process.start` | 2 | always | Start a workspace-owned detached argument-array process and persist PID/output |
+| `file.list`, `file.read`, `file.search` | read | automatic | Bounded workspace inspection |
+| `file.create`, `file.write`, `file.patch`, `file.rename`, `file.move`, `directory.create` | workspace write | explicit or exact scoped session | Reversible workspace change |
+| `file.delete` | destructive | Run once | Backup then remove source path |
+| `terminal.read` | read | automatic | Read bounded, redacted recent terminal evidence |
+| `git.status`, `git.diff`, `git.log`, `git.branches` | read | automatic | Read Git evidence |
+| `git.stage`, `git.unstage` | workspace write | explicit or exact path-set session | Change the index for listed paths |
+| `git.commit`, `git.pull`, `git.push` | workspace write / remote | Run once | Local history or remote mutation |
+| `shell.run` | process | Run once | Spawn one executable with an argument array |
+| `web.search`, `web.fetch`, `web.open` | remote | Run once and web enabled | Bounded external research |
+| `github.read` | read | automatic | Bounded metadata, branches, commits, issues, pull requests, comments, workflows, releases, and assets for the active origin |
+| `github.mutate` | remote | Run once | Explicitly approved GitHub REST mutation for issues, branches, files, pull requests, comments, workflows, or releases |
+| `task.inspect` | read | automatic | Read the active workspace's structured task evidence |
+| `task.create`, `task.resume`, `task.pause`, `task.cancel`, `task.checkpoint`, `task.handoff` | workspace write | explicit or exact scoped session | Change reversible task tracking/projections |
+| `task.process.start` | process | Run once | Start a workspace-owned detached argument-array process and persist PID/output |
 
-Every definition includes purpose, Zod input/output schemas, risk, approval rule, workspace-boundary rule, timeout, audit metadata, cancellation behavior, target/effect descriptions, and network disclosure. Unknown names and invalid arguments fail closed.
+Every definition includes purpose, Zod input/output schemas, side-effect and approval metadata, workspace-boundary rule, timeout, audit metadata, cancellation behavior, target/effect descriptions, network disclosure, and bounded-result semantics. Unknown names and invalid arguments fail closed.
 
 ## 🧠 Results and context
 
-Results contain success, affected paths, diff, warnings, error code/details, rollback data, exit code, duration, truncation, and cancellation state where applicable. Automatic Tier 0 results are bounded and redacted before the agent produces its final answer. After an approved Tier 1/2 action, FORGE records the result, asks the agent to continue using the bounded result, persists the continuation in the same workspace conversation, and shows the inspectable raw structured result locally.
+Results contain success, affected paths, diff, warnings, error code/details, rollback data, exit code, duration, truncation, and cancellation state where applicable. Automatic read results are bounded and redacted before the agent produces its final answer. After an approved action, FORGE records the result, resumes the native runtime using bounded evidence, persists the continuation in the same workspace conversation, and shows the inspectable raw structured result locally.
 
 Tool results are labeled `Tool Result`. Web evidence is labeled `External Web`; it is not presented as workspace evidence. Shell and terminal output are never automatically indexed into durable memory.
 
 Filesystem inspection starts at the workspace root. A missing read/list/search path returns a structured recovery result (`missing`, requested path, nearest requested parent, and `restart-at-workspace-root`) instead of abandoning the scan after `ENOENT`.
 
-FORGE may continue an agent turn for up to three bounded tool rounds and five total tool requests when every completed request was authorized automatically under Tier 0. This lets the model consume a missing-path recovery result, inspect the root, and continue with an observed path. The loop stops immediately for an approval-required request; it never turns persistence or recovery into authorization.
+FORGE does not impose a small fixed tool-count or continuation-round cap. It runs while the runtime has time/context budget, is not cancelled, and continues to observe meaningful progress. An exact normalized call is suppressed only when its arguments, workspace revision, and observed result are unchanged. An approval-required request pauses the loop without losing workspace/task/context state; approval resumes from its bounded result.
 
 If a compatible provider emits strict plain JSON naming an actually offered tool, the adapter promotes it to the same validated request structure as a native call. Unoffered names remain text and cannot reach the router. If the provider repeats an already completed call, FORGE deduplicates it and performs one no-tools synthesis pass over the bounded observed results. This protects small compatible models from repeating a completed file read while preserving genuine validated calls for a different next tool.
 
-Existing tools accept optional `taskContext` containing an exact task/step ID. The router never changes the tool's risk because it belongs to a task. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
+Existing tools accept optional `taskContext` containing an exact task/step ID. Task association never changes a tool's side effect or approval requirement. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
 
 OpenAI-compatible loopback providers may run without an API key. For example, Ollama at `http://127.0.0.1:11434/v1` can list local models and receive a focused provider-neutral file-tool set: list, read, search, create, write, patch, rename/move, and directory creation. This avoids flooding small local models with unrelated Git/release/task tools. Model capability still matters, and all returned calls remain subject to normal validation, tiering, approval, execution, and audit. Remote providers continue to require authentication and retain the full catalog.
 

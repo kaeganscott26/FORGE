@@ -114,8 +114,7 @@ export class TaskRuntime {
     const next = task.steps.find((step) => !completed(step) && step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)!)));
     if (!next) return this.dependencies.storage.setPersistentTaskState(taskId, 'blocked', { summary: 'No dependency-ready step is available.', eventType: 'state.reconciled', currentStepId: null, interruptionReason: 'Step dependency graph cannot advance.', resumabilityState: 'reconcile-required' });
     if (next.status === 'waiting') return this.dependencies.storage.setPersistentTaskState(taskId, 'waiting', { summary: `Verification or an external condition is still required for ${next.name}.`, eventType: 'state.reconciled', currentStepId: next.id, resumabilityState: 'reconcile-required', details: { observedAt: snapshot.observedAt } });
-    const approvalRequired = next.riskTier > 0;
-    return this.dependencies.storage.setPersistentTaskState(taskId, approvalRequired ? 'waiting' : 'ready', { summary: approvalRequired ? `Approval required before ${next.name}.` : `Ready for ${next.name}.`, eventType: 'state.reconciled', currentStepId: next.id, resumabilityState: approvalRequired ? 'approval-required' : 'resumable', details: { observedAt: snapshot.observedAt, git: snapshot.git } });
+    return this.dependencies.storage.setPersistentTaskState(taskId, 'ready', { summary: `Ready for ${next.name}.`, eventType: 'state.reconciled', currentStepId: next.id, resumabilityState: 'resumable', details: { observedAt: snapshot.observedAt, git: snapshot.git } });
   }
 
   async pause(taskId: string, reason: string): Promise<Task> {
@@ -138,8 +137,8 @@ export class TaskRuntime {
     if (!['failed', 'blocked'].includes(step.status)) throw new Error('Only failed or blocked steps can be retried.');
     if (step.attempts >= step.retryPolicy.maxAttempts) throw new Error('The task step retry limit has been reached.');
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)!))) throw new Error('Task step dependencies are not complete.');
-    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'pending', { summary: `Retry queued for ${step.name}.`, approvalState: step.riskTier === 0 ? 'not-required' : 'required', eventType: 'step.retried' });
-    return this.dependencies.storage.setPersistentTaskState(taskId, step.riskTier === 0 ? 'ready' : 'waiting', { summary: step.riskTier === 0 ? `Ready to retry ${step.name}.` : `Fresh approval required to retry ${step.name}.`, eventType: 'state.reconciled', currentStepId: step.id, resumabilityState: step.riskTier === 0 ? 'resumable' : 'approval-required' });
+    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'pending', { summary: `Retry queued for ${step.name}.`, approvalState: 'not-required', eventType: 'step.retried' });
+    return this.dependencies.storage.setPersistentTaskState(taskId, 'ready', { summary: `Ready to retry ${step.name}.`, eventType: 'state.reconciled', currentStepId: step.id, resumabilityState: 'resumable' });
   }
 
   async checkpoint(taskId: string, input: { stepId?: string; name: string; summary: string; verified: boolean; evidence?: unknown; auditReference?: string }): Promise<Task> {
@@ -175,7 +174,7 @@ export class TaskRuntime {
   async startBackground(taskId: string, stepId: string, input: ShellRunInput, toolRequestId: string): Promise<{ task: Task; process: BackgroundShellRunOutput }> {
     if (!this.dependencies.shell) throw new Error('Background shell runtime is unavailable.');
     const task = await this.get(taskId); const step = task.steps.find((candidate) => candidate.id === stepId); if (!step) throw new Error('Unknown task step.');
-    if (step.riskTier !== 2 || !['shell.run', 'task.process.start'].includes(step.requiredTool ?? '')) throw new Error('Task step is not an approved Tier 2 background shell step.');
+    if (!['shell.run', 'task.process.start'].includes(step.requiredTool ?? '')) throw new Error('Task step is not configured for a background shell process.');
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)!))) throw new Error('Task step dependencies are not complete.');
     const outputPath = path.join('.forge', 'task-output', taskId, `${slug(step.name)}.log`);
     await this.dependencies.storage.setTaskStepState(taskId, stepId, 'running', { summary: `${step.name} is starting as a workspace-owned background process.`, incrementAttempts: true, approvalState: 'consumed', auditReference: toolRequestId, eventType: 'step.started' });

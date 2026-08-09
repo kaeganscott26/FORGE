@@ -10,7 +10,16 @@ export interface SimpleAIProvider {
   chatWithTools?(messages: AgentMessage[], tools: AgentToolDescriptor[], model?: string): Promise<AgentProviderResponse>;
 }
 
-export interface AgentToolDescriptor { name: string; description: string; parameters: Record<string, unknown>; }
+export interface AgentToolDescriptor {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  sideEffects?: string;
+  approval?: string;
+  networkAccess?: boolean;
+  cancellation?: boolean;
+  resultSemantics?: string;
+}
 export interface AgentProviderResponse { content: string; toolCalls: Array<{ id: string; name: string; arguments: unknown; provider: string }>; modelId?: string; }
 
 export interface AgentTurnResult {
@@ -23,7 +32,7 @@ export interface AgentToolTurnResult extends AgentTurnResult { toolCalls: AgentP
 export class Agent {
   constructor(
     private provider: SimpleAIProvider,
-    private contextBuilder: { assemble(query: string, memories?: MemoryEntry[] | null): Promise<ContextAssemblyResult> },
+    private contextBuilder: { assemble(query: string, memories?: MemoryEntry[] | null): Promise<ContextAssemblyResult>; packet?(query: string, memories?: MemoryEntry[] | null): Promise<ContextAssemblyResult> },
     private memoryRetriever?: MemoryRetriever
   ) {}
 
@@ -44,13 +53,13 @@ export class Agent {
       try { memories = await this.memoryRetriever.search(question, 6); }
       catch { memories = []; }
     }
-    const context = await this.contextBuilder.assemble(question, memories);
+    const context = this.contextBuilder.packet ? await this.contextBuilder.packet(question, memories) : await this.contextBuilder.assemble(question, memories);
     const boundedHistory = history
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .slice(-24)
+      .slice(-48)
       .reduceRight<AgentMessage[]>((selected, message) => {
         const used = selected.reduce((total, entry) => total + entry.content.length, 0);
-        return used >= 12_000 ? selected : [{ role: message.role, content: message.content.slice(0, 3_000) }, ...selected];
+        return used >= 40_000 ? selected : [{ role: message.role, content: message.content.slice(0, 6_000) }, ...selected];
       }, []);
     const messages: AgentMessage[] = [
       { role: 'system', content: context.systemPrompt },
