@@ -1,1 +1,1 @@
-{"name":"@forge/agent-tools","version":"2.2.0-beta.2","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@forge/git":"*","@forge/ipc":"*","@forge/shell":"*","@forge/tool-policy":"*","@forge/web":"*","zod":"^3.24.0","zod-to-json-schema":"^3.24.0"}}
+{"name":"@forge/agent-tools","version":"2.2.0-beta.3","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@forge/git":"*","@forge/ipc":"*","@forge/shell":"*","@forge/tool-policy":"*","@forge/web":"*","zod":"^3.24.0","zod-to-json-schema":"^3.24.0"}}

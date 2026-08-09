@@ -25,7 +25,10 @@ const buildDate = compiledMain.match(/buildDate:\s*"([^"]+)"/)?.[1];
 if (!commit || !buildDate) throw new Error('Compiled build provenance was not found. Run npm run build first.');
 const [{ stdout: currentCommit }, { stdout: workingTree }] = await Promise.all([
   execute('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot }),
-  execute('git', ['status', '--porcelain'], { cwd: repositoryRoot })
+  // `npm run build` rewrites this tracked generated runtime bundle with the
+  // current build provenance. It is verified separately above; every other
+  // source change must still make a release manifest ineligible for upload.
+  execute('git', ['status', '--porcelain', '--', '.', ':(exclude)apps/desktop/out/main/index.js'], { cwd: repositoryRoot })
 ]);
 if (commit !== currentCommit.trim()) throw new Error('Compiled build commit does not match the current Git HEAD.');
 

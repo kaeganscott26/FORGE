@@ -1,6 +1,6 @@
 # ✨ FORGE beta 2.2
 
-FORGE beta 2.2 advances the workspace runtime to `v2.2.0-beta.2` with a dependable protected Browser, durable workspace browsing records, and safer bounded agent context.
+FORGE beta 2.2 advances the workspace runtime to `v2.2.0-beta.3` with a dependable protected Browser, durable workspace browsing records, safer bounded agent context, and a corrected release provenance gate.
 
 ## 🌐 FORGE Browser
 
@@ -14,6 +14,7 @@ FORGE beta 2.2 advances the workspace runtime to `v2.2.0-beta.2` with a dependab
 
 - Bounds durable-memory content before relevance scoring and before it is returned to an agent, so exceptionally large imported notes cannot exhaust local WASM memory or provider request capacity during a repository audit.
 - Preserves progress-aware tool continuation: meaningful sequential work continues while workspace state changes; redundant exact calls against unchanged observed state are suppressed.
+- Records a clean source tree before upload while excluding only the verified generated desktop runtime bundle that the package step necessarily regenerates.
 
 ## 🧪 Verification
 

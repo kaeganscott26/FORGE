@@ -115,7 +115,7 @@ So the project has already crossed from “build features” into:
 make all those features behave as one coherent system.
 That is exactly where I would classify it today.
 Where FORGE is right now
-Current package version is 2.2.0-beta.2.
+Current package version is 2.2.0-beta.3.
 And beta is the correct word.
 Not because the application is skeletal—it isn't.
 FORGE already contains most of the major architectural organs:

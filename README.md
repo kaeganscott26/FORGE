@@ -4,7 +4,7 @@
 
 FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
 
-**Current build:** [`v2.2.0-beta.2`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.2) · FORGE beta 2.2 · macOS universal beta · Electron + React + TypeScript
+**Current build:** [`v2.2.0-beta.3`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3) · FORGE beta 2.2 · macOS universal beta · Electron + React + TypeScript
 
 ## 🧭 The missing layer between your project and the model
 
@@ -81,8 +81,8 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 ### Install the current beta
 
-1. Open the [`FORGE beta 2.2` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.2).
-2. Download `FORGE-2.2.0-beta.2-universal.dmg`.
+1. Open the [`FORGE beta 2.2` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3).
+2. Download `FORGE-2.2.0-beta.3-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 

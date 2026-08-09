@@ -2,9 +2,9 @@
 
 **Updated:** August 9, 2026
 
-**Working version:** `2.2.0-beta.2` — FORGE beta 2.2
+**Working version:** `2.2.0-beta.3` — FORGE beta 2.2
 
-**Release target:** `v2.2.0-beta.2` on `main`
+**Release target:** `v2.2.0-beta.3` on `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
@@ -12,7 +12,7 @@
 
 FORGE beta 2.2 is the current release candidate. It retains the verified `v2.1.0-beta.2` baseline while adding protected tabbed browsing, workspace-owned bookmarks and history, browser-to-agent context tools, update/feed hardening, and bounded durable-memory retrieval.
 
-The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). `v2.2.0-beta.2` is published only after its annotated tag, workflow head, embedded build commit, updater metadata, public hashes, and mounted-DMG runtime acceptance agree.
+The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). `v2.2.0-beta.3` is published only after its annotated tag, workflow head, embedded build commit, updater metadata, public hashes, and mounted-DMG runtime acceptance agree.
 
 ## ✅ Implemented capability matrix
 
@@ -39,7 +39,7 @@ Browser acceptance loaded and visibly rendered `https://www.north3rnlight3r.com/
 
 ## 📦 Release state
 
-`v2.2.0-beta.2` is the pending beta publication target. The GitHub workflow will create its draft release, package the exact tag, upload the universal DMG/ZIP, both blockmaps, and `beta-mac.yml` serially, then publish only after hash verification.
+`v2.2.0-beta.3` is the pending beta publication target. The GitHub workflow will create its draft release, package the exact tag, upload the universal DMG/ZIP, both blockmaps, and `beta-mac.yml` serially, then publish only after hash verification.
 
 The beta is not Developer ID signed or notarized. Public artifact acceptance will be isolated to a temporary read-only mount and profile; it will not overwrite `/Applications/FORGE.app` during verification.
 

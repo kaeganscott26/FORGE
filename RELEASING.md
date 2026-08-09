@@ -22,7 +22,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 - Stable accepts only strictly newer normal SemVer.
 - A legacy stored `preview` preference migrates to Beta.
 - Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`; the current beta target is `v2.2.0-beta.2` and the public release name is `FORGE beta 2.2`.
+- Tags use `v<package-version>`; the current beta target is `v2.2.0-beta.3` and the public release name is `FORGE beta 2.2`.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 
@@ -42,7 +42,7 @@ Commit, push, merge, tag, upload, publication, installation, and remote cleanup 
 
 ## 📌 Version bump and authoritative source
 
-Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` must report `2.2.0-beta.2`. The public tag is `v2.2.0-beta.2`, and diagnostics report the Beta channel.
+Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` must report `2.2.0-beta.3`. The public tag is `v2.2.0-beta.3`, and diagnostics report the Beta channel.
 
 Read-only provenance checks include:
 
@@ -51,8 +51,8 @@ git status --short --branch
 git diff --check
 git rev-parse HEAD
 git rev-parse origin/main
-git cat-file -t v2.2.0-beta.2
-git rev-parse v2.2.0-beta.2^{}
+git cat-file -t v2.2.0-beta.3
+git rev-parse v2.2.0-beta.3^{}
 ```
 
 ## 🧪 Local source and package validation
@@ -77,7 +77,7 @@ Generated binaries, `.forge/`, `.obsidian/`, updater caches, local databases, an
 
 ## ⚙️ GitHub Actions workflow
 
-Pushing the annotated `v2.2.0-beta.2` tag triggers `.github/workflows/package-mac.yml`. It checks out the tag, installs Node 22 dependencies, runs typecheck/lint/tests, creates or reconciles a draft, packages a universal app, uploads assets serially, and publishes only after upload verification.
+Pushing the annotated `v2.2.0-beta.3` tag triggers `.github/workflows/package-mac.yml`. It checks out the tag, installs Node 22 dependencies, runs typecheck/lint/tests, creates or reconciles a draft, packages a universal app, uploads assets serially, and publishes only after upload verification.
 
 A queued runner is waiting, not failed. A GitHub 502 or network interruption is reconciled against the existing workflow, release, and assets; it is not permission to retag or restart the release blindly.
 
@@ -92,7 +92,7 @@ Record the workflow run ID, URL, head SHA, conclusion, and release URL.
 - `beta-mac.yml`: Beta updater metadata.
 - `latest-mac.yml`: Stable updater metadata.
 
-For `v2.2.0-beta.2`, upload the universal DMG, universal ZIP, both blockmaps, then `beta-mac.yml`. Uploads are serial. Metadata is last so no updater can discover an incomplete payload set.
+For `v2.2.0-beta.3`, upload the universal DMG, universal ZIP, both blockmaps, then `beta-mac.yml`. Uploads are serial. Metadata is last so no updater can discover an incomplete payload set.
 
 On retry, `scripts/upload-release-assets.sh` downloads an existing same-name asset, compares SHA-256, and skips it only when byte-identical. A wrong hash is a failed integrity condition; never use `--clobber` to hide it.
 
@@ -102,9 +102,9 @@ Verify the generated manifest first:
 
 ```sh
 node scripts/verify-build-manifest.mjs
-shasum -a 256 dist_electron/FORGE-2.2.0-beta.2-*.dmg
-shasum -a 256 dist_electron/FORGE-2.2.0-beta.2-*.zip
-shasum -a 256 dist_electron/FORGE-2.2.0-beta.2-*.blockmap
+shasum -a 256 dist_electron/FORGE-2.2.0-beta.3-*.dmg
+shasum -a 256 dist_electron/FORGE-2.2.0-beta.3-*.zip
+shasum -a 256 dist_electron/FORGE-2.2.0-beta.3-*.blockmap
 shasum -a 256 dist_electron/beta-mac.yml
 ```
 
@@ -128,7 +128,7 @@ Audit `/Applications`, `~/Applications`, the repository, mounted volumes, runnin
 
 Move stale installed bundles to Trash; do not permanently delete them before acceptance. Install exactly `/Applications/FORGE.app`, launch that exact path, and verify the executable originates from `/Applications/FORGE.app/Contents/MacOS/FORGE`. Never keep a duplicate under `~/Applications`.
 
-Diagnostics must report `FORGE v2.2.0-beta.2`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
+Diagnostics must report `FORGE v2.2.0-beta.3`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
 
 ## ✅ Packaged runtime acceptance
 
@@ -189,6 +189,6 @@ Delete old GitHub Releases and their exact audited release tags only after the p
 - [ ] Public artifact reinstall and critical smoke tests pass.
 - [ ] Stable/Beta updater behavior is verified.
 - [ ] Old Releases/tags are removed only after public acceptance.
-- [ ] GitHub exposes `FORGE beta 2.2` at `v2.2.0-beta.2`; obsolete local output and caches are cleaned.
+- [ ] GitHub exposes `FORGE beta 2.2` at `v2.2.0-beta.3`; obsolete local output and caches are cleaned.
 - [ ] Signing/notarization status and all unresolved limitations are reported.
 - [ ] Final handoff is generated from authoritative task state.

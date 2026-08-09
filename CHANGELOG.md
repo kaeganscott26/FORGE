@@ -2,7 +2,7 @@
 
 > This file preserves dated implementation and release history. For the supported product, start with the [documentation index](docs/README.md), [project status](docs/PROJECT_STATUS.md), and [current release notes](RELEASE_NOTES.md).
 
-## ✨ 2026-08-09 — FORGE 2.2.0-beta.2 browser and context-runtime hardening
+## ✨ 2026-08-09 — FORGE 2.2.0-beta.3 browser and context-runtime hardening
 
 ### Implementation
 
