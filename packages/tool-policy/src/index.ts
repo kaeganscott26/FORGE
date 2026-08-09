@@ -2,7 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 export type ToolExecutionState = 'pending' | 'approved' | 'running' | 'succeeded' | 'failed' | 'rejected' | 'cancelled';
-export type ToolSideEffect = 'read' | 'workspace-write' | 'destructive' | 'process' | 'remote';
+/**
+ * Concrete execution effects.  Network reads are intentionally distinct from
+ * network writes so enabled public research does not inherit GitHub mutation
+ * approval semantics.
+ */
+export type ToolSideEffect = 'read' | 'workspace-write' | 'repository-write' | 'destructive' | 'process' | 'read-network' | 'write-network';
 export type ApprovalRequirement = 'automatic' | 'explicit' | 'session';
 
 export interface ToolAuditMetadata {

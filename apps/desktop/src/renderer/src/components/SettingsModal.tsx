@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import { formatAppBuildInfo, type AppBuildInfo, type ModelValidationResult, type ProviderModel, type UserSettings } from '@forge/ipc';
 import { forgeInvoke } from '../forge';
+import WorkspaceDataPanel from './WorkspaceDataPanel';
 import './settings.css';
 
 const getData = async <T,>(channel: Parameters<typeof forgeInvoke>[0], request?: unknown): Promise<T> => {
@@ -155,6 +156,8 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
           <label>Update channel<select value={updateChannel} onChange={(event) => setUpdateChannel(event.target.value as 'stable' | 'beta')}><option value="stable">Stable (default)</option><option value="beta">Beta (beta, release candidate)</option></select></label>
           <p className="settings-help">Stable installations never receive beta builds unless Beta is selected explicitly. Existing Preview preferences migrate to Beta.</p>
         </section>
+
+        <WorkspaceDataPanel />
 
         {message && <div className="settings-message success">{message}</div>}
         {error && <div className="settings-message error">{error}</div>}

@@ -28,6 +28,11 @@ describe('shell and terminal services', () => {
     expect(timeout.timedOut).toBe(true);
   });
 
+  it('requires an explicit network profile for known network-capable executables', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-shell-profile-')); const service = new ShellService(() => root);
+    await expect(service.run({ command: 'npm', args: ['install'], workingDirectory: '.', timeoutMs: 2_000, reason: 'test', expectedOutcome: 'dependencies' })).rejects.toThrow(/network profile/);
+  });
+
   it('cancels process trees', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-cancel-')); const service = new ShellService(() => root); const id = 'cancel-me';
     const running = service.run({ command: '/bin/sh', args: ['-c', 'sleep 5'], workingDirectory: '.', timeoutMs: 10_000, reason: 'test', expectedOutcome: 'cancel' }, id);

@@ -37,6 +37,41 @@ describe('workspace-owned conversation storage', () => {
     await service.close();
   });
 
+  it('deletes selected or all conversation threads while retaining workspace-owned tasks and memory', async () => {
+    const service = await storage();
+    const first = await service.conversationState();
+    await service.appendConversation(first.activeConversationId, 'user', 'Keep this only until deletion.');
+    const second = await service.createConversation('Temporary thread');
+    await service.appendConversation(second.activeConversationId, 'assistant', 'Temporary response.');
+    await service.createMemory('note', 'Durable', 'This is independent from conversation history.');
+    await service.createTask('Retained task');
+    const afterDelete = await service.deleteConversation(second.activeConversationId);
+    expect(afterDelete.threads).toHaveLength(1);
+    expect(afterDelete.activeConversationId).toBe(first.activeConversationId);
+    const afterClear = await service.clearAllConversations();
+    expect(afterClear.threads).toHaveLength(1);
+    expect(afterClear.messages).toHaveLength(0);
+    expect(await service.listMemories()).toHaveLength(1);
+    expect(await service.listPersistentTasks()).toHaveLength(1);
+    await service.close();
+  });
+
+  it('projects bounded memory previews and supports explicit task and memory removal', async () => {
+    const service = await storage();
+    const oversizedLegacyMemory = 'x'.repeat(266_567);
+    (service as any).ready().run('INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-memory', await service.workspaceId(), 'configuration', 'package-lock.json', oversizedLegacyMemory, '{"origin":"workspace-index"}', 1, 1]);
+    const preview = await service.listMemories(10, 1_200);
+    expect(preview[0]).toMatchObject({ id: 'legacy-memory', contentLength: 266_567 });
+    expect(preview[0]?.content).toHaveLength(1_200);
+    expect(await service.memoryStats()).toMatchObject({ recordCount: 1, indexedCount: 1, largestContentChars: 266_567 });
+    await expect(service.createMemory('note', 'Too large', 'x'.repeat(200_001))).rejects.toThrow(/safety limit/);
+    const task = await service.createTask('Delete me');
+    await service.deletePersistentTask(task.id);
+    expect(await service.listPersistentTasks()).toHaveLength(0);
+    expect(await service.clearMemories()).toEqual({ deleted: 1 });
+    await service.close();
+  });
+
   it('never resolves a conversation from another workspace', async () => {
     const first = await storage();
     const second = await storage();

@@ -68,6 +68,25 @@ describe('agent tool runtime', () => {
     expect(second.result?.output).toMatchObject({ truncated: false, matches: [{ line: 3, text: 'needle three' }] });
   });
 
+  it('paginates file listings and reads bounded file ranges with continuations', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-read-range-'));
+    await writeFile(path.join(root, 'alpha.txt'), 'one\ntwo\nthree\nfour\n'); await writeFile(path.join(root, 'beta.txt'), 'other');
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const listing = await router.request({ id: 'list-page', name: 'file.list', provider: 'test', arguments: { maxEntries: 1 } }, context);
+    expect(listing.result?.output).toMatchObject({ entries: [{ path: 'alpha.txt' }], truncated: true, continuation: { offset: 1 } });
+    const read = await router.request({ id: 'read-range', name: 'file.read', provider: 'test', arguments: { path: 'alpha.txt', startLine: 2, endLine: 3, maxCharacters: 100 } }, context);
+    expect(read.result?.output).toMatchObject({ content: 'two\nthree\n', totalLines: 5, returnedRange: { startLine: 2, endLine: 3 } });
+    const first = await router.request({ id: 'read-page', name: 'file.read', provider: 'test', arguments: { path: 'alpha.txt', maxCharacters: 5 } }, context);
+    expect(first.result?.output).toMatchObject({ content: 'one\nt', truncated: true, continuation: { offset: 5 } });
+  });
+
+  it('advertises only tools available to the current FORGE configuration', () => {
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => false }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const names = router.providerDefinitions().map((definition) => definition.name);
+    expect(names).toContain('file.read'); expect(names).not.toContain('terminal.read'); expect(names).not.toContain('github.read'); expect(names).not.toContain('web.search'); expect(names).not.toContain('browser.open');
+  });
+
   it('creates visible diffs and applies approved atomic patches with rollback backups', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-tools-')); await writeFile(path.join(root, 'note.txt'), 'before\n');
     const records: AuditRecord[] = []; const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set() });

@@ -4,7 +4,7 @@
 .settings-heading p { margin: 0 0 5px; color: #ff9f43; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
 .settings-heading h2 { margin: 0; font-size: 27px; letter-spacing: -.03em; }
 .settings-heading > button { margin-left: auto; padding: 2px 9px; background: transparent; font-size: 25px; }
-.settings-body { overflow: auto; padding: 22px 24px; }
+.settings-body { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 22px 24px; }
 .settings-loading { padding: 54px; color: #93a1af; text-align: center; }
 .settings-warning, .settings-message { margin-bottom: 16px; padding: 11px 13px; border-radius: 6px; font-size: 13px; }
 .settings-warning, .settings-message.error { border: 1px solid #8c4c55; background: #3a2026; color: #ffc1c6; }
@@ -33,3 +33,20 @@
 .settings-footer { height: auto; padding: 14px 24px; border-top: 1px solid #2a333d; }
 .settings-footer > span { color: #748290; font-size: 11px; }
 .settings-footer > div { display: flex; gap: 8px; margin-left: auto; }
+.workspace-data-panel { overflow: hidden; }
+.workspace-data-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 12px 0; background: #2a3540; }
+.workspace-data-facts span { min-width: 0; padding: 8px; overflow: hidden; background: #0f151b; color: #b9c7d3; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-data-facts b { display: block; margin-bottom: 3px; color: #718596; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.workspace-data-actions, .workspace-data-list-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0; }
+.workspace-data-list-heading strong { margin-right: auto; }
+.workspace-data-actions button, .workspace-data-list button { padding: 4px 7px; font-size: 10px; }
+.workspace-data-list { margin-top: 16px; padding-top: 12px; border-top: 1px solid #2b3741; }
+.workspace-data-list > strong { color: #c8d5df; font-size: 11px; }
+.workspace-data-list article { display: flex; align-items: flex-start; gap: 9px; padding: 9px 0; border-bottom: 1px solid #26313a; }
+.workspace-data-list article > div { min-width: 0; flex: 1; }
+.workspace-data-list article b, .workspace-data-list article small { display: block; }
+.workspace-data-list article b { overflow: hidden; color: #dce6ec; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-data-list article small { margin-top: 2px; color: #78909f; font-size: 9px; }
+.workspace-data-list article p { margin: 4px 0 0; color: #9aa9b5; font-size: 10px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.workspace-data-list article button { flex: 0 0 auto; }
+@media (max-width: 620px) { .workspace-data-facts { grid-template-columns: 1fr; } }

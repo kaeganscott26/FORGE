@@ -27,6 +27,8 @@ import {
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
 const CURRENT_SCHEMA_VERSION = 7;
+const MAX_MEMORY_CONTENT_CHARS = 200_000;
+const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
 const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 'blocked', 'failed', 'skipped', 'completed']);
 
@@ -264,12 +266,22 @@ export class StorageService {
     await this.persist(); return value;
   }
 
-  async deleteConversation(conversationId: string): Promise<void> {
+  async deleteConversation(conversationId: string): Promise<ConversationState> {
     const validId = await this.assertConversation(conversationId); const projectId = await this.projectId();
     this.ready().run('DELETE FROM conversations WHERE thread_id = ? AND project_id = ?', [validId, projectId]);
     this.ready().run('DELETE FROM conversation_threads WHERE id = ? AND project_id = ?', [validId, projectId]);
     this.ready().run('UPDATE workspace_state SET active_conversation_id = NULL, updated_at = ? WHERE project_id = ? AND active_conversation_id = ?', [Date.now(), projectId, validId]);
     await this.persist();
+    return this.conversationState();
+  }
+
+  async clearAllConversations(): Promise<ConversationState> {
+    const projectId = await this.projectId();
+    this.ready().run('DELETE FROM conversations WHERE project_id = ?', [projectId]);
+    this.ready().run('DELETE FROM conversation_threads WHERE project_id = ?', [projectId]);
+    this.ready().run('UPDATE workspace_state SET active_conversation_id = NULL, updated_at = ? WHERE project_id = ?', [Date.now(), projectId]);
+    await this.persist();
+    return this.conversationState();
   }
 
   async conversationState(conversationId?: string): Promise<ConversationState> {
@@ -379,25 +391,38 @@ export class StorageService {
   }
 
   async createMemory(type: string, title: string | null, content: string, metadata?: unknown): Promise<{ id: string; type: string; title?: string | null; content: string; metadata?: unknown; createdAt: number; updatedAt: number }> {
+    if (content.length > MAX_MEMORY_CONTENT_CHARS) throw new Error(`Memory content exceeds the ${MAX_MEMORY_CONTENT_CHARS.toLocaleString()} character safety limit.`);
+    const serializedMetadata = metadata === undefined ? null : JSON.stringify(metadata);
+    if ((serializedMetadata?.length ?? 0) > MAX_MEMORY_METADATA_CHARS) throw new Error('Memory metadata exceeds the storage safety limit.');
     const projectId = await this.projectId();
     const now = Date.now();
     const memoryId = id();
-    this.ready().run('INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [memoryId, projectId, type, title ?? null, content, metadata ? JSON.stringify(metadata) : null, now, now]);
+    this.ready().run('INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [memoryId, projectId, type, title ?? null, content, serializedMetadata, now, now]);
     await this.persist();
     return { id: memoryId, type, title, content, metadata, createdAt: now, updatedAt: now };
   }
 
-  async listMemories(limit = 100): Promise<Array<{ id: string; type: string; title?: string | null; content: string; metadata?: unknown; createdAt: number; updatedAt: number }>> {
+  async listMemories(limit = 100, contentLimit = 12_000): Promise<Array<{ id: string; type: string; title?: string | null; content: string; contentLength: number; metadata?: unknown; createdAt: number; updatedAt: number }>> {
     const projectId = await this.projectId();
-    return this.all('SELECT id, type, title, content, metadata, created_at, updated_at FROM memories WHERE project_id = ? ORDER BY created_at DESC LIMIT ?', [projectId, limit]).map((row) => ({
+    const boundedLimit = Math.max(0, Math.min(24_000, Math.floor(contentLimit)));
+    return this.all('SELECT id, type, title, substr(content, 1, ?) AS content, length(content) AS content_length, metadata, created_at, updated_at FROM memories WHERE project_id = ? ORDER BY created_at DESC LIMIT ?', [boundedLimit, projectId, Math.max(1, Math.min(2_000, Math.floor(limit)))]).map((row) => ({
       id: String(row.id),
       type: String(row.type),
       title: row.title ? String(row.title) : null,
       content: String(row.content),
-      metadata: row.metadata ? JSON.parse(String(row.metadata)) : undefined,
+      contentLength: Number(row.content_length),
+      metadata: parseJson(row.metadata, undefined),
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at)
     }));
+  }
+
+  async memoryStats(): Promise<{ recordCount: number; indexedCount: number; durableCount: number; totalContentChars: number; largestContentChars: number }> {
+    const projectId = await this.projectId();
+    const records = this.all('SELECT metadata, length(content) AS content_length FROM memories WHERE project_id = ?', [projectId]);
+    const indexedCount = records.filter((record) => (parseJson<Record<string, unknown> | undefined>(record.metadata, undefined)?.origin === 'workspace-index')).length;
+    const lengths = records.map((record) => Number(record.content_length) || 0);
+    return { recordCount: records.length, indexedCount, durableCount: records.length - indexedCount, totalContentChars: lengths.reduce((sum, length) => sum + length, 0), largestContentChars: Math.max(0, ...lengths) };
   }
 
   async updateMemory(memoryId: string, fields: { type?: string; title?: string | null; content?: string; metadata?: unknown }): Promise<void> {
@@ -406,8 +431,15 @@ export class StorageService {
     const params: SqlValue[] = [];
     if (fields.type !== undefined) { set.push('type = ?'); params.push(fields.type); }
     if (fields.title !== undefined) { set.push('title = ?'); params.push(fields.title); }
-    if (fields.content !== undefined) { set.push('content = ?'); params.push(fields.content); }
-    if (fields.metadata !== undefined) { set.push('metadata = ?'); params.push(fields.metadata ? JSON.stringify(fields.metadata) : null); }
+    if (fields.content !== undefined) {
+      if (fields.content.length > MAX_MEMORY_CONTENT_CHARS) throw new Error(`Memory content exceeds the ${MAX_MEMORY_CONTENT_CHARS.toLocaleString()} character safety limit.`);
+      set.push('content = ?'); params.push(fields.content);
+    }
+    if (fields.metadata !== undefined) {
+      const serializedMetadata = fields.metadata ? JSON.stringify(fields.metadata) : null;
+      if ((serializedMetadata?.length ?? 0) > MAX_MEMORY_METADATA_CHARS) throw new Error('Memory metadata exceeds the storage safety limit.');
+      set.push('metadata = ?'); params.push(serializedMetadata);
+    }
     if (!set.length) return;
     params.push(Date.now(), memoryId, projectId);
     this.ready().run(`UPDATE memories SET ${set.join(', ')}, updated_at = ? WHERE id = ? AND project_id = ?`, params);
@@ -416,6 +448,22 @@ export class StorageService {
 
   async deleteMemory(memoryId: string): Promise<void> {
     this.ready().run('DELETE FROM memories WHERE id = ? AND project_id = ?', [memoryId, await this.projectId()]);
+    await this.persist();
+  }
+
+  async clearMemories(): Promise<{ deleted: number }> {
+    const projectId = await this.projectId();
+    const deleted = Number(this.one('SELECT COUNT(*) AS count FROM memories WHERE project_id = ?', [projectId])?.count ?? 0);
+    this.ready().run('DELETE FROM memories WHERE project_id = ?', [projectId]);
+    await this.persist();
+    return { deleted };
+  }
+
+  async deletePersistentTask(taskId: string): Promise<void> {
+    await this.assertTask(taskId);
+    const projectId = await this.projectId();
+    this.ready().run('DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?', [taskId, taskId]);
+    this.ready().run('DELETE FROM tasks WHERE id = ? AND project_id = ?', [taskId, projectId]);
     await this.persist();
   }
 

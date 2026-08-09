@@ -48,6 +48,21 @@ let browserBookmarks: BrowserBookmark[] = [];
 let browserHistory: BrowserHistoryEntry[] = [];
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
+function liveMainWindow(): BrowserWindow | null {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+}
+
+/** BrowserWindow owns BrowserView attachment. `closed` can fire after its
+ * native host has gone away, so never detach through a stale window. */
+function detachBrowserView(): void {
+  const window = liveMainWindow();
+  if (attachedBrowserView && window) {
+    try { window.setBrowserView(null); }
+    catch { /* The native host is already being torn down. */ }
+  }
+  attachedBrowserView = null;
+}
+
 function appBuildInfo(): AppBuildInfo {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
@@ -119,7 +134,10 @@ function browserState(): BrowserStateView {
   };
 }
 
-function sendBrowserState(): void { mainWindow?.webContents.send('browser.state', browserState()); }
+function sendBrowserState(): void {
+  const window = liveMainWindow();
+  if (window) window.webContents.send('browser.state', browserState());
+}
 
 async function refreshBrowserRecords(): Promise<void> {
   if (!workspace.info()) { browserBookmarks = []; browserHistory = []; return; }
@@ -208,8 +226,7 @@ function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: 
   browserLayout = request;
   const tab = activeBrowserTab();
   if (!request.visible || !tab) {
-    if (attachedBrowserView) mainWindow?.setBrowserView(null);
-    attachedBrowserView = null;
+    detachBrowserView();
     return;
   }
   if (request.bounds) {
@@ -223,8 +240,16 @@ function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: 
   // same view on every ResizeObserver tick leaks those listeners and can
   // destabilize long-running browser sessions.
   if (attachedBrowserView !== tab.view) {
-    mainWindow?.setBrowserView(tab.view);
-    attachedBrowserView = tab.view;
+    const window = liveMainWindow();
+    if (!window) return;
+    try {
+      window.setBrowserView(tab.view);
+      attachedBrowserView = tab.view;
+    } catch {
+      // The renderer can send a final ResizeObserver event while its window
+      // is closing. The next live layout update will attach the view again.
+      attachedBrowserView = null;
+    }
   }
 }
 
@@ -254,8 +279,7 @@ async function removeBrowserBookmark(bookmarkId: string): Promise<BrowserStateVi
 }
 
 function disposeBrowserTabs(): void {
-  if (attachedBrowserView) mainWindow?.setBrowserView(null);
-  attachedBrowserView = null;
+  detachBrowserView();
   for (const tab of browserTabs.values()) if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
   browserTabs.clear(); activeBrowserTabId = null; browserBookmarks = []; browserHistory = [];
 }
@@ -325,8 +349,12 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.agentConversationSelect, async (request) => storage.selectConversation(request.conversationId));
   register(IPC_CHANNELS.agentConversationRename, async (request) => storage.renameConversation(request.conversationId, request.title));
   register(IPC_CHANNELS.agentConversationClear, async (request) => storage.clearConversation(request.conversationId));
-  register(IPC_CHANNELS.agentMemoriesList, async () => storage.listMemories());
+  register(IPC_CHANNELS.agentConversationDelete, async (request) => storage.deleteConversation(request.conversationId));
+  register(IPC_CHANNELS.agentConversationsClearAll, async () => storage.clearAllConversations());
+  register(IPC_CHANNELS.agentMemoriesList, async () => storage.listMemories(250, 1_200));
+  register(IPC_CHANNELS.agentMemoriesStats, async () => storage.memoryStats());
   register(IPC_CHANNELS.agentMemoriesDelete, async (request) => { await storage.deleteMemory(request.id); return undefined; });
+  register(IPC_CHANNELS.agentMemoriesClear, async () => storage.clearMemories());
   register(IPC_CHANNELS.agentMemoriesReindex, async () => { await memoryIndexer.indexWorkspaceFiles(); return undefined; });
   const toolContext = async () => {
     const project = await storage.dashboard(); const info = workspace.info(); const conversation = await storage.conversationState();
@@ -358,6 +386,7 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.tasksResume, async (request) => nativeAgent.runTaskStep(request.taskId));
   register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));
   register(IPC_CHANNELS.tasksCancel, async (request) => taskRuntime.cancel(request.taskId, request.reason, request.trackingOnly));
+  register(IPC_CHANNELS.tasksDelete, async (request) => { await storage.deletePersistentTask(request.taskId); return undefined; });
   register(IPC_CHANNELS.tasksRetryStep, async (request) => { await taskRuntime.retryStep(request.taskId, request.stepId); return nativeAgent.runTaskStep(request.taskId); });
   register(IPC_CHANNELS.tasksHandoff, async (request) => taskRuntime.generateHandoff(request.taskId));
   register(IPC_CHANNELS.browserNavigate, async (request) => navigateBrowser(request.url));
@@ -377,7 +406,7 @@ function createWindow(): void {
   const packagedRendererUrl = pathToFileURL(rendererFile).toString();
   mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: 'FORGE', webPreferences: { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   mainWindow.on('ready-to-show', () => mainWindow?.show());
-  mainWindow.on('closed', () => { disposeBrowserTabs(); mainWindow = null; });
+  mainWindow.on('closed', () => { mainWindow = null; disposeBrowserTabs(); });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => { const developmentUrl = process.env.ELECTRON_RENDERER_URL; const allowed = is.dev && developmentUrl ? new URL(url).origin === new URL(developmentUrl).origin : url === packagedRendererUrl; if (!allowed) event.preventDefault(); });
   if (is.dev && process.env.ELECTRON_RENDERER_URL) { rendererSource = 'development URL'; void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL); }

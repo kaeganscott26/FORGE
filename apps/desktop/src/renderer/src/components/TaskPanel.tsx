@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { ConversationState, Task, TaskDraft, TaskHandoff } from '@forge/ipc';
 import { forgeInvoke, onRuntimeEvent } from '../forge';
 
@@ -7,9 +7,30 @@ const stepSymbol = (status: Task['steps'][number]['status']): string => status =
 
 export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey: string; onOpenAudit: () => void }): JSX.Element {
   const [tasks, setTasks] = useState<Task[]>([]); const [selectedId, setSelectedId] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
   const selected = useMemo(() => tasks.find((task) => task.id === selectedId) ?? tasks[0], [selectedId, tasks]);
-  const refresh = async (preferredId?: string): Promise<void> => { const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values); const nextId = preferredId ?? selectedId; if (nextId && values.some((task) => task.id === nextId)) setSelectedId(nextId); else setSelectedId(values[0]?.id ?? ''); };
-  const act = async (operation: () => Promise<Task>): Promise<void> => { try { setBusy(true); setError(''); const task = await operation(); await refresh(task.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
+  const refresh = (preferredId?: string): Promise<void> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const operation = (async (): Promise<void> => {
+      const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values);
+      const nextId = preferredId ?? selectedId;
+      if (nextId && values.some((task) => task.id === nextId)) setSelectedId(nextId); else setSelectedId(values[0]?.id ?? '');
+    })();
+    refreshInFlight.current = operation;
+    void operation.then(
+      () => { refreshInFlight.current = null; },
+      () => { refreshInFlight.current = null; }
+    );
+    return operation;
+  };
+  const act = async (operation: () => Promise<Task>): Promise<void> => {
+    try {
+      setBusy(true); setError(''); const task = await operation();
+      try { await refresh(task.id); }
+      catch (cause) { setError(`The task was saved, but its list could not refresh: ${cause instanceof Error ? cause.message : String(cause)}`); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
   const refreshFromButton = async (): Promise<void> => { try { setError(''); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   useEffect(() => {
     setTasks([]); setSelectedId(''); setError('');
@@ -35,6 +56,12 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
   };
   const pause = async (): Promise<void> => { if (!selected) return; const reason = window.prompt('Why is this task being paused?'); if (!reason?.trim()) return; await act(() => data<Task>(forgeInvoke('tasks.pause', { taskId: selected.id, reason })) ); };
   const cancel = async (): Promise<void> => { if (!selected || !window.confirm('Cancel FORGE task tracking? This does not kill unknown local processes, cancel GitHub workflows, remove remote assets, or roll back releases.')) return; await act(() => data<Task>(forgeInvoke('tasks.cancel', { taskId: selected.id, reason: 'Cancelled by user from the Tasks view.', trackingOnly: true }))); };
+  const remove = async (): Promise<void> => {
+    if (!selected || !window.confirm(`Permanently remove task “${selected.title}” and its checkpoints, events, approvals, and references? This does not stop external processes or roll back completed work.`)) return;
+    try { setBusy(true); setError(''); await data<void>(forgeInvoke('tasks.delete', { taskId: selected.id })); await refresh(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
   const handoff = async (): Promise<void> => { if (!selected) return; try { setBusy(true); const result = await data<TaskHandoff>(forgeInvoke('tasks.handoff', { taskId: selected.id })); await navigator.clipboard.writeText(result.markdown); await refresh(selected.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
   const openConversation = async (): Promise<void> => { const conversationId = selected?.lastActiveConversationId ?? selected?.originatingConversationId; if (!conversationId) return; try { await data<ConversationState>(forgeInvoke('agent.conversation.select', { conversationId })); window.dispatchEvent(new Event('forge:conversation-updated')); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   const completedCount = selected?.steps.filter((step) => step.status === 'completed' || step.status === 'skipped').length ?? 0;
@@ -47,7 +74,7 @@ export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey:
       <header><div><h3>{selected.title}</h3><p>{selected.description ?? selected.taskType}</p></div><em className={`task-status ${selected.status}`}>{selected.status}</em></header>
       <div className="task-facts"><span><b>Progress</b>{completedCount}/{selected.steps.length}</span><span><b>Current</b>{current?.name ?? 'Not started'}</span><span><b>Last checkpoint</b>{checkpoint?.name ?? 'None'}</span><span><b>Updated</b>{new Date(selected.updatedAt).toLocaleString()}</span><span><b>Branch</b>{selected.associatedBranch ?? 'Unrecorded'}</span><span><b>Workflow/release</b>{selected.associatedWorkflowRun ?? selected.associatedReleaseTag ?? 'Unrecorded'}</span><span><b>Active process</b>{selected.processIds.join(', ') || 'None'}</span><span><b>Next action</b>{selected.resumeInstructions}</span></div>
       {selected.interruptionReason && <div className="task-blocker">{selected.interruptionReason}</div>}
-      <div className="task-actions"><button className="accent" disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Run next step</button><button disabled={busy || ['paused', 'completed', 'cancelled'].includes(selected.status)} onClick={() => void pause()}>Pause</button><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void cancel()}>Cancel tracking</button><button disabled={busy || !(selected.originatingConversationId || selected.lastActiveConversationId)} onClick={() => void openConversation()}>Open conversation</button><button onClick={onOpenAudit}>Open audit history</button><button disabled={busy} onClick={() => void handoff()}>Copy handoff</button></div>
+      <div className="task-actions"><button className="accent" disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Run next step</button><button disabled={busy || ['paused', 'completed', 'cancelled'].includes(selected.status)} onClick={() => void pause()}>Pause</button><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void cancel()}>Cancel tracking</button><button disabled={busy || !(selected.originatingConversationId || selected.lastActiveConversationId)} onClick={() => void openConversation()}>Open conversation</button><button onClick={onOpenAudit}>Open audit history</button><button disabled={busy} onClick={() => void handoff()}>Copy handoff</button><button className="danger" disabled={busy} onClick={() => void remove()}>Delete task</button></div>
       <ol className="task-steps">{selected.steps.map((step) => <li key={step.id} className={step.status}><span>{stepSymbol(step.status)}</span><div><b>{step.name}</b><small>{step.purpose}</small><small>Tier {step.riskTier} · {step.requiredTool ?? 'manual verification'} · attempts {step.attempts}/{step.retryPolicy.maxAttempts}</small>{step.lastError && <em>{step.lastError.message}</em>}<details><summary>Verification evidence</summary><pre>{JSON.stringify({ criteria: step.verificationCriteria, processId: step.externalProcessId, outputPath: step.outputPath, artifacts: step.artifactPaths, auditReferences: step.auditReferences, checkpoints: selected.checkpoints.filter((entry) => entry.stepId === step.id) }, null, 2)}</pre></details></div>{['failed', 'blocked'].includes(step.status) && <button disabled={busy} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.retry.step', { taskId: selected.id, stepId: step.id })))}>Retry</button>}</li>)}</ol>
       <details className="task-events"><summary>Task history ({selected.events.length})</summary>{selected.events.slice().reverse().map((event) => <p key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><b>{event.type}</b>{event.summary}</p>)}</details>
     </> : null}{error && <div className="terminal-error">{error}</div>}</section>

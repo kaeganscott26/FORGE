@@ -210,9 +210,18 @@ export interface WorkspaceKnowledgeRecord {
   type: string;
   title?: string | null;
   content: string;
+  contentLength?: number;
   metadata?: unknown;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface WorkspaceMemoryStats {
+  recordCount: number;
+  indexedCount: number;
+  durableCount: number;
+  totalContentChars: number;
+  largestContentChars: number;
 }
 
 export type AgentAskRequest = { prompt: string; conversationId: string };
@@ -233,11 +242,11 @@ export const IPC_CHANNELS = {
   settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate',
   agentAsk: 'agent.ask', agentExplainProject: 'agent.explainProject', agentReviewChanges: 'agent.reviewChanges',
   agentConversationsState: 'agent.conversations.state', agentConversationsList: 'agent.conversations.list', agentConversationsAppend: 'agent.conversations.append',
-  agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear',
-  agentMemoriesList: 'agent.memories.list', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesReindex: 'agent.memories.reindex'
+  agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear', agentConversationDelete: 'agent.conversation.delete', agentConversationsClearAll: 'agent.conversations.clearAll',
+  agentMemoriesList: 'agent.memories.list', agentMemoriesStats: 'agent.memories.stats', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesClear: 'agent.memories.clear', agentMemoriesReindex: 'agent.memories.reindex'
   , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
   terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove',
-  tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
+  tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksDelete: 'tasks.delete', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
   browserNavigate: 'browser.navigate', browserLayout: 'browser.layout', browserBack: 'browser.back', browserForward: 'browser.forward', browserReload: 'browser.reload',
   browserHome: 'browser.home', browserTabClose: 'browser.tab.close', browserTabSelect: 'browser.tab.select', browserBookmarkAdd: 'browser.bookmark.add', browserBookmarkRemove: 'browser.bookmark.remove'
 } as const;
@@ -251,14 +260,14 @@ export interface IPCRequestMap {
   'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest;
   'agent.ask': AgentAskRequest; 'agent.explainProject': { conversationId?: string } | undefined; 'agent.reviewChanges': { conversationId?: string } | undefined;
   'agent.conversations.state': { conversationId?: string } | undefined; 'agent.conversations.list': { conversationId?: string } | undefined; 'agent.conversations.append': { conversationId?: string; entries: Array<{ role: ConversationEntry['role']; content: string }> };
-  'agent.conversation.create': { title?: string }; 'agent.conversation.select': { conversationId: string }; 'agent.conversation.rename': { conversationId: string; title: string }; 'agent.conversation.clear': { conversationId: string };
-  'agent.memories.list': undefined; 'agent.memories.delete': { id: string }; 'agent.memories.reindex': undefined;
+  'agent.conversation.create': { title?: string }; 'agent.conversation.select': { conversationId: string }; 'agent.conversation.rename': { conversationId: string; title: string }; 'agent.conversation.clear': { conversationId: string }; 'agent.conversation.delete': { conversationId: string }; 'agent.conversations.clearAll': undefined;
+  'agent.memories.list': undefined; 'agent.memories.stats': undefined; 'agent.memories.delete': { id: string }; 'agent.memories.clear': undefined; 'agent.memories.reindex': undefined;
   'tool.requests.list': undefined; 'tool.request.approve': { requestId: string; choice: 'run-once' | 'session' }; 'tool.request.reject': { requestId: string }; 'tool.request.cancel': { requestId: string };
   'tool.actions.list': { conversationId?: string; toolName?: string; success?: boolean; from?: number; to?: number } | undefined; 'editor.dirty.update': { paths: string[] };
   'browser.navigate': { url: string }; 'browser.layout': BrowserLayoutRequest; 'browser.back': undefined; 'browser.forward': undefined; 'browser.reload': undefined;
   'browser.home': undefined; 'browser.tab.close': { tabId: string }; 'browser.tab.select': { tabId: string }; 'browser.bookmark.add': undefined; 'browser.bookmark.remove': { bookmarkId: string };
   'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
-  'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
+  'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.delete': { taskId: string }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
 }
 
 export interface IPCResponseMap {
@@ -270,13 +279,13 @@ export interface IPCResponseMap {
   'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult;
   'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;
   'agent.conversations.state': ConversationState; 'agent.conversations.list': ConversationEntry[]; 'agent.conversations.append': void;
-  'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState;
-  'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.delete': void; 'agent.memories.reindex': void;
+  'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState; 'agent.conversation.delete': ConversationState; 'agent.conversations.clearAll': ConversationState;
+  'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.stats': WorkspaceMemoryStats; 'agent.memories.delete': void; 'agent.memories.clear': { deleted: number }; 'agent.memories.reindex': void;
   'tool.requests.list': ToolRequestView[]; 'tool.request.approve': ToolResultView; 'tool.request.reject': void; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
   'browser.navigate': BrowserStateView; 'browser.layout': BrowserStateView; 'browser.back': BrowserStateView; 'browser.forward': BrowserStateView; 'browser.reload': BrowserStateView;
   'browser.home': BrowserStateView; 'browser.tab.close': BrowserStateView; 'browser.tab.select': BrowserStateView; 'browser.bookmark.add': BrowserStateView; 'browser.bookmark.remove': BrowserStateView;
   'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
-  'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
+  'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.delete': void; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
 }
 
 export type IPCChannel = keyof IPCRequestMap;

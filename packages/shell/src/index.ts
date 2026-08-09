@@ -15,8 +15,28 @@ export interface ShellRunInput {
   timeoutMs: number;
   environment?: Record<string, string>;
   environmentAllowlist?: string[];
+  /** Declares the intended network capability for approval and audit. */
+  networkProfile?: 'offline' | 'network' | 'package-manager' | 'git';
   reason: string;
   expectedOutcome: string;
+}
+
+const NETWORK_COMMANDS = new Map<string, ShellRunInput['networkProfile']>([
+  ['curl', 'network'], ['wget', 'network'], ['ssh', 'network'], ['scp', 'network'],
+  ['npm', 'package-manager'], ['npx', 'package-manager'], ['pnpm', 'package-manager'], ['yarn', 'package-manager'], ['bun', 'package-manager'],
+  ['git', 'git']
+]);
+
+function assertNetworkProfile(input: ShellRunInput): void {
+  const executable = path.basename(input.command).toLowerCase();
+  let required = NETWORK_COMMANDS.get(executable);
+  const primaryArgument = input.args.find((argument) => !argument.startsWith('-'))?.toLowerCase();
+  if (executable === 'git' && !['clone', 'fetch', 'pull', 'push', 'ls-remote'].includes(primaryArgument ?? '')) required = undefined;
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(executable) && !['install', 'ci', 'add', 'update', 'publish', 'dlx', 'create'].includes(primaryArgument ?? '')) required = undefined;
+  const profile = input.networkProfile ?? 'offline';
+  if (required && profile === 'offline') throw new Error(`${executable} requires an explicit ${required} network profile; offline commands may not use a known network-capable executable.`);
+  if (required === 'package-manager' && !['package-manager', 'network'].includes(profile)) throw new Error(`${executable} requires the package-manager or network profile.`);
+  if (required === 'git' && !['git', 'network'].includes(profile)) throw new Error('git requires the git or network profile.');
 }
 
 export interface ShellRunOutput {
@@ -88,6 +108,7 @@ export class ShellService {
     if (!root) throw new Error('Open a workspace before running a shell tool.');
     if (!input.command.trim() || input.command.includes('\0')) throw new Error('A valid executable is required.');
     if (input.args.some((argument) => argument.includes('\0'))) throw new Error('Shell arguments may not contain null bytes.');
+    assertNetworkProfile(input);
     const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.');
     const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 10 * 60_000);
     const environment = filteredEnvironment(input.environment, input.environmentAllowlist);
@@ -129,6 +150,7 @@ export class ShellService {
   async startBackground(input: ShellRunInput, outputPath: string, requestId: string = randomUUID()): Promise<BackgroundShellRunOutput> {
     const root = this.workspaceRoot(); if (!root) throw new Error('Open a workspace before running a background shell task.');
     if (!input.command.trim() || input.command.includes('\0') || input.args.some((argument) => argument.includes('\0'))) throw new Error('A valid executable and null-free arguments are required.');
+    assertNetworkProfile(input);
     if (!outputPath || path.isAbsolute(outputPath) || outputPath.split(/[\\/]/).includes('..')) throw new Error('Background output path must be workspace-relative.');
     const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.'); const realRoot = await fs.realpath(root); const requestedOutput = path.resolve(root, outputPath);
     if (requestedOutput === path.resolve(root) || !requestedOutput.startsWith(`${path.resolve(root)}${path.sep}`)) throw new Error('Background output path escapes the active workspace.');

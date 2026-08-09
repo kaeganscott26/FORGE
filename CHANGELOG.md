@@ -374,3 +374,8 @@ Create a premium macOS icon for a local-first AI-native developer workspace. Com
 - Changed the workflow to create or update one tag release before Electron Builder starts parallel asset publication, preventing the race on future tags and making reruns idempotent.
 - Committed the serialized release fix as `eb71e05`, reran the original tag workflow, and confirmed attempt 2 completed successfully with all five assets replaced as one matching publication set.
 - Confirmed the first release is public at `https://github.com/kaeganscott26/FORGE/releases/tag/v1.0.0`.
+## ✨ 2026-08-09 — FORGE 2.3.0-beta.1 deterministic tool and workspace lifecycle
+
+- Filters provider tool definitions to only currently available and enabled capabilities, avoiding avoidable agent failures.
+- Adds paginated workspace listings, ranged reads, typed GitHub mutations, explicit repository-write commit policy, and declared shell network profiles.
+- Adds bounded workspace-memory administration, explicit conversation/task deletion semantics, and browser/terminal lifecycle hardening.

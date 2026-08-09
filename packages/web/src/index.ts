@@ -46,6 +46,8 @@ export class WebService {
   } } });
   constructor(private readonly enabled: () => boolean, private readonly maxBytes = 2_000_000) {}
 
+  isEnabled(): boolean { return this.enabled(); }
+
   async fetch(urlValue: string, timeoutMs = 20_000): Promise<WebResponse> {
     if (!this.enabled()) throw new Error('External web research is disabled in Settings.');
     let url = await validateExternalUrl(urlValue);

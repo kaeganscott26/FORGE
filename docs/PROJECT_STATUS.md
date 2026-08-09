@@ -2,15 +2,15 @@
 
 **Updated:** August 9, 2026
 
-**Working version:** `2.2.0-beta.3` — FORGE beta 2.2
+**Working version:** `2.3.0-beta.1` — FORGE v2.3 Beta
 
-**Release target:** `v2.2.0-beta.3` on `main`
+**Release target:** `v2.3.0-beta.1` on `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
 ## 🧭 Current state
 
-FORGE beta 2.2 is the current public pre-release. It retains the verified `v2.1.0-beta.2` baseline while adding protected tabbed browsing, workspace-owned bookmarks and history, browser-to-agent context tools, update/feed hardening, and bounded durable-memory retrieval.
+FORGE v2.3 Beta is the current release target. It adds capability-aware provider tools, typed GitHub mutations, bounded file evidence, explicit network execution profiles, and workspace-data lifecycle controls to the protected-browser and durable-memory baseline.
 
 The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3) was published from the matching annotated tag and successful workflow; its metadata and all five public SHA-256 digests agree with the serial uploader evidence. A bandwidth-bound independent full-DMG mount remains a clearly uncompleted acceptance layer.
 

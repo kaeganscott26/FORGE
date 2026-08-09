@@ -2,7 +2,7 @@ import type { StorageService } from '@forge/storage';
 import type { WorkspaceService } from '@forge/workspace';
 
 export type MemoryType = 'conversation' | 'note' | 'decision' | 'architecture' | 'documentation' | 'source' | 'configuration' | 'document' | 'code';
-export interface MemoryEntry { id: string; workspaceId: string; type: MemoryType; title?: string | null; content: string; metadata?: unknown; createdAt: number; updatedAt: number; relevance?: number; reasons?: string[] }
+export interface MemoryEntry { id: string; workspaceId: string; type: MemoryType; title?: string | null; content: string; contentLength?: number; metadata?: unknown; createdAt: number; updatedAt: number; relevance?: number; reasons?: string[] }
 
 export interface WorkspaceKnowledgeClassification {
   type: Extract<MemoryType, 'architecture' | 'documentation' | 'source' | 'configuration'>;
@@ -43,8 +43,8 @@ export class MemoryService {
     return this.storage.createMemory(entry.type, entry.title ?? null, entry.content, entry.metadata);
   }
 
-  async list(limit = 100) {
-    return this.storage.listMemories(limit);
+  async list(limit = 100, contentLimit = 12_000) {
+    return this.storage.listMemories(limit, contentLimit);
   }
 
   async update(id: string, fields: { type?: MemoryType; title?: string | null; content?: string; metadata?: unknown }) {
@@ -68,7 +68,8 @@ export class MemoryRetriever {
   async search(query: string, limit = 10) {
     const asksForObsidian = /\bobsidian\b/i.test(query);
     const asksForConfiguration = /\b(?:config|configuration|build|tooling|package|typescript|test|vitest|eslint|vite)\b/i.test(query);
-    const entries: any[] = (await this.memoryService.list(500)).filter((entry) => {
+    const scoringLimit = 24_000;
+    const entries: any[] = (await this.memoryService.list(500, scoringLimit)).filter((entry) => {
       const metadata = typeof entry.metadata === 'object' && entry.metadata ? entry.metadata as Record<string, unknown> : {};
       const sourcePath = String(metadata.path ?? '');
       if (/(?:^|\/)\.obsidian(?:\/|$)/i.test(sourcePath) && !asksForObsidian) return false;
@@ -78,9 +79,8 @@ export class MemoryRetriever {
     const now = Date.now();
     // Score a bounded projection and return bounded evidence. A very large
     // imported note must not exhaust the local WASM runtime or provider input.
-    const scoringLimit = 24_000;
     const returnedLimit = 12_000;
-    const docs = entries.map((e) => ({ id: e.id, type: e.type as MemoryType, title: (e.title ?? '') as string, content: String(e.content ?? '').slice(0, scoringLimit), originalContent: String(e.content ?? ''), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
+    const docs = entries.map((e) => ({ id: e.id, type: e.type as MemoryType, title: (e.title ?? '') as string, content: String(e.content ?? ''), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
     const N = docs.length || 1;
     const docTokens = docs.map((d) => this.tokenize(d.title + ' ' + d.content));
     const df: Record<string, number> = {};
@@ -132,7 +132,7 @@ export class MemoryRetriever {
       workspaceId: '',
       type: result.entry.type,
       title: result.entry.title || null,
-      content: result.entry.originalContent.slice(0, returnedLimit),
+      content: result.entry.content.slice(0, returnedLimit),
       metadata: { ...(typeof result.entry.metadata === 'object' && result.entry.metadata ? result.entry.metadata : {}), relevance: result.relevance, reasons: result.reasons },
       createdAt: result.entry.createdAt,
       updatedAt: result.entry.updatedAt,
@@ -161,7 +161,7 @@ export class MemoryIndexer {
       }
     };
     walk(files as any[]);
-    const existing = await this.memoryService.list(2_000) as MemoryEntry[];
+    const existing = await this.memoryService.list(2_000, 0) as MemoryEntry[];
     const indexed = existing.filter((entry) => {
       const metadata = typeof entry.metadata === 'object' && entry.metadata ? entry.metadata as Record<string, unknown> : {};
       return metadata.origin === 'workspace-index' || (['document', 'code'].includes(entry.type) && typeof metadata.path === 'string');
@@ -183,13 +183,14 @@ export class MemoryIndexer {
       if (count >= limitPerType) break;
       try {
         const fc = await this.workspace.readFile(sourcePath);
-        const metadata = { origin: 'workspace-index', path: sourcePath, classification: classification.label, reason: classification.reason };
+        const indexedContent = fc.content.slice(0, 120_000);
+        const metadata = { origin: 'workspace-index', path: sourcePath, classification: classification.label, reason: classification.reason, truncated: indexedContent.length < fc.content.length };
         const matches = byPath.get(sourcePath) ?? [];
         if (matches[0]) {
-          await this.memoryService.update(matches[0].id, { type: classification.type, title: f.name, content: fc.content, metadata });
+          await this.memoryService.update(matches[0].id, { type: classification.type, title: f.name, content: indexedContent, metadata });
           for (const duplicate of matches.slice(1)) await this.memoryService.delete(duplicate.id);
         } else {
-          await this.memoryService.create({ type: classification.type, title: f.name, content: fc.content, metadata });
+          await this.memoryService.create({ type: classification.type, title: f.name, content: indexedContent, metadata });
         }
         count += 1;
       } catch {

@@ -4,7 +4,7 @@
 
 FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
 
-**Current build:** [`v2.2.0-beta.3`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3) · FORGE beta 2.2 · macOS universal beta · Electron + React + TypeScript
+**Current build:** [`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) · FORGE v2.3 Beta · macOS universal beta · Electron + React + TypeScript
 
 ## 🧭 The missing layer between your project and the model
 
@@ -81,8 +81,8 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 ### Install the current beta
 
-1. Open the [`FORGE beta 2.2` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3).
-2. Download `FORGE-2.2.0-beta.3-universal.dmg`.
+1. Open the [`FORGE v2.3 Beta` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1).
+2. Download `FORGE-2.3.0-beta.1-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
@@ -177,7 +177,7 @@ That distinction is important to the direction of the runtime: **bound resources
 
 ## 🚧 Beta status
 
-FORGE beta 2.2 is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, tool runtime, and hosted-provider conversation path are implemented.
+FORGE v2.3 Beta is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, capability-aware tool runtime, and hosted-provider conversation path are implemented.
 
 The architecture is now being separated so workspace intelligence can feed replaceable external and local agent runtimes consistently. Provider-neutral adapters, broader local-model integration, permission simplification, and parallel/unbounded agent orchestration are active architectural work rather than completed release claims.
 
