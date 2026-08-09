@@ -10,9 +10,9 @@
 
 ## 🧭 Current state
 
-FORGE beta 2.2 is the current release candidate. It retains the verified `v2.1.0-beta.2` baseline while adding protected tabbed browsing, workspace-owned bookmarks and history, browser-to-agent context tools, update/feed hardening, and bounded durable-memory retrieval.
+FORGE beta 2.2 is the current public pre-release. It retains the verified `v2.1.0-beta.2` baseline while adding protected tabbed browsing, workspace-owned bookmarks and history, browser-to-agent context tools, update/feed hardening, and bounded durable-memory retrieval.
 
-The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). `v2.2.0-beta.3` is published only after its annotated tag, workflow head, embedded build commit, updater metadata, public hashes, and mounted-DMG runtime acceptance agree.
+The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3) was published from the matching annotated tag and successful workflow; its metadata and all five public SHA-256 digests agree with the serial uploader evidence. A bandwidth-bound independent full-DMG mount remains a clearly uncompleted acceptance layer.
 
 ## ✅ Implemented capability matrix
 
@@ -39,7 +39,7 @@ Browser acceptance loaded and visibly rendered `https://www.north3rnlight3r.com/
 
 ## 📦 Release state
 
-`v2.2.0-beta.3` is the pending beta publication target. The GitHub workflow will create its draft release, package the exact tag, upload the universal DMG/ZIP, both blockmaps, and `beta-mac.yml` serially, then publish only after hash verification.
+`v2.2.0-beta.3` is published as [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3). Workflow [31313805327](https://github.com/kaeganscott26/FORGE/actions/runs/31313805327) validated the exact tagged SHA, packaged the universal DMG/ZIP, uploaded the two blockmaps and `beta-mac.yml` serially, and published after hash verification.
 
 The beta is not Developer ID signed or notarized. Public artifact acceptance will be isolated to a temporary read-only mount and profile; it will not overwrite `/Applications/FORGE.app` during verification.
 
