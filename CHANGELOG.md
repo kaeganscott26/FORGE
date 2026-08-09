@@ -2,6 +2,22 @@
 
 > This file preserves dated implementation and release history. For the supported product, start with the [documentation index](docs/README.md), [project status](docs/PROJECT_STATUS.md), and [current release notes](RELEASE_NOTES.md).
 
+## ✨ 2026-08-09 — FORGE 2.3.0-beta.1 release record and runtime hardening
+
+### Release and implementation
+
+- Published `v2.3.0-beta.1` as **FORGE v2.3 Beta** from tagged commit `302ff52b87e415d357c6fe5039869c742d5ecb24`.
+- Filters provider tool definitions to only currently available and enabled capabilities, avoiding avoidable agent failures.
+- Adds paginated workspace listings, ranged reads, typed GitHub mutations, explicit repository-write commit policy, and declared shell network profiles.
+- Adds bounded workspace-memory administration, explicit conversation/task deletion semantics, and browser/terminal lifecycle hardening.
+- Adds the release-version guard, plain-English agent tool guide, current release record, and refreshed configuration/manual/release guidance so future version bumps can be checked consistently.
+
+### Validation and release evidence
+
+- The tagged workflow [31323231310](https://github.com/kaeganscott26/FORGE/actions/runs/31323231310) completed successfully and published the universal DMG, universal ZIP, two blockmaps, and `beta-mac.yml`; their observed SHA-256 digests are in [the v2.3 verification record](docs/V2.3.0_BETA1_VERIFICATION.md).
+- After the documentation and release-tooling refresh, `npm run verify:release-version`, `npm run typecheck`, `npm run lint`, `npm test` (27 files; 112 passed, 1 skipped), `npm run build`, and `git diff --check` passed.
+- Independent downloaded-artifact comparison, mounted-DMG/app runtime acceptance, updater installation, Developer ID signing, and notarization are still unverified. The public release is currently not marked as a GitHub prerelease even though its SemVer tag and FORGE update channel are beta; future release checks must verify that flag.
+
 ## ✨ 2026-08-09 — FORGE 2.2.0-beta.3 browser and context-runtime hardening
 
 ### Implementation
@@ -374,8 +390,3 @@ Create a premium macOS icon for a local-first AI-native developer workspace. Com
 - Changed the workflow to create or update one tag release before Electron Builder starts parallel asset publication, preventing the race on future tags and making reruns idempotent.
 - Committed the serialized release fix as `eb71e05`, reran the original tag workflow, and confirmed attempt 2 completed successfully with all five assets replaced as one matching publication set.
 - Confirmed the first release is public at `https://github.com/kaeganscott26/FORGE/releases/tag/v1.0.0`.
-## ✨ 2026-08-09 — FORGE 2.3.0-beta.1 deterministic tool and workspace lifecycle
-
-- Filters provider tool definitions to only currently available and enabled capabilities, avoiding avoidable agent failures.
-- Adds paginated workspace listings, ranged reads, typed GitHub mutations, explicit repository-write commit policy, and declared shell network profiles.
-- Adds bounded workspace-memory administration, explicit conversation/task deletion semantics, and browser/terminal lifecycle hardening.

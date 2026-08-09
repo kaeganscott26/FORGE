@@ -12,12 +12,14 @@ This directory is the map for people building with, evaluating, or extending FOR
 | Use a CLI agent in the workspace terminal | [Integrated Terminal](TERMINAL.md) |
 | Configure a provider, model, GitHub token, or release credential | [User Configuration](../UserConfig.md) |
 | Use FORGE day to day | [User Manual](../UserManual.md) |
+| Understand the built-in agent and every available tool | [Tools in Plain English](TOOLING_GUIDE.md) |
 
 ## 🧱 Runtime and safety
 
 - [Architecture](ARCHITECTURE.md) — Electron services, renderer boundary, providers, persistence, and update discovery.
 - [Core Architecture](Architecture/Core.md) — reusable `@forge/core` contracts and future runtime adapters.
 - [Agent Tools](AGENT_TOOLS.md) — provider-neutral tool routing and bounded continuation.
+- [Tools in Plain English](TOOLING_GUIDE.md) — what the agent can request, when it needs approval, its limits, and how to change models.
 - [Tool Security](TOOL_SECURITY.md) — threat model, risk tiers, filesystem, shell, web, and secret controls.
 - [Persistent Tasks](PERSISTENT_TASKS.md) — durable task state, checkpoints, handoffs, and process reconciliation.
 - [Task Recovery](TASK_RECOVERY.md) — how a human or replacement agent resumes safely.
@@ -30,7 +32,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md) — manifest-led artifact selection and cleanup.
 - [Releasing FORGE](../RELEASING.md) — exact source, tag, workflow, package, and public-hash procedure.
 - [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE v2.3 Beta changes.
-- [FORGE 2.2 beta verification](V2.2.0_BETA2_VERIFICATION.md) — tagged package and public-artifact acceptance evidence.
+- [FORGE 2.3 beta verification](V2.3.0_BETA1_VERIFICATION.md) — tag, workflow, and published-asset evidence for `v2.3.0-beta.1`.
 
 ## 🗃️ Historical records
 

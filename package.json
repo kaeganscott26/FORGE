@@ -27,6 +27,7 @@
     "install:mac": "bash scripts/install-mac.sh",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify:release-version": "node scripts/verify-release-version.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts,.tsx",

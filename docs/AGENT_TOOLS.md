@@ -1,6 +1,6 @@
 # 🛡️ FORGE Agent Tools
 
-FORGE 1.1 introduces provider-neutral, policy-controlled tools. A model sees stable tool names and schemas, but it never receives an executor, Node API, shell, credential, or IPC channel. Native provider calls and the strict `forge_tool_request` fallback normalize into the same internal request and are validated before policy evaluation.
+FORGE v2.3.0-beta.1 provides provider-neutral, policy-controlled tools. A model sees stable tool names and schemas, but it never receives an executor, Node API, shell, credential, or IPC channel. Native provider calls and the strict `forge_tool_request` fallback normalize into the same internal request and are validated before policy evaluation. For a non-technical guide, see [Tools in Plain English](TOOLING_GUIDE.md).
 
 ## ⚡ Runtime flow
 
@@ -22,9 +22,10 @@ Dependency injection keeps the registry/router independent of Electron and preve
 | `terminal.read` | read | automatic | Read bounded, redacted recent terminal evidence |
 | `git.status`, `git.diff`, `git.log`, `git.branches` | read | automatic | Read Git evidence |
 | `git.stage`, `git.unstage` | workspace write | explicit or exact path-set session | Change the index for listed paths |
-| `git.commit`, `git.pull`, `git.push` | workspace write / remote | Run once | Local history or remote mutation |
+| `git.commit` | repository write | Run once | Create a local commit from the exact staged set |
+| `git.pull`, `git.push` | remote write | Run once | Receive remote changes or send local commits |
 | `shell.run` | process | Run once | Spawn one executable with an argument array |
-| `web.search`, `web.fetch`, `web.open` | remote | Run once and web enabled | Bounded external research |
+| `web.search`, `web.fetch` | public network read | automatic when web is enabled | Bounded external research with no automatic workspace disclosure |
 | `browser.open`, `browser.read`, `browser.find` | remote/read | Run once | Open a validated visible public page or disclose bounded rendered text to the configured model |
 | `browser.savecontext` | workspace write | Exact scoped session | Save an agent-authored page summary as durable workspace context |
 | `github.read` | read | automatic | Bounded metadata, branches, commits, issues, pull requests, comments, workflows, releases, and assets for the active origin |

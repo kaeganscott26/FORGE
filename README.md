@@ -162,6 +162,7 @@ For packages and releases, follow [Contributing](docs/CONTRIBUTING.md) and [Rele
 | Contribute a feature or fix | [Contributing](docs/CONTRIBUTING.md) |
 | Use the application day to day | [User Manual](UserManual.md) |
 | Configure models and Git | [User Configuration](UserConfig.md) |
+| Learn what the built-in agent can do | [Tools in Plain English](docs/TOOLING_GUIDE.md) |
 | Work with persistent tasks | [Persistent Tasks](docs/PERSISTENT_TASKS.md) |
 | Use CLI agents in the workspace | [Integrated Terminal](docs/TERMINAL.md) |
 | Review current implementation evidence | [Project Status](docs/PROJECT_STATUS.md) |

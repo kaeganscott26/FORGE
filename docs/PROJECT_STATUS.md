@@ -4,15 +4,15 @@
 
 **Working version:** `2.3.0-beta.1` — FORGE v2.3 Beta
 
-**Release target:** `v2.3.0-beta.1` on `main`
+**Published release:** [`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) on `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
 ## 🧭 Current state
 
-FORGE v2.3 Beta is the current release target. It adds capability-aware provider tools, typed GitHub mutations, bounded file evidence, explicit network execution profiles, and workspace-data lifecycle controls to the protected-browser and durable-memory baseline.
+FORGE v2.3 Beta is the current published beta. It adds capability-aware provider tools, typed GitHub mutations, bounded file evidence, explicit network execution profiles, and workspace-data lifecycle controls to the protected-browser and durable-memory baseline.
 
-The prior public baseline remains [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2). [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3) was published from the matching annotated tag and successful workflow; its metadata and all five public SHA-256 digests agree with the serial uploader evidence. A bandwidth-bound independent full-DMG mount remains a clearly uncompleted acceptance layer.
+The prior public baselines remain [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2) and [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3). They are historical releases, not the supported product identity.
 
 ## ✅ Implemented capability matrix
 
@@ -31,17 +31,18 @@ The current source has passed:
 
 - `npm run typecheck`
 - `npm run lint`
-- focused storage, memory, and IPC tests — 16 tests
+- `npm test` — 27 files; 112 passed and 1 skipped test
 - `npm run build`
+- `npm run verify:release-version`
 - `git diff --check`
 
 Browser acceptance loaded and visibly rendered `https://www.north3rnlight3r.com/` through the native BrowserView path after the surface-height regression was repaired. The memory database passes SQLite `integrity_check`; the out-of-bounds hardening applies bounded projections before memory scoring and provider handoff.
 
 ## 📦 Release state
 
-`v2.2.0-beta.3` is published as [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3). Workflow [31313805327](https://github.com/kaeganscott26/FORGE/actions/runs/31313805327) validated the exact tagged SHA, packaged the universal DMG/ZIP, uploaded the two blockmaps and `beta-mac.yml` serially, and published after hash verification.
+[`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) is published as **FORGE v2.3 Beta**. Its annotated tag resolves to `302ff52b87e415d357c6fe5039869c742d5ecb24`; workflow [31323231310](https://github.com/kaeganscott26/FORGE/actions/runs/31323231310) completed successfully for that SHA, packaged the universal DMG/ZIP, uploaded the two blockmaps and `beta-mac.yml` serially, and published after upload verification. [The release record](V2.3.0_BETA1_VERIFICATION.md) preserves the observed public asset digests.
 
-The beta is not Developer ID signed or notarized. Public artifact acceptance will be isolated to a temporary read-only mount and profile; it will not overwrite `/Applications/FORGE.app` during verification.
+The beta is not Developer ID signed or notarized. Independent public download-hash comparison and mounted-DMG/app acceptance have not been recorded for this release. The public release is not currently flagged as a GitHub prerelease even though it uses a beta SemVer tag and FORGE Beta update channel; release verification must check that flag before treating a future publication as complete.
 
 ## 🚧 Known limitations
 

@@ -38,6 +38,16 @@ Open **Settings**, enter the API base URL, model ID, and API key, then choose **
 
 Compatible local models receive a focused set of FORGE workspace file tools through the same policy router as hosted models. Read-only inspection may run automatically; file creation and writes still require explicit approval. The focused catalog avoids confusing smaller models with unrelated Git, release, shell, and task actions. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
 
+### Use an agent safely
+
+Ask the built-in agent to inspect, explain, plan, or propose changes. FORGE supplies bounded workspace context and offers only the enabled capabilities. The agent can read files and Git evidence automatically, but it must request permission before it changes files, runs a command, commits, pushes, starts a task process, opens/reads a Browser page for the model, or changes GitHub. Review every approval card: it shows the command or target, effect, working directory, network intent, and predicted paths or diff where available.
+
+The agent cannot directly access your shell, Node.js, raw files outside the workspace, credentials, or hidden reasoning. It may make mistakes, so review the editor diff and Source Control after it acts. [Tools in Plain English](docs/TOOLING_GUIDE.md) lists every command the current agent runtime can request and the limits that remain.
+
+### Change the model
+
+In **Settings → API integration**, enter a model ID and provider base URL, then choose **Save settings**. Use **Refresh provider models**, **Validate model**, and **Test saved model and API connection** to confirm it works. This changes the model used by the built-in chat; it does not move your files or reset workspace tasks, conversations, durable memory, Git history, or audit records. See [User Configuration](UserConfig.md) for keys, local Ollama, and environment-variable options.
+
 Each project has its own conversations. Switching from FORGE to another folder automatically shows that folder's active thread; histories are never shared between workspace databases.
 
 Use the conversation picker to switch threads:

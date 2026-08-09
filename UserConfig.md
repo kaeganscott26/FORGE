@@ -114,8 +114,8 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## 🚀 Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `2.2.0-beta.3` (`FORGE beta 2.2`).
-2. Inspect the resulting package and lockfile diff; do not hand-edit generated dependency versions.
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current beta identity is `2.3.0-beta.1` (`FORGE v2.3 Beta`).
+2. Inspect the resulting package and lockfile diff, then run `npm run verify:release-version`; do not hand-edit generated dependency versions.
 3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`; use `package:mac:all` for one clean combined artifact directory.
 4. Commit on a feature/release branch, push it, open a pull request, and merge only after checks pass.
 5. Synchronize local `main` with `origin/main` and record the authoritative commit.

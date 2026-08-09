@@ -30,7 +30,7 @@ The integrated terminal is a user-controlled PTY, not an agent permission bypass
 
 ## 🔐 Web and secret controls
 
-Web research is enabled by default for a configured workspace and can be disabled in Settings. Only HTTP(S) is accepted. Credential-bearing URLs, file URLs, localhost, `.local`, private/link-local/multicast IPs, unsafe DNS answers, and unsafe redirects are blocked. DNS is checked both before the request and again by the actual connection resolver to limit rebinding attacks. Redirect count, timeout, content type, and response size are bounded. The optional Browser uses sandboxed native views, workspace-scoped bookmarks/history, and an explicit approval before bounded rendered text is disclosed to an agent; it never exposes browser automation, Node.js, workspace files, shell, or credentials to page content.
+Web research is controlled in Settings and can be disabled at any time. Only HTTP(S) is accepted. Credential-bearing URLs, file URLs, localhost, `.local`, private/link-local/multicast IPs, unsafe DNS answers, and unsafe redirects are blocked. DNS is checked both before the request and again by the actual connection resolver to limit rebinding attacks. Redirect count, timeout, content type, and response size are bounded. The optional Browser uses sandboxed native views, workspace-scoped bookmarks/history, and an explicit approval before bounded rendered text is disclosed to an agent; it never exposes browser automation, Node.js, workspace files, shell, or credentials to page content.
 
 AI provider endpoints must use HTTPS unless they are loopback-only local providers. Provider URLs cannot embed credentials.
 
