@@ -116,7 +116,7 @@ export class OpenAIProvider {
       messages: messages.map((message) => ({ role: message.role, content: message.content })),
       tools: providerTools,
       tool_choice: 'auto',
-      max_completion_tokens: 1_600
+      max_completion_tokens: 10000,
     };
     let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
     if (!response.ok) {
