@@ -1,9 +1,9 @@
-import { app, shell, safeStorage, BrowserWindow, dialog, ipcMain, clipboard } from "electron";
+import { app, shell, safeStorage, BrowserWindow, dialog, ipcMain, clipboard, WebContentsView } from "electron";
+import { promises, watch, existsSync } from "node:fs";
 import * as path from "node:path";
 import path__default, { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
-import { promises, watch, existsSync } from "node:fs";
 import simpleGit from "simple-git";
 import { randomUUID, createHash } from "node:crypto";
 import initSqlJs from "sql.js";
@@ -2130,7 +2130,12 @@ const IPC_CHANNELS = {
   tasksPause: "tasks.pause",
   tasksCancel: "tasks.cancel",
   tasksRetryStep: "tasks.retry.step",
-  tasksHandoff: "tasks.handoff"
+  tasksHandoff: "tasks.handoff",
+  browserNavigate: "browser.navigate",
+  browserLayout: "browser.layout",
+  browserBack: "browser.back",
+  browserForward: "browser.forward",
+  browserReload: "browser.reload"
 };
 const IGNORED = /* @__PURE__ */ new Set([".git", "node_modules", "dist", "out", "build", ".next", ".forge", "coverage", "__pycache__"]);
 function parseMarkdown(content) {
@@ -2283,6 +2288,114 @@ class WorkspaceService extends EventEmitter {
     return candidate;
   }
 }
+const bounded = (value) => JSON.parse(JSON.stringify(value).slice(0, 15e5));
+class GitHubService {
+  constructor(origin, credentials, requestImpl = fetch) {
+    this.origin = origin;
+    this.credentials = credentials;
+    this.requestImpl = requestImpl;
+  }
+  async read(resource, options = {}) {
+    const page = Math.min(Math.max(options.page ?? 1, 1), 100);
+    let suffix = "";
+    switch (resource) {
+      case "metadata":
+        break;
+      case "branches":
+        suffix = `/branches?per_page=100&page=${page}`;
+        break;
+      case "commits":
+        suffix = `/commits?per_page=100&page=${page}`;
+        break;
+      case "issues":
+        suffix = `/issues?state=all&per_page=100&page=${page}`;
+        break;
+      case "pulls":
+        suffix = `/pulls?state=all&per_page=100&page=${page}`;
+        break;
+      case "issue-comments":
+        suffix = `/issues/${required(options.number, "number")}/comments?per_page=100&page=${page}`;
+        break;
+      case "pull-comments":
+        suffix = `/pulls/${required(options.number, "number")}/comments?per_page=100&page=${page}`;
+        break;
+      case "workflow-runs":
+        suffix = `/actions/runs?per_page=100&page=${page}`;
+        break;
+      case "workflow-jobs":
+        suffix = `/actions/runs/${required(options.runId, "runId")}/jobs?per_page=100&page=${page}`;
+        break;
+      case "releases":
+        suffix = `/releases?per_page=100&page=${page}`;
+        break;
+      case "release-assets":
+        suffix = `/releases/${required(options.releaseId, "releaseId")}/assets?per_page=100&page=${page}`;
+        break;
+    }
+    return this.api(suffix, "GET");
+  }
+  async mutate(action, input) {
+    let operation;
+    switch (action) {
+      case "create-issue":
+        operation = { method: "POST", path: "/issues", body: pick(input, "title", "body", "labels", "assignees") };
+        break;
+      case "update-issue":
+        operation = { method: "PATCH", path: `/issues/${requiredNumber(input.number, "number")}`, body: pick(input, "title", "body", "state", "labels", "assignees") };
+        break;
+      case "comment-issue":
+        operation = { method: "POST", path: `/issues/${requiredNumber(input.number, "number")}/comments`, body: pick(input, "body") };
+        break;
+      case "create-branch":
+        operation = { method: "POST", path: "/git/refs", body: { ref: `refs/heads/${requiredString(input.branch, "branch")}`, sha: requiredString(input.sha, "sha") } };
+        break;
+      case "create-file":
+        operation = { method: "PUT", path: `/contents/${encodeURIComponent(requiredString(input.path, "path")).replace(/%2F/g, "/")}`, body: pick(input, "message", "content", "branch", "sha") };
+        break;
+      case "create-pull-request":
+        operation = { method: "POST", path: "/pulls", body: pick(input, "title", "head", "base", "body", "draft") };
+        break;
+      case "comment-pull-request":
+        operation = { method: "POST", path: `/issues/${requiredNumber(input.number, "number")}/comments`, body: pick(input, "body") };
+        break;
+      case "retry-workflow":
+        operation = { method: "POST", path: `/actions/runs/${requiredNumber(input.runId, "runId")}/rerun`, body: {} };
+        break;
+      case "create-release":
+        operation = { method: "POST", path: "/releases", body: pick(input, "tag_name", "target_commitish", "name", "body", "draft", "prerelease") };
+        break;
+      case "update-release":
+        operation = { method: "PATCH", path: `/releases/${requiredNumber(input.releaseId, "releaseId")}`, body: pick(input, "tag_name", "target_commitish", "name", "body", "draft", "prerelease") };
+        break;
+    }
+    return this.api(operation.path, operation.method, operation.body, true);
+  }
+  async api(path2, method, body, requireCredentials = false) {
+    const repository = await this.repository();
+    const credentials = await this.credentials?.();
+    if (requireCredentials && !credentials) throw new Error("A GitHub token is required for this operation.");
+    const response = await this.requestImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}${path2}`, { method, headers: { Accept: "application/vnd.github+json", "User-Agent": "FORGE-desktop", ...credentials ? { Authorization: `Bearer ${credentials.token}` } : {}, ...body === void 0 ? {} : { "Content-Type": "application/json" } }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+    if (!response.ok) throw new Error(`GitHub API request failed (${response.status}).`);
+    if (response.status === 204) return { success: true };
+    return bounded(await response.json());
+  }
+  async repository() {
+    const origin = await this.origin();
+    const match = /github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?$/i.exec(origin);
+    if (!match) throw new Error("The active Git remote is not a supported GitHub repository.");
+    return { owner: match[1], repo: match[2] };
+  }
+}
+const required = (value, name) => {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`GitHub ${name} is required.`);
+  return value;
+};
+const requiredNumber = (value, name) => required(typeof value === "number" ? value : void 0, name);
+const requiredString = (value, name) => {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`GitHub ${name} is required.`);
+  return value.trim();
+};
+const pick = (value, ...keys) => Object.fromEntries(keys.filter((key) => value[key] !== void 0).map((key) => [key, value[key]]));
 const safeFiles = (files) => files.map((file) => {
   if (!file || file.startsWith("/") || file.split(/[\\/]/).includes("..")) throw new Error("Git paths must be workspace-relative.");
   return file;
@@ -2347,6 +2460,11 @@ class GitService {
     const git2 = await this.remoteGit();
     const branch = (await git2.branch()).current;
     await git2.push("origin", branch, ["--set-upstream"]);
+  }
+  async originUrl() {
+    const origin = await this.ready().remote(["get-url", "origin"]);
+    if (typeof origin !== "string" || !origin.trim()) throw new Error("The active Git repository has no origin remote.");
+    return origin.trim();
   }
   async diff(staged) {
     const text = await this.ready().diff(staged ? ["--cached", "--no-color"] : ["--no-color"]);
@@ -2416,7 +2534,7 @@ function parseDiff(text) {
   return { files };
 }
 const id = () => randomUUID();
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 6;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
 const STEP_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "waiting", "blocked", "failed", "skipped", "completed"]);
 function normalizeTitle(value) {
@@ -2802,11 +2920,35 @@ class StorageService {
   async workspaceId() {
     return this.projectId();
   }
+  /** Durable, bounded project observations used to invalidate stale context. */
+  async recordProjectObservation(kind, payload) {
+    if (!/^[a-z]+(?:[.-][a-z]+)+$/.test(kind)) throw new Error("Project observation kind is invalid.");
+    const workspaceId = await this.projectId();
+    const timestamp = Date.now();
+    const observation = { id: id(), workspaceId, kind, timestamp, payload: sanitizeTaskData(payload) };
+    this.ready().run("BEGIN");
+    try {
+      this.ready().run("INSERT INTO project_observations (id, project_id, kind, timestamp, payload) VALUES (?, ?, ?, ?, ?)", [observation.id, workspaceId, kind, timestamp, JSON.stringify(observation.payload)]);
+      this.ready().run(`INSERT INTO project_context_state (project_id, invalidated_at, invalidation_reasons, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET invalidated_at = excluded.invalidated_at, invalidation_reasons = excluded.invalidation_reasons, updated_at = excluded.updated_at`, [workspaceId, timestamp, JSON.stringify([kind]), timestamp]);
+      this.ready().run("UPDATE projects SET updated_at = ? WHERE id = ?", [timestamp, workspaceId]);
+      this.ready().run("COMMIT");
+    } catch (error) {
+      this.ready().run("ROLLBACK");
+      throw error;
+    }
+    await this.persist();
+    return observation;
+  }
+  async listProjectObservations(limit = 40) {
+    const workspaceId = await this.projectId();
+    return this.all("SELECT * FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?", [workspaceId, Math.min(Math.max(limit, 1), 200)]).map((row) => ({ id: String(row.id), workspaceId: String(row.project_id), kind: String(row.kind), timestamp: Number(row.timestamp), payload: parseJson(row.payload, null) }));
+  }
   async appendAction(record) {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error("Audit record belongs to another workspace.");
-    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, risk_tier, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.riskTier, record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
     await this.persist();
   }
   async listActions(filters = {}) {
@@ -2819,10 +2961,6 @@ class StorageService {
     if (filters.toolName) {
       clauses.push("tool_name = ?");
       params.push(filters.toolName);
-    }
-    if (filters.riskTier !== void 0) {
-      clauses.push("risk_tier = ?");
-      params.push(filters.riskTier);
     }
     if (filters.success !== void 0) {
       clauses.push("success = ?");
@@ -2845,7 +2983,6 @@ class StorageService {
       modelId: String(row.model_id),
       toolName: String(row.tool_name),
       sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null,
-      riskTier: Number(row.risk_tier),
       approvalDecision: String(row.approval_decision),
       executionDurationMs: Number(row.execution_duration_ms),
       success: Boolean(row.success),
@@ -2865,11 +3002,22 @@ class StorageService {
       CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, thread_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT, content TEXT NOT NULL, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
-      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, risk_tier INTEGER NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
     `);
     const columns = this.all("PRAGMA table_info(conversations)").map((row) => String(row.name));
     if (!columns.includes("thread_id")) this.ready().run("ALTER TABLE conversations ADD COLUMN thread_id TEXT");
     const actionColumns = this.all("PRAGMA table_info(action_log)").map((row) => String(row.name));
+    if (actionColumns.includes("risk_tier")) this.ready().run(`
+      DROP INDEX IF EXISTS idx_action_log_project_timestamp;
+      DROP INDEX IF EXISTS idx_action_log_conversation;
+      ALTER TABLE action_log RENAME TO action_log_legacy;
+      CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+        SELECT id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, COALESCE(result_json, '{}'), result_summary, affected_paths, exit_code, rollback FROM action_log_legacy;
+      DROP TABLE action_log_legacy;
+    `);
     if (!actionColumns.includes("result_json")) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
     const taskColumns = new Set(this.all("PRAGMA table_info(tasks)").map((row) => String(row.name)));
     const addTaskColumn = (name, definition2) => {
@@ -2911,6 +3059,7 @@ class StorageService {
       CREATE INDEX IF NOT EXISTS idx_conversations_thread_created ON conversations(thread_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_conversation_threads_project_updated ON conversation_threads(project_id, updated_at);
       CREATE INDEX IF NOT EXISTS idx_action_log_project_timestamp ON action_log(project_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_project_observations_project_timestamp ON project_observations(project_id, timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_action_log_conversation ON action_log(project_id, conversation_id);
       CREATE INDEX IF NOT EXISTS idx_tasks_project_updated ON tasks(project_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_steps_task_position ON task_steps(task_id, position);
@@ -3134,6 +3283,20 @@ class StorageService {
 const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const LOCAL_FILE_TOOLS = /* @__PURE__ */ new Set(["file.list", "file.read", "file.search", "file.create", "file.write", "file.patch", "file.rename", "file.move", "directory.create"]);
+function responsesCompatibleSchema(value) {
+  if (Array.isArray(value)) return value.map(responsesCompatibleSchema);
+  if (!value || typeof value !== "object") return value;
+  const schema = Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, responsesCompatibleSchema(entry)]));
+  if (schema.exclusiveMinimum === true && typeof schema.minimum === "number") {
+    schema.exclusiveMinimum = schema.minimum;
+    delete schema.minimum;
+  }
+  if (schema.exclusiveMaximum === true && typeof schema.maximum === "number") {
+    schema.exclusiveMaximum = schema.maximum;
+    delete schema.maximum;
+  }
+  return schema;
+}
 class OpenAIProvider {
   id = "openai";
   apiKey;
@@ -3215,14 +3378,18 @@ class OpenAIProvider {
     }
     const providerTools = aliasedTools.map(({ alias, tool }) => ({
       type: "function",
-      function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: tool.parameters }
+      function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: responsesCompatibleSchema(tool.parameters) }
     }));
     const request = {
       model: selectedModel,
       messages: messages.map((message2) => ({ role: message2.role, content: message2.content })),
       tools: providerTools,
       tool_choice: "auto",
-      max_completion_tokens: 1600
+      // FORGE continues from observed results until progress stops. Request one
+      // call at a time so an audit is never rejected for a burst of parallel
+      // calls in a single provider response.
+      parallel_tool_calls: false,
+      max_completion_tokens: 1e4
     };
     let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
     if (!response.ok) {
@@ -3261,10 +3428,13 @@ class OpenAIProvider {
         type: "function",
         name: alias,
         description: `${tool.description} (FORGE tool: ${tool.name})`,
-        parameters: tool.parameters
+        parameters: responsesCompatibleSchema(tool.parameters)
       })),
       tool_choice: "auto",
-      max_output_tokens: 1600
+      // This is deliberately not a total tool budget. The native runtime
+      // observes one result, then asks for the next dependency-ready call.
+      parallel_tool_calls: false,
+      max_output_tokens: 1e4
     };
     const response = await this.authorizedFetch(`${this.baseUrl}/responses`, {
       method: "POST",
@@ -3352,7 +3522,53 @@ class OpenAIProvider {
     return /^gpt-5\.6(?:-|$)/i.test(model);
   }
 }
-const DEFAULT_CONTEXT_BUDGET = 14e3;
+class Agent {
+  constructor(provider, contextBuilder2, memoryRetriever2) {
+    this.provider = provider;
+    this.contextBuilder = contextBuilder2;
+    this.memoryRetriever = memoryRetriever2;
+  }
+  async askWithContext(question, history = []) {
+    const prepared = await this.prepare(question, history);
+    return { content: await this.provider.chat(prepared.messages), memories: prepared.memories, context: prepared.context };
+  }
+  async askWithTools(question, history = [], tools = []) {
+    const prepared = await this.prepare(question, history);
+    const response = this.provider.chatWithTools ? await this.provider.chatWithTools(prepared.messages, tools) : { content: await this.provider.chat(prepared.messages), toolCalls: [] };
+    return { content: response.content, toolCalls: response.toolCalls, modelId: response.modelId, memories: prepared.memories, context: prepared.context };
+  }
+  async prepare(question, history) {
+    let memories = [];
+    if (this.memoryRetriever) {
+      try {
+        memories = await this.memoryRetriever.search(question, 6);
+      } catch {
+        memories = [];
+      }
+    }
+    const context = this.contextBuilder.packet ? await this.contextBuilder.packet(question, memories) : await this.contextBuilder.assemble(question, memories);
+    const boundedHistory = history.filter((message) => message.role === "user" || message.role === "assistant").slice(-48).reduceRight((selected, message) => {
+      const used = selected.reduce((total, entry) => total + entry.content.length, 0);
+      return used >= 4e4 ? selected : [{ role: message.role, content: message.content.slice(0, 6e3) }, ...selected];
+    }, []);
+    const messages = [
+      { role: "system", content: context.systemPrompt },
+      ...boundedHistory,
+      { role: "user", content: question }
+    ];
+    return { messages, memories, context };
+  }
+  async ask(question, history = []) {
+    return (await this.askWithContext(question, history)).content;
+  }
+  async explainProject(history = []) {
+    return this.ask("Explain this repository as an evidence-grounded architecture summary.", history);
+  }
+  async reviewChanges(history = []) {
+    return this.ask("Review the current repository changes against its documented architecture and project goals.", history);
+  }
+}
+const DEFAULT_CONTEXT_BUDGET = 28e3;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 class PriorityContextBudgetPolicy {
   select(artifacts, characterBudget) {
@@ -3378,7 +3594,7 @@ class PriorityContextBudgetPolicy {
     return { selected, omittedArtifactIds };
   }
 }
-class ContextBuilderImpl {
+class WorkspaceContextEngine {
   constructor(workspace2, git2, storage2, budgetPolicy = new PriorityContextBudgetPolicy()) {
     this.workspace = workspace2;
     this.git = git2;
@@ -3393,20 +3609,8 @@ class ContextBuilderImpl {
     }
     return out;
   }
-  async buildContext(_query, memories) {
-    const context = {
-      projectName: null,
-      rootPath: null,
-      files: [],
-      readme: null,
-      packageJson: null,
-      documents: [],
-      sourceFiles: [],
-      gitStatus: null,
-      recentCommits: null,
-      metadata: null,
-      memories: memories ?? null
-    };
+  async buildContext(query = "", memories) {
+    const context = { projectName: null, rootPath: null, files: [], documents: [], sourceFiles: [], packageJson: null, gitStatus: null, recentCommits: null, metadata: null, memories: memories ?? null };
     try {
       const info = this.workspace.info();
       if (info) {
@@ -3425,61 +3629,35 @@ class ContextBuilderImpl {
       try {
         const file = await this.workspace.readFile(documentPath);
         context.documents.push({ path: documentPath, content: file.content });
-        if (/^readme\.md$/i.test(documentPath)) context.readme = { path: documentPath, content: file.content };
       } catch {
-      }
-    }
-    if (!context.readme) {
-      try {
-        const readme = await this.workspace.readFile("README.md");
-        context.readme = { path: readme.path, content: readme.content };
-        context.documents.unshift({ path: readme.path, content: readme.content });
-      } catch {
-        context.readme = null;
       }
     }
     try {
       const packageJson = await this.workspace.readFile("package.json");
       context.packageJson = { path: packageJson.path, content: packageJson.content };
     } catch {
-      context.packageJson = null;
     }
     try {
       context.gitStatus = await this.git.status();
     } catch {
-      context.gitStatus = null;
     }
     try {
       const commits = await this.git.log(12);
       context.recentCommits = commits.map((commit) => ({ hash: commit.hash, message: commit.message, author: commit.author, timestamp: commit.timestamp }));
     } catch {
-      context.recentCommits = null;
     }
     try {
       context.metadata = await this.storage.dashboard();
     } catch {
-      context.metadata = null;
     }
-    const queryTokens = new Set((_query ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
-    const changedPaths = new Set(
-      context.gitStatus && typeof context.gitStatus === "object" && "files" in context.gitStatus && Array.isArray(context.gitStatus.files) ? context.gitStatus.files.map((file) => String(file.path ?? "")) : []
-    );
+    const queryTokens = new Set(query.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
+    const changedPaths = new Set(context.gitStatus && typeof context.gitStatus === "object" && "files" in context.gitStatus && Array.isArray(context.gitStatus.files) ? context.gitStatus.files.map((file) => String(file.path ?? "")) : []);
     const sourceExtensions = /* @__PURE__ */ new Set(["ts", "tsx", "js", "jsx", "py", "c", "cpp", "rs", "go", "java"]);
-    const sourceCandidates = context.files.filter((file) => file.type === "file" && sourceExtensions.has(file.extension?.toLowerCase() ?? "")).map((file) => ({
-      path: file.path,
-      changed: changedPaths.has(file.path),
-      score: (changedPaths.has(file.path) ? 100 : 0) + [...queryTokens].reduce((score, token) => score + (file.path.toLowerCase().includes(token) ? 10 : 0), 0)
-    })).filter((candidate) => candidate.changed || candidate.score > 0).sort((left, right) => right.score - left.score || left.path.localeCompare(right.path)).slice(0, 6);
+    const sourceCandidates = context.files.filter((file) => file.type === "file" && sourceExtensions.has(file.extension?.toLowerCase() ?? "")).map((file) => ({ path: file.path, changed: changedPaths.has(file.path), score: (changedPaths.has(file.path) ? 100 : 0) + [...queryTokens].reduce((score, token) => score + (file.path.toLowerCase().includes(token) ? 10 : 0), 0) })).filter((candidate) => candidate.changed || candidate.score > 0).sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, 6);
     for (const candidate of sourceCandidates) {
       try {
         const file = await this.workspace.readFile(candidate.path);
-        context.sourceFiles.push({
-          path: candidate.path,
-          content: file.content,
-          changed: candidate.changed,
-          relevance: candidate.changed ? 96 : 84,
-          reason: candidate.changed ? "Changed implementation file." : "Source path matches the current question."
-        });
+        context.sourceFiles.push({ path: candidate.path, content: file.content, changed: candidate.changed, relevance: candidate.changed ? 96 : 84, reason: candidate.changed ? "Changed implementation file." : "Source path matches the current question." });
       } catch {
       }
     }
@@ -3491,142 +3669,57 @@ class ContextBuilderImpl {
     const add = (artifact) => {
       if (artifact.content.trim()) artifacts.push(artifact);
     };
-    add({
-      id: "workspace-inventory",
-      kind: "source",
-      title: "Workspace inventory",
-      priority: 60,
-      content: `${context.files.length} indexed entries
-${context.files.slice(0, 180).map((file) => `${file.type === "directory" ? "dir" : "file"}: ${file.path}`).join("\n")}`,
-      metadata: { relevance: 70, reason: "Workspace identity and file inventory." }
-    });
-    for (const document of context.documents) {
-      const architectureDocument = /(?:architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes)/i.test(document.path);
-      add({
-        id: `document:${document.path}`,
-        kind: architectureDocument ? "architecture" : "documentation",
-        title: document.path,
-        path: document.path,
-        content: document.content,
-        priority: architectureDocument ? 100 : /^readme/i.test(document.path) ? 90 : 80,
-        metadata: architectureDocument ? { relevance: 100, reason: "Primary architecture evidence." } : /^readme/i.test(document.path) ? { relevance: 96, reason: "Primary project overview." } : { relevance: 86, reason: "Project documentation selected by architecture-first policy." }
-      });
-    }
-    for (const sourceFile of context.sourceFiles) add({
-      id: `source:${sourceFile.path}`,
-      kind: "source",
-      title: sourceFile.path,
-      path: sourceFile.path,
-      content: sourceFile.content,
-      priority: sourceFile.changed ? 92 : 70,
-      metadata: { relevance: sourceFile.relevance, reason: sourceFile.reason }
-    });
-    if (context.packageJson) add({ id: "package-json", kind: "configuration", title: "package.json", path: context.packageJson.path, content: context.packageJson.content, priority: 72, metadata: { relevance: 78, reason: "Authoritative project configuration." } });
-    if (context.gitStatus) add({ id: "git-status", kind: "git", title: "Current Git state", content: JSON.stringify(context.gitStatus, null, 2), priority: 88, metadata: { relevance: 94, reason: "Current repository state." } });
-    if (context.recentCommits?.length) add({
-      id: "git-history",
-      kind: "git",
-      title: "Recent Git history",
-      priority: 86,
-      content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}${commit.author ? ` — ${commit.author}` : ""}`).join("\n"),
-      metadata: { relevance: 90, reason: "Recent project chronology." }
-    });
-    if (context.metadata) add({ id: "project-metadata", kind: "metadata", title: "Project goals and metadata", content: JSON.stringify(context.metadata, null, 2), priority: 94, metadata: { relevance: 96, reason: "Active goals, tasks, and workspace identity." } });
-    for (const memory of context.memories ?? []) add({
-      id: `memory:${memory.id}`,
-      kind: "memory",
-      title: memory.title || memory.type,
-      content: memory.content,
-      priority: memory.type === "decision" ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)),
-      updatedAt: memory.updatedAt,
-      metadata: {
-        ...typeof memory.metadata === "object" && memory.metadata ? memory.metadata : {},
-        relevance: memory.relevance ?? 80,
-        reason: memory.reasons?.join(" · ") ?? "Relevant durable workspace knowledge."
-      }
-    });
+    add({ id: "workspace-inventory", kind: "source", title: "Workspace inventory", priority: 60, content: `${context.files.length} indexed entries
+${context.files.slice(0, 180).map((file) => `${file.type === "directory" ? "dir" : "file"}: ${file.path}`).join("\n")}`, metadata: { relevance: 70, reason: "Workspace identity and file inventory." } });
+    for (const document of context.documents) add({ id: `document:${document.path}`, kind: /(?:architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes)/i.test(document.path) ? "architecture" : "documentation", title: document.path, path: document.path, content: document.content, priority: /architecture/i.test(document.path) ? 100 : /^readme/i.test(document.path) ? 90 : 80, metadata: { relevance: 90, reason: "Project documentation selected by workspace context policy." } });
+    for (const sourceFile of context.sourceFiles) add({ id: `source:${sourceFile.path}`, kind: "source", title: sourceFile.path, path: sourceFile.path, content: sourceFile.content, priority: sourceFile.changed ? 92 : 70, metadata: { relevance: sourceFile.relevance, reason: sourceFile.reason } });
+    if (context.packageJson) add({ id: "package-json", kind: "configuration", title: "package.json", path: context.packageJson.path, content: context.packageJson.content, priority: 72 });
+    if (context.gitStatus) add({ id: "git-status", kind: "git", title: "Current Git state", content: JSON.stringify(context.gitStatus, null, 2), priority: 88 });
+    if (context.recentCommits?.length) add({ id: "git-history", kind: "git", title: "Recent Git history", content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}`).join("\n"), priority: 86 });
+    if (context.metadata) add({ id: "project-metadata", kind: "metadata", title: "Project goals and metadata", content: JSON.stringify(context.metadata, null, 2), priority: 94 });
+    for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: "memory", title: memory.title || memory.type, content: memory.content, priority: memory.type === "decision" ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)), updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(" · ") ?? "Relevant durable workspace knowledge." } });
     const budgeted = this.budgetPolicy.select(artifacts, characterBudget);
     const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ""}
 ${artifact.content}`).join("\n\n");
     const projectName = context.projectName ?? "the active workspace";
-    const systemPrompt = `You are FORGE workspace intelligence operating alongside the repository "${projectName}".
+    const systemPrompt = `You are consuming context compiled by FORGE for the repository "${projectName}".
 
-Core philosophy:
-- Local-first.
-- The project folder is the source of truth.
-- AI augments the workspace instead of replacing it.
-- The AI is one replaceable subsystem inside FORGE, not the owner of the workspace or the primary application interface.
-- Project memory must remain durable.
-- Persistent tasks belong to the workspace, not to the current conversation, provider, model, renderer, or process.
-- Markdown, Git, conversations, architecture, documentation, source code, and project metadata form one connected knowledge graph.
-
-Decision policy:
-- Ground answers in the supplied workspace evidence and distinguish evidence from inference.
-- When asked what to build next, reason from architecture, project memory, Git history, documentation, current implementation, and goals.
-- Prefer architectural evolution that strengthens workspace intelligence over generic IDE features.
-- Do not default to plugins, collaboration, onboarding, dark mode, or templates unless repository evidence shows they directly advance this architecture.
-- Never imply that clearing or starting a conversation erases workspace memory, indexes, project metadata, or Git state.
-- Before resuming a persistent task, reconcile its checkpoint with current workspace, Git, local-process, and configured external-service evidence.
-- Do not repeat completed or externally verified work, and never mark a step complete based only on another model's claim.
-- You may request allowlisted tools, but a tool call is not permission and you never execute tools directly.
-- FORGE validates, authorizes, executes, audits, and returns every tool result. Never claim success until a successful FORGE result is present.
-- Never request silent destructive, executable, remote, credential, or external-data-transfer actions. Explain the reason and expected effect accurately.
+FORGE owns workspace intelligence: project evidence, durable memory, task state, Git chronology, terminal observations, and relevance filtering. The active LLM or CLI agent owns reasoning and execution. Treat the project folder as authority, distinguish evidence from inference, and preserve durable project decisions across model changes.
 
 Workspace evidence for this turn:
 ${evidence || "No workspace evidence was available."}`;
-    return {
-      systemPrompt,
-      artifacts: budgeted.selected,
-      omittedArtifactIds: budgeted.omittedArtifactIds,
-      characterBudget,
-      characterCount: systemPrompt.length
-    };
+    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length };
+  }
+  async envelope(query, memories, characterBudget) {
+    const compiled = await this.assemble(query, memories, characterBudget);
+    return { ...compiled, query, generatedAt: Date.now() };
   }
 }
-class Agent {
-  constructor(provider, contextBuilder2, memoryRetriever2) {
-    this.provider = provider;
-    this.contextBuilder = contextBuilder2;
-    this.memoryRetriever = memoryRetriever2;
+class WorkspaceIntelligenceService {
+  constructor(context, observations) {
+    this.context = context;
+    this.observations = observations;
   }
-  async askWithContext(question, history = []) {
-    const prepared = await this.prepare(question, history);
-    return { content: await this.provider.chat(prepared.messages), memories: prepared.memories, context: prepared.context };
+  invalidatedAt;
+  invalidationReasons = /* @__PURE__ */ new Set();
+  async invalidate(reason2, payload = {}) {
+    this.invalidatedAt = Date.now();
+    this.invalidationReasons.add(reason2);
+    await this.observations?.recordProjectObservation(reason2, payload);
   }
-  async askWithTools(question, history = [], tools = []) {
-    const prepared = await this.prepare(question, history);
-    const response = this.provider.chatWithTools ? await this.provider.chatWithTools(prepared.messages, tools) : { content: await this.provider.chat(prepared.messages), toolCalls: [] };
-    return { content: response.content, toolCalls: response.toolCalls, modelId: response.modelId, memories: prepared.memories, context: prepared.context };
+  async assemble(query, memories, characterBudget) {
+    return this.context.assemble(query, memories, characterBudget);
   }
-  async prepare(question, history) {
-    let memories = [];
-    if (this.memoryRetriever) {
-      try {
-        memories = await this.memoryRetriever.search(question, 6);
-      } catch {
-        memories = [];
-      }
-    }
-    const context = await this.contextBuilder.assemble(question, memories);
-    const boundedHistory = history.filter((message) => message.role === "user" || message.role === "assistant").slice(-24).reduceRight((selected, message) => {
-      const used = selected.reduce((total, entry) => total + entry.content.length, 0);
-      return used >= 12e3 ? selected : [{ role: message.role, content: message.content.slice(0, 3e3) }, ...selected];
-    }, []);
-    const messages = [
-      { role: "system", content: context.systemPrompt },
-      ...boundedHistory,
-      { role: "user", content: question }
-    ];
-    return { messages, memories, context };
-  }
-  async ask(question, history = []) {
-    return (await this.askWithContext(question, history)).content;
-  }
-  async explainProject(history = []) {
-    return this.ask("Explain this repository as an evidence-grounded architecture summary.", history);
-  }
-  async reviewChanges(history = []) {
-    return this.ask("Review the current repository changes against its documented architecture and project goals.", history);
+  async packet(query, memories, characterBudget) {
+    const compiled = await this.assemble(query, memories, characterBudget);
+    const projectObservations = await this.observations?.listProjectObservations() ?? [];
+    const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8e3) : "";
+    const artifact = observationContent ? { id: "project-observations", kind: "metadata", title: "Fresh project observations", content: observationContent, priority: 99, updatedAt: projectObservations[0]?.timestamp, metadata: { relevance: 99, reason: "Durable observations invalidate stale cached context." } } : null;
+    const systemPrompt = artifact ? `${compiled.systemPrompt}
+
+## ${artifact.title}
+${artifact.content}` : compiled.systemPrompt;
+    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
   }
 }
 const EXCLUDED_PATH_PARTS = /* @__PURE__ */ new Set([".git", ".forge", ".obsidian", "node_modules", "dist_electron", "out", "coverage", "build", ".next", "__pycache__"]);
@@ -6012,7 +6105,7 @@ class SettingsService {
       githubUsername: this.data.githubUsername ?? "",
       githubTokenConfigured: Boolean(this.data.githubToken),
       secureStorageAvailable: this.encryptionAvailable,
-      webResearchEnabled: this.data.webResearchEnabled === true,
+      webResearchEnabled: this.data.webResearchEnabled !== false,
       updateChannel: normalizeUpdateChannel(this.data.updateChannel)
     };
   }
@@ -6060,7 +6153,7 @@ class SettingsService {
     return { login: profile.login };
   }
   webResearchEnabled() {
-    return this.data.webResearchEnabled === true;
+    return this.data.webResearchEnabled !== false;
   }
   updateChannel() {
     return normalizeUpdateChannel(this.data.updateChannel);
@@ -6116,26 +6209,19 @@ class SessionPermissionStore {
   }
   permissions = /* @__PURE__ */ new Map();
   grant(workspaceId, definition2, input, ttlMs = 30 * 6e4) {
-    if (definition2.riskTier !== 1 || !definition2.sessionScope) throw new Error("Session permissions are only available for narrowly scoped Tier 1 tools.");
-    const permission = {
-      id: randomUUID(),
-      workspaceId,
-      toolName: definition2.name,
-      scopeHash: scopeHash(workspaceId, definition2.name, definition2.sessionScope(input)),
-      expiresAt: this.now() + Math.min(Math.max(ttlMs, 1e3), 60 * 6e4)
-    };
+    if (definition2.approval !== "session" || !definition2.sessionScope) throw new Error("This tool does not allow a session-scoped approval.");
+    const permission = { id: randomUUID(), workspaceId, toolName: definition2.name, scopeHash: scopeHash(workspaceId, definition2.name, definition2.sessionScope(input)), expiresAt: this.now() + Math.min(Math.max(ttlMs, 1e3), 60 * 6e4) };
     this.permissions.set(permission.id, permission);
     return permission;
   }
   allows(workspaceId, definition2, input) {
     this.expire();
-    if (definition2.riskTier !== 1 || !definition2.sessionScope) return false;
+    if (definition2.approval !== "session" || !definition2.sessionScope) return false;
     const expected = scopeHash(workspaceId, definition2.name, definition2.sessionScope(input));
     return [...this.permissions.values()].some((permission) => permission.workspaceId === workspaceId && permission.toolName === definition2.name && permission.scopeHash === expected);
   }
   expire() {
-    const now = this.now();
-    for (const [id2, permission] of this.permissions) if (permission.expiresAt <= now) this.permissions.delete(id2);
+    for (const [id2, permission] of this.permissions) if (permission.expiresAt <= this.now()) this.permissions.delete(id2);
   }
   clear() {
     this.permissions.clear();
@@ -6146,9 +6232,8 @@ class PolicyEngine {
     this.sessions = sessions;
   }
   requiresApproval(workspaceId, definition2, input) {
-    if (definition2.riskTier === 0 && definition2.approval === "automatic") return false;
-    if (definition2.riskTier === 1 && definition2.approval === "explicit" && this.sessions.allows(workspaceId, definition2, input)) return false;
-    return true;
+    if (definition2.approval === "automatic") return false;
+    return !(definition2.approval === "session" && this.sessions.allows(workspaceId, definition2, input));
   }
 }
 const MAX_TEXT_BYTES = 2e6;
@@ -6218,40 +6303,54 @@ async function backupPath(root, relative) {
   await promises.mkdir(path__default.dirname(destination), { recursive: true });
   return destination;
 }
-const definition = (value) => value;
+const definition = (value) => {
+  const sideEffect = value.sideEffect ?? inferSideEffect(value.name, value.networkAccess, value.audit.recordsAffectedPaths);
+  const approval = value.approval ?? (sideEffect === "read" ? "automatic" : sideEffect === "workspace-write" ? "session" : "explicit");
+  const sessionScope = value.sessionScope ?? (approval === "session" ? (input) => JSON.stringify({ paths: input.files ?? [input.path ?? input.from ?? input.to].filter(Boolean), workingDirectory: input.workingDirectory ?? ".", tool: value.name }) : void 0);
+  return { ...value, sideEffect, approval, sessionScope };
+};
+function inferSideEffect(name, networkAccess, recordsAffectedPaths) {
+  if (networkAccess) return "remote";
+  if (name === "file.delete") return "destructive";
+  if (name === "shell.run" || name === "task.process.start") return "process";
+  if (recordsAffectedPaths || ["git.stage", "git.unstage", "git.commit", "task.create", "task.resume", "task.pause", "task.cancel", "task.checkpoint"].includes(name)) return "workspace-write";
+  return "read";
+}
 function createToolRegistry() {
   const registry = new ToolRegistry();
   const base = { outputSchema: textOutput, cancellable: true };
   const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };
-  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), ...taskContext }), riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
-  registry.register(definition({ ...base, name: "file.read", purpose: "Read a supported workspace text file.", inputSchema: z.object({ path: relativePath, ...taskContext }), riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read text without changing the workspace." }));
-  registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), ...taskContext }), riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
-  registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically.", sessionScope: (input) => input.path }));
-  registry.register(definition({ ...base, name: "file.write", purpose: "Replace a workspace text file after showing a diff.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Atomically write the approved diff with a rollback backup.", sessionScope: (input) => input.path }));
-  registry.register(definition({ ...base, name: "file.patch", purpose: "Apply a targeted workspace text replacement.", inputSchema: z.object({ path: relativePath, expected: z.string().min(1).max(MAX_TEXT_BYTES), replacement: z.string().max(MAX_TEXT_BYTES), replaceAll: z.boolean().default(false), reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Apply the displayed targeted patch atomically.", sessionScope: (input) => input.path }));
-  for (const name of ["file.rename", "file.move"]) registry.register(definition({ ...base, name, purpose: "Move a workspace path without overwriting.", inputSchema: z.object({ from: relativePath, to: relativePath, reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.from} → ${input.to}`, describeEffect: () => "Move the path without overwriting the destination.", sessionScope: (input) => `${input.from}\0${input.to}` }));
-  registry.register(definition({ ...base, name: "directory.create", purpose: "Create a workspace directory.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a directory inside the workspace.", sessionScope: (input) => input.path }));
-  registry.register(definition({ ...base, name: "file.delete", purpose: "Delete a workspace path after creating a rollback backup.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Back up then delete the selected source path." }));
-  registry.register(definition({ ...base, name: "terminal.read", purpose: "Read bounded recent output from an existing user terminal session.", inputSchema: z.object({ sessionId: z.string().uuid().optional(), maxCharacters: z.number().int().min(100).max(2e4).default(4e3), ...taskContext }), riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "shell", recordsAffectedPaths: false, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.sessionId ?? "all terminal sessions", describeEffect: () => "Read bounded, redacted recent terminal evidence without changing the session." }));
-  const gitRead = (name, schema, effect) => registry.register(definition({ ...base, name, purpose: effect, inputSchema: schema, riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "active Git workspace", describeEffect: () => effect }));
+  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
+  registry.register(definition({ ...base, name: "file.read", purpose: "Read a supported workspace text file.", inputSchema: z.object({ path: relativePath, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read text without changing the workspace." }));
+  registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
+  registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));
+  registry.register(definition({ ...base, name: "file.write", purpose: "Replace a workspace text file after showing a diff.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Atomically write the approved diff with a rollback backup." }));
+  registry.register(definition({ ...base, name: "file.patch", purpose: "Apply a targeted workspace text replacement.", inputSchema: z.object({ path: relativePath, expected: z.string().min(1).max(MAX_TEXT_BYTES), replacement: z.string().max(MAX_TEXT_BYTES), replaceAll: z.boolean().default(false), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Apply the displayed targeted patch atomically." }));
+  for (const name of ["file.rename", "file.move"]) registry.register(definition({ ...base, name, purpose: "Move a workspace path without overwriting.", inputSchema: z.object({ from: relativePath, to: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.from} → ${input.to}`, describeEffect: () => "Move the path without overwriting the destination." }));
+  registry.register(definition({ ...base, name: "directory.create", purpose: "Create a workspace directory.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a directory inside the workspace." }));
+  registry.register(definition({ ...base, name: "file.delete", purpose: "Delete a workspace path after creating a rollback backup.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Back up then delete the selected source path." }));
+  registry.register(definition({ ...base, name: "terminal.read", purpose: "Read bounded recent output from an existing user terminal session.", inputSchema: z.object({ sessionId: z.string().uuid().optional(), maxCharacters: z.number().int().min(100).max(2e4).default(4e3), ...taskContext }), workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "shell", recordsAffectedPaths: false, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.sessionId ?? "all terminal sessions", describeEffect: () => "Read bounded, redacted recent terminal evidence without changing the session." }));
+  const gitRead = (name, schema, effect) => registry.register(definition({ ...base, name, purpose: effect, inputSchema: schema, workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "active Git workspace", describeEffect: () => effect }));
   gitRead("git.status", z.object({ ...taskContext }), "Inspect current branch and working tree status.");
   gitRead("git.diff", z.object({ staged: z.boolean().default(false), ...taskContext }), "Inspect the Git diff.");
   gitRead("git.log", z.object({ limit: z.number().int().min(1).max(100).default(30), ...taskContext }), "Inspect recent Git history.");
   gitRead("git.branches", z.object({ ...taskContext }), "Inspect Git branches.");
-  for (const name of ["git.stage", "git.unstage"]) registry.register(definition({ ...base, name, purpose: `${name === "git.stage" ? "Stage" : "Unstage"} selected Git paths.`, inputSchema: z.object({ files: z.array(relativePath).min(1).max(200), reason, ...taskContext }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.files.join(", "), describeEffect: () => `${name === "git.stage" ? "Stage" : "Unstage"} only the listed paths.`, sessionScope: (input) => [...input.files].sort().join("\0") }));
-  registry.register(definition({ ...base, name: "git.commit", purpose: "Commit the exact staged Git paths.", inputSchema: z.object({ message: z.string().min(1).max(5e3), reason, ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "current branch and staged files", describeEffect: (input) => `Create a commit with message ${JSON.stringify(input.message)}.` }));
-  for (const name of ["git.pull", "git.push"]) registry.register(definition({ ...base, name, purpose: `${name === "git.pull" ? "Pull from" : "Push to"} the configured remote.`, inputSchema: z.object({ reason, ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "required", timeoutMs: 12e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: () => "origin and current branch", describeEffect: () => `${name === "git.pull" ? "Receive remote changes" : "Send local commits"} using protected Git credentials.` }));
-  registry.register(definition({ ...base, name: "shell.run", purpose: "Run an approved executable with an argument array.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3), ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => input.expectedOutcome }));
-  registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web as explicitly approved external research.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact query to an external search service and return cited results." }));
-  for (const name of ["web.fetch", "web.open"]) registry.register(definition({ ...base, name, purpose: "Retrieve an approved public HTTP(S) resource.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), riskTier: 2, approval: "always", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded external web evidence without browser automation." }));
+  for (const name of ["git.stage", "git.unstage"]) registry.register(definition({ ...base, name, purpose: `${name === "git.stage" ? "Stage" : "Unstage"} selected Git paths.`, inputSchema: z.object({ files: z.array(relativePath).min(1).max(200), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.files.join(", "), describeEffect: () => `${name === "git.stage" ? "Stage" : "Unstage"} only the listed paths.` }));
+  registry.register(definition({ ...base, name: "git.commit", purpose: "Commit the exact staged Git paths.", inputSchema: z.object({ message: z.string().min(1).max(5e3), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "current branch and staged files", describeEffect: (input) => `Create a commit with message ${JSON.stringify(input.message)}.` }));
+  for (const name of ["git.pull", "git.push"]) registry.register(definition({ ...base, name, purpose: `${name === "git.pull" ? "Pull from" : "Push to"} the configured remote.`, inputSchema: z.object({ reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 12e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: () => "origin and current branch", describeEffect: () => `${name === "git.pull" ? "Receive remote changes" : "Send local commits"} using protected Git credentials.` }));
+  registry.register(definition({ ...base, name: "shell.run", purpose: "Run an approved executable with an argument array.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3), ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => input.expectedOutcome }));
+  registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web as explicitly approved external research.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact query to an external search service and return cited results." }));
+  for (const name of ["web.fetch", "web.open"]) registry.register(definition({ ...base, name, purpose: "Retrieve an approved public HTTP(S) resource.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded external web evidence without browser automation." }));
+  registry.register(definition({ ...base, name: "github.read", purpose: "Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.", inputSchema: z.object({ resource: z.enum(["metadata", "branches", "commits", "issues", "pulls", "issue-comments", "pull-comments", "workflow-runs", "workflow-jobs", "releases", "release-assets"]), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "read", approval: "automatic", describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => "Read bounded GitHub repository evidence using the active origin." }));
+  registry.register(definition({ ...base, name: "github.mutate", purpose: "Perform one explicitly approved GitHub repository mutation through the official REST API.", inputSchema: z.object({ action: z.enum(["create-issue", "update-issue", "comment-issue", "create-branch", "create-file", "create-pull-request", "comment-pull-request", "retry-workflow", "create-release", "update-release"]), input: z.record(z.unknown()), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "remote", approval: "explicit", describeTarget: (input) => `GitHub ${input.action}`, describeEffect: () => "Send one authenticated, audited GitHub API mutation for the active repository." }));
   const taskStepDraft = z.object({ id: z.string().min(1).max(200).optional(), name: z.string().min(1).max(300), purpose: z.string().min(1).max(2e3), riskTier: z.union([z.literal(0), z.literal(1), z.literal(2)]), requiredTool: z.string().max(200).optional(), expectedInput: z.unknown().optional(), expectedOutput: z.unknown().optional(), retryPolicy: z.object({ maxAttempts: z.number().int().min(1).max(20).optional(), backoffMs: z.number().int().min(0).max(864e5).optional(), retryableErrorCodes: z.array(z.string().max(100)).max(50).optional() }).optional(), timeoutMs: z.number().int().min(100).max(864e5).optional(), artifactPaths: z.array(relativePath).max(200).optional(), verificationCriteria: z.array(z.string().min(1).max(1e3)).min(1).max(100), rollbackInstructions: z.string().max(4e3).optional(), dependencies: z.array(z.string().min(1).max(200)).max(100).optional() });
   const taskDraft = z.object({ title: z.string().min(1).max(300), description: z.string().max(1e4).optional(), taskType: z.string().min(1).max(100), priority: z.enum(["low", "medium", "high"]).optional(), originatingConversationId: z.string().uuid().optional(), assignedProvider: z.string().max(200).optional(), assignedModel: z.string().max(200).optional(), progressSummary: z.string().max(4e3).optional(), resumeInstructions: z.string().min(1).max(1e4), associatedBranch: z.string().max(500).optional(), associatedCommitSha: z.string().max(100).optional(), associatedPullRequest: z.string().max(2e3).optional(), associatedReleaseTag: z.string().max(500).optional(), associatedWorkflowRun: z.string().max(500).optional(), taskDependencies: z.array(z.string().uuid()).max(100).optional(), steps: z.array(taskStepDraft).max(500) });
-  registry.register(definition({ ...base, name: "task.inspect", purpose: "Inspect one workspace-owned persistent task and its verified checkpoints.", inputSchema: z.object({ taskId: z.string().uuid() }), riskTier: 0, approval: "automatic", workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Read persistent task state without changing it." }));
-  registry.register(definition({ ...base, name: "task.create", purpose: "Create a draft workspace-owned task without executing any step.", inputSchema: taskDraft.extend({ reason }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.title, describeEffect: () => "Persist a draft task and its structured steps; no executable work will start.", sessionScope: (input) => input.title }));
-  for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.`, sessionScope: (input) => input.taskId }));
-  registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a task checkpoint; verified checkpoints require an audit reference.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Persist a structured checkpoint without executing another tool.", sessionScope: (input) => input.taskId }));
-  registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of authoritative SQLite task state.", inputSchema: z.object({ taskId: z.string().uuid(), reason }), riskTier: 1, approval: "explicit", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => "Atomically write or update a human-readable task handoff.", sessionScope: (input) => input.taskId }));
-  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3) }), riskTier: 2, approval: "always", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...input.args ?? []].map(quoteArgument).join(" ")}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation.` }));
+  registry.register(definition({ ...base, name: "task.inspect", purpose: "Inspect one workspace-owned persistent task and its verified checkpoints.", inputSchema: z.object({ taskId: z.string().uuid() }), workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Read persistent task state without changing it." }));
+  registry.register(definition({ ...base, name: "task.create", purpose: "Create a draft workspace-owned task without executing any step.", inputSchema: taskDraft.extend({ reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.title, describeEffect: () => "Persist a draft task and its structured steps; no executable work will start." }));
+  for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.` }));
+  registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a task checkpoint; verified checkpoints require an audit reference.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Persist a structured checkpoint without executing another tool." }));
+  registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of authoritative SQLite task state.", inputSchema: z.object({ taskId: z.string().uuid(), reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => "Atomically write or update a human-readable task handoff." }));
+  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3) }), workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...input.args ?? []].map(quoteArgument).join(" ")}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation.` }));
   return registry;
 }
 function quoteArgument(value) {
@@ -6271,22 +6370,20 @@ class ToolRouter {
   constructor(dependencies) {
     this.dependencies = dependencies;
     this.registry = createToolRegistry();
-    this.sessions = new SessionPermissionStore();
-    this.policy = new PolicyEngine(this.sessions);
     this.installExecutors();
   }
   registry;
-  sessions;
-  policy;
   requests = /* @__PURE__ */ new Map();
   controllers = /* @__PURE__ */ new Map();
   executors = /* @__PURE__ */ new Map();
   workspaceRoots = /* @__PURE__ */ new Map();
+  sessions = new SessionPermissionStore();
+  policy = new PolicyEngine(this.sessions);
   definitions() {
     return this.registry.list();
   }
   providerDefinitions() {
-    return this.registry.list().map((entry) => ({ name: entry.name, description: `${entry.purpose} Risk Tier ${entry.riskTier}; ${entry.approval === "automatic" ? "may run automatically" : "requires user approval"}.`, parameters: zodToJsonSchema(entry.inputSchema, { target: "openApi3" }) }));
+    return this.registry.list().map((entry) => ({ name: entry.name, description: entry.purpose, parameters: zodToJsonSchema(entry.inputSchema, { target: "openApi3" }), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: "Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable." }));
   }
   listRequests(workspaceId) {
     return [...this.requests.values()].filter((request) => !workspaceId || request.workspaceId === workspaceId).sort((a, b) => b.requestedAt - a.requestedAt).map((request) => ({ ...request, input: sanitizeToolData(request.input) }));
@@ -6314,7 +6411,6 @@ class ToolRouter {
       modelId: context.modelId,
       toolName: definition2.name,
       input,
-      riskTier: definition2.riskTier,
       reason: typeof input.reason === "string" ? input.reason : definition2.purpose,
       target: prediction.target ?? definition2.describeTarget(input),
       workingDirectory: typeof input.workingDirectory === "string" ? input.workingDirectory : void 0,
@@ -6323,23 +6419,22 @@ class ToolRouter {
       networkAccess: definition2.networkAccess,
       externalDataDescription: typeof input.projectDataSent === "string" ? input.projectDataSent : void 0,
       diff: prediction.diff,
+      approvalRequired: this.policy.requiresApproval(context.workspaceId, definition2, input),
+      sessionApprovalAvailable: definition2.approval === "session",
       state: "pending",
       requestedAt: now,
-      updatedAt: now,
-      sessionApprovalAvailable: definition2.riskTier === 1 && Boolean(definition2.sessionScope)
+      updatedAt: now
     };
     this.requests.set(request.id, request);
-    if (!this.policy.requiresApproval(context.workspaceId, definition2, input)) {
-      const result = await this.execute(request.id, context, "automatic");
-      return { request: { ...request }, result };
-    }
-    return { request: { ...request } };
+    if (request.approvalRequired) return { request: { ...request } };
+    const result = await this.execute(request.id, context, definition2.approval === "session" ? "session" : "automatic");
+    return { request: { ...request }, result };
   }
   async approve(requestId, context, choice) {
     const request = this.required(requestId);
-    const definition2 = this.registry.get(request.toolName);
     if (request.workspaceId !== context.workspaceId) throw new Error("Tool request belongs to another workspace.");
     if (request.state !== "pending") throw new Error("Tool request is no longer pending.");
+    const definition2 = this.registry.get(request.toolName);
     if (choice === "session") this.sessions.grant(context.workspaceId, definition2, request.input);
     request.state = "approved";
     request.updatedAt = Date.now();
@@ -6397,11 +6492,11 @@ class ToolRouter {
     }
   }
   record(request, approvalDecision, success, executionDurationMs, resultSummary, affectedPaths, exitCode, rollback) {
-    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, sanitizedInputs: sanitizeToolData(request.input), riskTier: request.riskTier, approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
+    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, sanitizedInputs: sanitizeToolData(request.input), approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
   }
   async auditValidationFailure(call, context, error) {
     const summary = error instanceof Error ? error.message : String(error);
-    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, sanitizedInputs: sanitizeToolData(call.arguments), riskTier: 2, approvalDecision: "validation-failed", executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
+    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, sanitizedInputs: sanitizeToolData(call.arguments), approvalDecision: "validation-failed", executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
   }
   required(id2) {
     const request = this.requests.get(id2);
@@ -6469,6 +6564,7 @@ class ToolRouter {
       const absolute = await resolveContainedPath(this.root(request), requestedPath, true);
       if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), matches: [], truncated: false });
       const matches = [];
+      let matchOffset = 0;
       const query = input.caseSensitive ? input.query : input.query.toLowerCase();
       const visit = async (current) => {
         if (signal.aborted || matches.length >= input.maxResults) return;
@@ -6482,7 +6578,10 @@ class ToolRouter {
               const data = await readText(child);
               for (const [index, line] of data.content.split(/\r?\n/).entries()) {
                 const haystack = input.caseSensitive ? line : line.toLowerCase();
-                if (haystack.includes(query)) matches.push({ path: path__default.relative(this.root(request), child), line: index + 1, text: line.slice(0, 2e3) });
+                if (haystack.includes(query)) {
+                  if (matchOffset >= input.offset) matches.push({ path: path__default.relative(this.root(request), child), line: index + 1, text: line.slice(0, 2e3) });
+                  matchOffset += 1;
+                }
                 if (matches.length >= input.maxResults) break;
               }
             } catch {
@@ -6491,7 +6590,8 @@ class ToolRouter {
         }
       };
       await visit(absolute);
-      return ok({ matches, truncated: matches.length >= input.maxResults });
+      const truncated = matches.length >= input.maxResults;
+      return ok({ matches, truncated, totalOrMore: input.offset + matches.length + (truncated ? 1 : 0), continuation: truncated ? { offset: input.offset + matches.length, instruction: "Call file.search again with the same query/path and this offset." } : void 0 });
     });
     this.executors.set("file.create", async (input, request) => {
       this.assertNotDirty(input.path);
@@ -6579,6 +6679,14 @@ class ToolRouter {
     });
     this.executors.set("web.search", async (input) => ok(await this.dependencies.web.search(input.query)));
     for (const name of ["web.fetch", "web.open"]) this.executors.set(name, async (input) => ok(await this.dependencies.web.fetch(input.url)));
+    this.executors.set("github.read", async (input) => {
+      if (!this.dependencies.github) throw new Error("GitHub integration is unavailable.");
+      return ok(await this.dependencies.github.read(input.resource, input));
+    });
+    this.executors.set("github.mutate", async (input) => {
+      if (!this.dependencies.github) throw new Error("GitHub integration is unavailable.");
+      return ok(await this.dependencies.github.mutate(input.action, input.input));
+    });
     this.executors.set("task.inspect", async (input) => {
       if (!this.dependencies.tasks) throw new Error("Persistent task runtime is unavailable.");
       return ok({ task: await this.dependencies.tasks.get(input.taskId) });
@@ -6932,16 +7040,19 @@ class WebService {
     this.maxBytes = maxBytes;
   }
   dispatcher = new Agent$1({ connect: { lookup: (hostname, options, callback) => {
-    lookup(hostname, { ...options, all: false }, (error, address, family) => {
+    const complete = callback;
+    lookup(hostname, { family: options.family, hints: options.hints, all: true, verbatim: true }, (error, addresses) => {
       if (error) {
-        callback(error, address, family);
+        complete(error, []);
         return;
       }
-      if (privateAddress(address)) {
-        callback(Object.assign(new Error("Connection to a private or local network address was blocked."), { code: "FORGE_PRIVATE_ADDRESS" }), address, family);
+      const publicAddresses = addresses.filter((candidate) => !privateAddress(candidate.address));
+      const address = publicAddresses.find((candidate) => candidate.family === 4) ?? publicAddresses[0];
+      if (!address) {
+        complete(Object.assign(new Error("Connection to a private or local network address was blocked."), { code: "FORGE_PRIVATE_ADDRESS" }), []);
         return;
       }
-      callback(null, address, family);
+      complete(null, [address]);
     });
   } } });
   async fetch(urlValue, timeoutMs = 2e4) {
@@ -8255,8 +8366,7 @@ class TaskRuntime {
     const next = task.steps.find((step) => !completed(step) && step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId))));
     if (!next) return this.dependencies.storage.setPersistentTaskState(taskId, "blocked", { summary: "No dependency-ready step is available.", eventType: "state.reconciled", currentStepId: null, interruptionReason: "Step dependency graph cannot advance.", resumabilityState: "reconcile-required" });
     if (next.status === "waiting") return this.dependencies.storage.setPersistentTaskState(taskId, "waiting", { summary: `Verification or an external condition is still required for ${next.name}.`, eventType: "state.reconciled", currentStepId: next.id, resumabilityState: "reconcile-required", details: { observedAt: snapshot.observedAt } });
-    const approvalRequired = next.riskTier > 0;
-    return this.dependencies.storage.setPersistentTaskState(taskId, approvalRequired ? "waiting" : "ready", { summary: approvalRequired ? `Approval required before ${next.name}.` : `Ready for ${next.name}.`, eventType: "state.reconciled", currentStepId: next.id, resumabilityState: approvalRequired ? "approval-required" : "resumable", details: { observedAt: snapshot.observedAt, git: snapshot.git } });
+    return this.dependencies.storage.setPersistentTaskState(taskId, "ready", { summary: `Ready for ${next.name}.`, eventType: "state.reconciled", currentStepId: next.id, resumabilityState: "resumable", details: { observedAt: snapshot.observedAt, git: snapshot.git } });
   }
   async pause(taskId, reason2) {
     if (!reason2.trim() || reason2.length > 4e3) throw new Error("A bounded pause reason is required.");
@@ -8279,8 +8389,8 @@ class TaskRuntime {
     if (!["failed", "blocked"].includes(step.status)) throw new Error("Only failed or blocked steps can be retried.");
     if (step.attempts >= step.retryPolicy.maxAttempts) throw new Error("The task step retry limit has been reached.");
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)))) throw new Error("Task step dependencies are not complete.");
-    await this.dependencies.storage.setTaskStepState(taskId, stepId, "pending", { summary: `Retry queued for ${step.name}.`, approvalState: step.riskTier === 0 ? "not-required" : "required", eventType: "step.retried" });
-    return this.dependencies.storage.setPersistentTaskState(taskId, step.riskTier === 0 ? "ready" : "waiting", { summary: step.riskTier === 0 ? `Ready to retry ${step.name}.` : `Fresh approval required to retry ${step.name}.`, eventType: "state.reconciled", currentStepId: step.id, resumabilityState: step.riskTier === 0 ? "resumable" : "approval-required" });
+    await this.dependencies.storage.setTaskStepState(taskId, stepId, "pending", { summary: `Retry queued for ${step.name}.`, approvalState: "not-required", eventType: "step.retried" });
+    return this.dependencies.storage.setPersistentTaskState(taskId, "ready", { summary: `Ready to retry ${step.name}.`, eventType: "state.reconciled", currentStepId: step.id, resumabilityState: "resumable" });
   }
   async checkpoint(taskId, input) {
     if (!input.name.trim() || input.name.length > 240 || !input.summary.trim() || input.summary.length > 1e4 || JSON.stringify(input.evidence ?? null).length > 25e4) throw new Error("Checkpoint name, summary, or evidence exceeds the storage limit.");
@@ -8319,7 +8429,7 @@ class TaskRuntime {
     const task = await this.get(taskId);
     const step = task.steps.find((candidate) => candidate.id === stepId);
     if (!step) throw new Error("Unknown task step.");
-    if (step.riskTier !== 2 || !["shell.run", "task.process.start"].includes(step.requiredTool ?? "")) throw new Error("Task step is not an approved Tier 2 background shell step.");
+    if (!["shell.run", "task.process.start"].includes(step.requiredTool ?? "")) throw new Error("Task step is not configured for a background shell process.");
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)))) throw new Error("Task step dependencies are not complete.");
     const outputPath = path__default.join(".forge", "task-output", taskId, `${slug(step.name)}.log`);
     await this.dependencies.storage.setTaskStepState(taskId, stepId, "running", { summary: `${step.name} is starting as a workspace-owned background process.`, incrementAttempts: true, approvalState: "consumed", auditReference: toolRequestId, eventType: "step.started" });
@@ -8396,16 +8506,6 @@ function taskHandoffMarkdown(task) {
   const lines = [`# ${task.title}`, "", `Task ID: \`${task.id}\``, `Status: **${task.status}**`, `Updated: ${new Date(task.updatedAt).toISOString()}`, "", "## Objective", "", task.description ?? task.title, "", "## Completed steps", "", ...complete.length ? complete.map((step) => `- [x] ${step.name}`) : ["- None verified yet."], "", "## Current state", "", `- Current step: ${current?.name ?? "None"}`, `- Progress: ${task.progressSummary}`, `- Waiting: ${waiting.map((step) => step.name).join(", ") || "None"}`, `- Blockers: ${blocked.map((step) => `${step.name}: ${step.lastError?.message ?? step.status}`).join("; ") || "None"}`, `- Active process IDs: ${task.processIds.join(", ") || "None"}`, "", "## Provenance and external state", "", `- Branch: ${task.associatedBranch ?? "Unrecorded"}`, `- Commit: ${task.associatedCommitSha ?? "Unrecorded"}`, `- Pull request: ${task.associatedPullRequest ?? "Unrecorded"}`, `- Tag: ${task.associatedReleaseTag ?? "Unrecorded"}`, `- Workflow run: ${task.associatedWorkflowRun ?? "Unrecorded"}`, ...task.externalReferences.map((reference) => `- ${reference.type}: ${reference.url ?? reference.externalId} (${reference.state ?? "state unrecorded"})`), "", "## Artifacts and verification", "", ...task.artifacts.length ? task.artifacts.map((artifact) => `- ${artifact.kind}: ${artifact.path ?? artifact.uri ?? artifact.id}${artifact.sha256 ? ` — SHA-256 ${artifact.sha256}` : ""}${artifact.verifiedAt ? " (verified)" : ""}`) : ["- No artifacts recorded."], ...task.checkpoints.map((checkpoint) => `- ${checkpoint.verified ? "Verified" : "Unverified"} checkpoint: ${checkpoint.name} — ${checkpoint.summary}`), "", "## Resume instructions", "", task.resumeInstructions, "", "## Next action", "", current ? `Reconcile and advance **${current.name}** only after its dependencies and verification criteria are satisfied.` : "Reconcile the task and identify the first genuinely unfinished step.", "", "## Actions that must not be repeated", "", ...complete.length ? complete.map((step) => `- Do not repeat ${step.name} unless current evidence invalidates its verified checkpoint.`) : ["- No completed action is yet protected from repetition."], "", "> SQLite task state in `.forge/metadata.sqlite` is authoritative. This Markdown file is a human-readable projection.", ""];
   return lines.join("\n");
 }
-function looksLikeRepeatedToolRequest(content) {
-  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  if (!trimmed.startsWith("{")) return false;
-  try {
-    const value = JSON.parse(trimmed);
-    return typeof (value.name ?? value.tool) === "string" && (value.parameters !== void 0 || value.arguments !== void 0);
-  } catch {
-    return false;
-  }
-}
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== "object") return value;
@@ -8413,6 +8513,18 @@ function stableValue(value) {
 }
 function toolCallKey(call) {
   return `${call.name}:${JSON.stringify(stableValue(call.arguments))}`;
+}
+class ProgressAwareLoopGuard {
+  observations = /* @__PURE__ */ new Map();
+  shouldRun(call, revision) {
+    return this.observations.get(toolCallKey(call))?.revision !== revision;
+  }
+  record(call, revision, result) {
+    this.observations.set(toolCallKey(call), { revision, result: JSON.stringify(result).slice(0, 16e3) });
+  }
+  observedResults() {
+    return [...this.observations.values()].map((entry) => entry.result);
+  }
 }
 function nestedTaskLink(input) {
   const link = input?.taskContext;
@@ -8425,12 +8537,120 @@ function directTaskLink(input) {
 function taskEvidenceLink(request) {
   return nestedTaskLink(request.input) ?? (request.toolName === "task.process.start" ? directTaskLink(request.input) : null);
 }
-function taskApprovalLink(request) {
-  return taskEvidenceLink(request) ?? (request.toolName === "task.checkpoint" ? directTaskLink(request.input) : null);
+function createNativeAgentRuntime(dependencies) {
+  const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2 } = dependencies;
+  const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 6e4, 6e4), 60 * 6e4);
+  const historyFor = async (conversationId) => (await storage2.listConversationMessages(conversationId)).map((entry) => ({ role: entry.role, content: entry.content }));
+  const recordTaskOutcome = async (request, result) => {
+    const link = taskEvidenceLink(request);
+    if (!link) return null;
+    try {
+      await taskRuntime2.recordToolOutcome(link.taskId, link.stepId, request.id, result);
+      return null;
+    } catch (error) {
+      return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+  const runAgentTurn = async (conversationId, prompt) => {
+    await emitRuntimeEvent2?.("agent.started", { conversationId });
+    try {
+      const state = await storage2.conversationState(conversationId);
+      const history = await historyFor(state.activeConversationId);
+      await storage2.appendConversation(state.activeConversationId, "user", prompt);
+      const project = await storage2.dashboard();
+      const info = workspace2.info();
+      if (!project || !info) throw new Error("Open a workspace before requesting agent tools.");
+      const definitions = toolRouter2.providerDefinitions();
+      let turn = await agent2.askWithTools(prompt, history, definitions);
+      const outcomes = [];
+      const continuationHistory = [...history, { role: "user", content: prompt }];
+      const loopGuard = new ProgressAwareLoopGuard();
+      const workspaceRevision = async () => {
+        try {
+          const status = await git2.status();
+          return JSON.stringify({ head: status.head?.hash ?? null, branch: status.branch, files: status.files.map((file) => [file.path, file.indexStatus, file.workingStatus]) });
+        } catch {
+          return "workspace-state-unavailable";
+        }
+      };
+      const startedAt = Date.now();
+      let modelContent = "";
+      while (true) {
+        if (Date.now() - startedAt > maxRuntimeMs) throw new Error(`Agent execution exceeded the configured ${Math.round(maxRuntimeMs / 6e4)} minute runtime budget. Progress and tool evidence were preserved for task resumption.`);
+        const calls = [...turn.toolCalls];
+        const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider2.id, turn.content);
+        if (fallback) calls.push(fallback);
+        if (!calls.length) {
+          modelContent = turn.content;
+          break;
+        }
+        const revision = await workspaceRevision();
+        const fresh = calls.filter((call) => loopGuard.shouldRun(call, revision));
+        if (!fresh.length) {
+          const evidence2 = loopGuard.observedResults().join("\n\n");
+          modelContent = (await agent2.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:
+
+${evidence2}`, continuationHistory)).content;
+          break;
+        }
+        const round = [];
+        for (const call of fresh) {
+          await emitRuntimeEvent2?.("tool.requested", { toolName: call.name, conversationId: state.activeConversationId });
+          const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel });
+          round.push(outcome);
+          outcomes.push(outcome);
+          loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+          await emitRuntimeEvent2?.("tool.completed", { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
+          if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+        }
+        const pending = round.find((outcome) => !outcome.result);
+        if (pending) {
+          modelContent = `FORGE is waiting for approval to ${pending.request.expectedEffect} (${pending.request.toolName}). The project state and this request remain persisted; approving the exact request will resume the agent from its observed result.`;
+          await emitRuntimeEvent2?.("agent.progress", { conversationId: state.activeConversationId, state: "waiting-for-approval", requestId: pending.request.id });
+          break;
+        }
+        const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
+        continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
+        turn = await agent2.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. If a task was just created or resumed, execute its next dependency-ready step with its exact taskContext.
+
+${evidence}`, continuationHistory, definitions);
+      }
+      const summary = outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? "succeeded" : "failed"}${result?.error ? `: ${result.error.message}` : ""}.`).join("\n");
+      const content = [modelContent, summary].filter(Boolean).join("\n\n") || "FORGE received no response from the model.";
+      await storage2.appendConversation(state.activeConversationId, "assistant", content);
+      await emitRuntimeEvent2?.("agent.completed", { conversationId: state.activeConversationId, toolCount: outcomes.length });
+      return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path })) };
+    } catch (error) {
+      await emitRuntimeEvent2?.("agent.blocked", { conversationId, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  };
+  const runTaskStep = async (taskId) => {
+    const task = await taskRuntime2.resume(taskId);
+    const step = task.steps.find((candidate) => candidate.id === task.currentStepId);
+    if (!step || task.status !== "ready") return task;
+    const conversationId = task.lastActiveConversationId ?? task.originatingConversationId;
+    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool with taskContext { taskId: "${task.id}", stepId: "${step.id}" }. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join("; ")}.`);
+    return taskRuntime2.get(taskId);
+  };
+  const continueAfterApproval = async (request, result) => {
+    const checkpointWarning = await recordTaskOutcome(request, result);
+    const evidence = boundedToolEvidence(result);
+    await runAgentTurn(request.conversationId, `An explicitly approved FORGE tool request has completed. Continue the original work from the persisted workspace and task state. Do not repeat this call unless the workspace has changed.
+
+${evidence}${checkpointWarning ? `
+
+${checkpointWarning}` : ""}`);
+  };
+  return { runAgentTurn, runTaskStep, continueAfterApproval };
 }
 const workspace = new WorkspaceService();
 const settings = new SettingsService();
 const git = new GitService(() => settings.githubCredentials());
+const github = new GitHubService(() => git.originUrl(), async () => {
+  const credentials = await settings.githubCredentials();
+  return credentials ? { token: credentials.token } : null;
+});
 const storage = new StorageService();
 const updater = new UpdaterService();
 const dirtyEditorPaths = /* @__PURE__ */ new Set();
@@ -8440,14 +8660,16 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("terminal.event", event);
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
-const toolRouter = new ToolRouter({ git, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
+const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
+let mainWindow = null;
+let browserView = null;
+let browserLayout = { visible: false };
 let rendererSource = "file:// development build";
 function appBuildInfo() {
-  const identity = buildReleaseIdentity(app.getVersion(), app.isPackaged);
   return {
-    ...identity,
-    commit: "74efe8d56e107a37aebdb51578d4f287c8d39303",
-    buildDate: "2026-08-07T20:25:06.661Z",
+    ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
+    commit: "700d718918b4d2e16cee2ff46b748b1dfe3a9294",
+    buildDate: "2026-08-09T11:20:22.468Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8455,18 +8677,41 @@ function appBuildInfo() {
   };
 }
 const aiProvider = new OpenAIProvider();
-const contextBuilder = new ContextBuilderImpl(workspace, git, storage);
+const contextBuilder = new WorkspaceContextEngine(workspace, git, storage);
+const intelligence = new WorkspaceIntelligenceService(contextBuilder, storage);
 const memoryService = new MemoryService(storage);
 const memoryRetriever = new MemoryRetriever(memoryService);
 const memoryIndexer = new MemoryIndexer(memoryService, workspace);
-const agent = new Agent(aiProvider, contextBuilder, memoryRetriever);
+const agent = new Agent(aiProvider, intelligence, memoryRetriever);
 async function applyAISettings() {
   aiProvider.configure(await settings.apiConfiguration());
+}
+async function emitRuntimeEvent(type, payload) {
+  if (type === "context.invalidated") await intelligence.invalidate(String(payload?.channel ?? "runtime-event"), payload);
+  const workspaceId = (await storage.dashboard().catch(() => null))?.id;
+  if (!workspaceId) return;
+  const event = { type, workspaceId, occurredAt: Date.now(), payload };
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send("runtime.event", event);
+}
+function eventForChannel(channel) {
+  if (["file.write", "file.create", "file.delete", "file.rename", "file.copy"].includes(channel)) return "file.changed";
+  if (["git.stage", "git.unstage", "git.commit", "git.pull", "git.push"].includes(channel)) return "git.changed";
+  if (channel.startsWith("tasks.")) return "task.changed";
+  if (channel.startsWith("agent.memories")) return "memory.changed";
+  if (channel.startsWith("terminal.")) return "terminal.changed";
+  if (channel === IPC_CHANNELS.workspaceOpen) return "workspace.changed";
+  return null;
 }
 function register(channel, action) {
   ipcMain.handle(channel, async (_event, request) => {
     try {
-      return { success: true, data: await action(request) };
+      const data = await action(request);
+      const event = eventForChannel(channel);
+      if (event) {
+        await emitRuntimeEvent(event, { channel });
+        await emitRuntimeEvent("context.invalidated", { channel });
+      }
+      return { success: true, data };
     } catch (error) {
       return { success: false, error: { message: error instanceof Error ? error.message : "An unexpected error occurred." } };
     }
@@ -8475,12 +8720,48 @@ function register(channel, action) {
 async function openWorkspaceAt(rootPath) {
   terminalService.dispose();
   dirtyEditorPaths.clear();
-  toolRouter.sessions.clear();
   await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
   return info;
+}
+function browserState() {
+  const contents = browserView?.webContents;
+  return { url: contents?.getURL() ?? "", title: contents?.getTitle() ?? "", canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false };
+}
+function ensureBrowserView() {
+  if (browserView && !browserView.webContents.isDestroyed()) return browserView;
+  browserView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
+  browserView.setBackgroundColor("#0d1116");
+  browserView.webContents.setWindowOpenHandler(({ url }) => {
+    void navigateBrowser(url);
+    return { action: "deny" };
+  });
+  browserView.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    void navigateBrowser(url);
+  });
+  browserView.webContents.on("did-navigate", () => mainWindow?.webContents.send("browser.state", browserState()));
+  browserView.webContents.on("did-navigate-in-page", () => mainWindow?.webContents.send("browser.state", browserState()));
+  mainWindow?.contentView.addChildView(browserView);
+  setBrowserLayout(browserLayout);
+  return browserView;
+}
+async function navigateBrowser(value) {
+  const url = (await validateExternalUrl(value)).toString();
+  const view = ensureBrowserView();
+  await view.webContents.loadURL(url);
+  return browserState();
+}
+function setBrowserLayout(request) {
+  browserLayout = request;
+  if (!browserView || browserView.webContents.isDestroyed()) return;
+  browserView.setVisible(request.visible);
+  if (request.visible && request.bounds) {
+    const { x, y, width, height } = request.bounds;
+    browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
+  }
 }
 function registerHandlers() {
   register(IPC_CHANNELS.workspaceOpen, async () => {
@@ -8510,10 +8791,9 @@ function registerHandlers() {
   register(IPC_CHANNELS.gitPush, async () => git.push());
   register(IPC_CHANNELS.metaDashboard, async () => {
     const project = await storage.dashboard();
-    const files = await workspace.list();
     const all = (nodes) => nodes.flatMap((node) => [node, ...node.children ? all(node.children) : []]);
-    const flattened = all(files);
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { score: project ? flattened.some((file) => /^readme\.md$/i.test(file.name)) ? 65 : 35 : 0, hasReadme: flattened.some((file) => /^readme\.md$/i.test(file.name)), noteCount: flattened.filter((file) => file.extension === "md").length, codeFileCount: flattened.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
+    const files = all(await workspace.list());
+    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { score: project ? files.some((file) => /^readme\.md$/i.test(file.name)) ? 65 : 35 : 0, hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
@@ -8535,158 +8815,29 @@ function registerHandlers() {
     return result;
   });
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
-  register(IPC_CHANNELS.settingsModelsList, async (request) => {
-    const configuration = await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl });
-    return new OpenAIProvider(configuration).listModels();
-  });
-  register(IPC_CHANNELS.settingsModelValidate, async (request) => {
-    const configuration = await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel });
-    return new OpenAIProvider(configuration).validateModel(request.apiModel);
-  });
+  register(IPC_CHANNELS.settingsModelsList, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl })).listModels());
+  register(IPC_CHANNELS.settingsModelValidate, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel })).validateModel(request.apiModel));
   register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
-  const resolveConversation = async (conversationId) => storage.conversationState(conversationId);
-  const historyFor = async (conversationId) => (await storage.listConversationMessages(conversationId)).map((entry) => ({ role: entry.role, content: entry.content }));
-  const recordTaskOutcome = async (request, result) => {
-    const link = taskEvidenceLink(request);
-    if (!link) return null;
-    try {
-      await taskRuntime.recordToolOutcome(link.taskId, link.stepId, request.id, result);
-      return null;
-    } catch (error) {
-      return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`;
-    }
-  };
-  const runAgentTurn = async (conversationId, prompt) => {
-    const state = await resolveConversation(conversationId);
-    const history = await historyFor(state.activeConversationId);
-    await storage.appendConversation(state.activeConversationId, "user", prompt);
-    const definitions = toolRouter.providerDefinitions();
-    const firstTurn = await agent.askWithTools(prompt, history, definitions);
-    let turn = firstTurn;
-    const project = await storage.dashboard();
-    const info = workspace.info();
-    if (!project || !info) throw new Error("Open a workspace before requesting agent tools.");
-    const toolOutcomes = [];
-    const taskLinkWarnings = [];
-    const continuationHistory = [...history, { role: "user", content: prompt }];
-    const executedCallKeys = /* @__PURE__ */ new Set();
-    const synthesizeObservedResults = async () => {
-      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
-      return (await agent.askWithContext(`The required FORGE tool has already completed. Do not output JSON and do not request another tool. Answer the original request using only these observed Tool Result records.
-
-${evidence}`, continuationHistory)).content;
-    };
-    let modelContent = "";
-    let completedRounds = 0;
-    for (; completedRounds < 3; completedRounds += 1) {
-      const calls = [...turn.toolCalls];
-      const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
-      if (fallback) calls.push(fallback);
-      if (calls.length === 0) {
-        if (toolOutcomes.length && looksLikeRepeatedToolRequest(turn.content)) {
-          modelContent = await synthesizeObservedResults();
-        } else modelContent = turn.content;
-        break;
-      }
-      const freshCalls = calls.filter((call) => !executedCallKeys.has(toolCallKey(call)));
-      if (freshCalls.length === 0) {
-        modelContent = await synthesizeObservedResults();
-        break;
-      }
-      if (toolOutcomes.length + freshCalls.length > 5) throw new Error("The model requested too many tools in one turn.");
-      const roundOutcomes = [];
-      for (const originalCall of freshCalls) {
-        executedCallKeys.add(toolCallKey(originalCall));
-        let call = originalCall;
-        const link = taskEvidenceLink({ input: originalCall.arguments, toolName: originalCall.name });
-        if (link) {
-          try {
-            const task = await taskRuntime.get(link.taskId);
-            if (!task.steps.some((step) => step.id === link.stepId)) throw new Error("Unknown task step.");
-          } catch {
-            const { taskContext: _invalidTaskContext, ...argumentsWithoutTaskContext } = originalCall.arguments;
-            call = { ...originalCall, arguments: argumentsWithoutTaskContext };
-          }
-        }
-        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
-        roundOutcomes.push(outcome);
-        toolOutcomes.push(outcome);
-      }
-      for (const outcome of roundOutcomes) {
-        const link = taskApprovalLink(outcome.request);
-        if (!link) continue;
-        if (outcome.result) {
-          const warning = await recordTaskOutcome(outcome.request, outcome.result);
-          if (warning) taskLinkWarnings.push(warning);
-        } else await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: outcome.request.id, decision: "pending", scope: `${link.taskId}:${link.stepId}:${outcome.request.toolName}` });
-      }
-      if (roundOutcomes.some((outcome) => !outcome.result)) {
-        modelContent = turn.content;
-        break;
-      }
-      const evidence = roundOutcomes.map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
-      continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
-      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. If a filesystem result reports a missing path, follow its recovery instruction and inspect the workspace root before concluding. Do not repeat a completed request.
-
-${evidence}`, continuationHistory, definitions);
-    }
-    if (!modelContent && completedRounds >= 3) {
-      const evidence = toolOutcomes.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
-      modelContent = (await agent.askWithContext(`Answer the original request from the observed Tool Results. The bounded continuation limit was reached; do not claim unobserved work.
-
-${evidence}`, continuationHistory)).content;
-    }
-    const toolSummary = toolOutcomes.map(({ request, result }) => result ? `Tool ${request.toolName} ${result.success ? "succeeded" : "failed"} (${result.durationMs} ms).${result.error ? ` ${result.error.message}` : ""}` : `Tool ${request.toolName} requires Tier ${request.riskTier} approval before FORGE can execute it.`).join("\n");
-    const content = [modelContent, toolSummary, ...taskLinkWarnings].filter(Boolean).join("\n\n") || "FORGE received no response from the model.";
-    await storage.appendConversation(state.activeConversationId, "assistant", content);
-    return {
-      content,
-      contextUsed: turn.context.artifacts.length > 0,
-      conversationId: state.activeConversationId,
-      memories: firstTurn.memories.map((memory) => ({ id: memory.id, title: memory.title })),
-      contextSources: [...firstTurn.context.artifacts.map((artifact) => ({
-        id: artifact.id,
-        kind: artifact.kind,
-        title: artifact.title,
-        path: artifact.path,
-        relevance: typeof artifact.metadata?.relevance === "number" ? artifact.metadata.relevance : void 0,
-        reason: typeof artifact.metadata?.reason === "string" ? artifact.metadata.reason : void 0
-      })), ...toolOutcomes.filter((outcome) => outcome.result).map(({ request, result }) => ({ id: `tool:${request.id}`, kind: "tool", title: request.toolName, relevance: 100, reason: result?.success ? "Structured result returned by the FORGE tool runtime." : "Structured tool failure returned by FORGE." }))]
-    };
-  };
+  const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent });
   register(IPC_CHANNELS.agentAsk, async (request) => {
     if (!request.prompt.trim()) throw new Error("A prompt is required.");
-    return runAgentTurn(request.conversationId, request.prompt.trim());
+    return nativeAgent.runAgentTurn(request.conversationId, request.prompt.trim());
   });
-  register(IPC_CHANNELS.agentExplainProject, async (request) => {
-    const state = await resolveConversation(request?.conversationId);
-    return runAgentTurn(state.activeConversationId, "Explain this repository as an evidence-grounded architecture summary.");
-  });
-  register(IPC_CHANNELS.agentReviewChanges, async (request) => {
-    const state = await resolveConversation(request?.conversationId);
-    return runAgentTurn(state.activeConversationId, "Review the current repository changes against its documented architecture and project goals.");
-  });
+  register(IPC_CHANNELS.agentExplainProject, async (request) => nativeAgent.runAgentTurn(request?.conversationId, "Explain this repository as an evidence-grounded architecture summary."));
+  register(IPC_CHANNELS.agentReviewChanges, async (request) => nativeAgent.runAgentTurn(request?.conversationId, "Review the current repository changes against its documented architecture and project goals."));
   register(IPC_CHANNELS.agentConversationsState, async (request) => storage.conversationState(request?.conversationId));
-  register(IPC_CHANNELS.agentConversationsList, async (request) => {
-    const state = await storage.conversationState(request?.conversationId);
-    return state.messages;
-  });
+  register(IPC_CHANNELS.agentConversationsList, async (request) => (await storage.conversationState(request?.conversationId)).messages);
   register(IPC_CHANNELS.agentConversationsAppend, async (request) => {
     const state = await storage.conversationState(request.conversationId);
-    for (const entry of request.entries) {
-      await storage.appendConversation(state.activeConversationId, entry.role, entry.content);
-    }
+    for (const entry of request.entries) await storage.appendConversation(state.activeConversationId, entry.role, entry.content);
     return void 0;
   });
   register(IPC_CHANNELS.agentConversationCreate, async (request) => storage.createConversation(request.title));
   register(IPC_CHANNELS.agentConversationSelect, async (request) => storage.selectConversation(request.conversationId));
   register(IPC_CHANNELS.agentConversationRename, async (request) => storage.renameConversation(request.conversationId, request.title));
   register(IPC_CHANNELS.agentConversationClear, async (request) => storage.clearConversation(request.conversationId));
-  register(IPC_CHANNELS.agentMemoriesList, async () => {
-    return await storage.listMemories();
-  });
+  register(IPC_CHANNELS.agentMemoriesList, async () => storage.listMemories());
   register(IPC_CHANNELS.agentMemoriesDelete, async (request) => {
-    if (!request.id) throw new Error("Memory id required");
     await storage.deleteMemory(request.id);
     return void 0;
   });
@@ -8706,30 +8857,13 @@ ${evidence}`, continuationHistory)).content;
     return project ? toolRouter.listRequests(project.id) : [];
   });
   register(IPC_CHANNELS.toolRequestApprove, async (request) => {
-    const pending = toolRouter.requestById(request.requestId);
-    if (!pending) throw new Error("Unknown tool request.");
-    const link = taskApprovalLink(pending);
-    if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: request.choice, scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now(), expiresAt: request.choice === "session" ? Date.now() + 30 * 6e4 : void 0 });
     const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
-    const taskWarning = await recordTaskOutcome(pending, result);
-    const history = await historyFor(pending.conversationId);
-    const evidence = boundedToolEvidence(result);
-    try {
-      const followUp = await agent.askWithContext(`FORGE has completed the previously approved ${pending.toolName} request. Continue the active task using this bounded, redacted Tool Result. Report success or failure exactly as returned.
-
-${evidence}`, history);
-      await storage.appendConversation(pending.conversationId, "assistant", [followUp.content, taskWarning].filter(Boolean).join("\n\n"));
-    } catch {
-      await storage.appendConversation(pending.conversationId, "assistant", `FORGE tool result: ${pending.toolName} ${result.success ? "succeeded" : "failed"}.${result.error ? ` ${result.error.message}` : ""}`);
-    }
+    const approved = toolRouter.requestById(request.requestId);
+    if (approved) void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent("agent.blocked", { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
     return result;
   });
   register(IPC_CHANNELS.toolRequestReject, async (request) => {
-    const pending = toolRouter.requestById(request.requestId);
-    if (!pending) throw new Error("Unknown tool request.");
     await toolRouter.reject(request.requestId, await toolContext());
-    const link = taskApprovalLink(pending);
-    if (link) await storage.recordTaskApproval(link.taskId, link.stepId, { toolRequestId: pending.id, decision: "rejected", scope: `${link.taskId}:${link.stepId}:${pending.toolName}`, decidedAt: Date.now() });
     return void 0;
   });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
@@ -8762,50 +8896,61 @@ ${evidence}`, history);
   register(IPC_CHANNELS.tasksGet, async (request) => taskRuntime.get(request.taskId));
   register(IPC_CHANNELS.tasksCreate, async (request) => taskRuntime.create(request));
   register(IPC_CHANNELS.tasksCreateRelease, async (request) => taskRuntime.createRelease(request.version, request.originatingConversationId));
-  register(IPC_CHANNELS.tasksResume, async (request) => taskRuntime.resume(request.taskId));
+  register(IPC_CHANNELS.tasksResume, async (request) => nativeAgent.runTaskStep(request.taskId));
   register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));
   register(IPC_CHANNELS.tasksCancel, async (request) => taskRuntime.cancel(request.taskId, request.reason, request.trackingOnly));
-  register(IPC_CHANNELS.tasksRetryStep, async (request) => taskRuntime.retryStep(request.taskId, request.stepId));
+  register(IPC_CHANNELS.tasksRetryStep, async (request) => {
+    await taskRuntime.retryStep(request.taskId, request.stepId);
+    return nativeAgent.runTaskStep(request.taskId);
+  });
   register(IPC_CHANNELS.tasksHandoff, async (request) => taskRuntime.generateHandoff(request.taskId));
+  register(IPC_CHANNELS.browserNavigate, async (request) => navigateBrowser(request.url));
+  register(IPC_CHANNELS.browserLayout, async (request) => {
+    setBrowserLayout(request);
+    return browserState();
+  });
+  register(IPC_CHANNELS.browserBack, async () => {
+    if (browserView?.webContents.canGoBack()) browserView.webContents.goBack();
+    return browserState();
+  });
+  register(IPC_CHANNELS.browserForward, async () => {
+    if (browserView?.webContents.canGoForward()) browserView.webContents.goForward();
+    return browserState();
+  });
+  register(IPC_CHANNELS.browserReload, async () => {
+    browserView?.webContents.reload();
+    return browserState();
+  });
 }
 function createWindow() {
   const rendererFile = join(__dirname, "../renderer/index.html");
   const packagedRendererUrl = pathToFileURL(rendererFile).toString();
-  const window = new BrowserWindow({
-    width: 1500,
-    height: 950,
-    minWidth: 1100,
-    minHeight: 700,
-    show: false,
-    title: "Forge",
-    webPreferences: {
-      preload: join(__dirname, "../preload/index.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true
-    }
+  mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: "FORGE", webPreferences: { preload: join(__dirname, "../preload/index.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
+  mainWindow.on("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("closed", () => {
+    browserView = null;
+    mainWindow = null;
   });
-  window.on("ready-to-show", () => window.show());
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => {
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
     const developmentUrl = process.env.ELECTRON_RENDERER_URL;
     const allowed = is.dev && developmentUrl ? new URL(url).origin === new URL(developmentUrl).origin : url === packagedRendererUrl;
     if (!allowed) event.preventDefault();
   });
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     rendererSource = "development URL";
-    window.loadURL(process.env.ELECTRON_RENDERER_URL);
+    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     rendererSource = app.isPackaged ? "file:// packaged app.asar" : "file:// development build";
-    window.loadFile(rendererFile);
+    void mainWindow.loadFile(rendererFile);
   }
 }
 app.setName("FORGE");
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-1024.png");
   if (process.platform === "darwin" && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
-  settings.init().then(async () => {
+  try {
+    await settings.init();
     await applyAISettings();
     updater.setChannel(settings.updateChannel());
     registerHandlers();
@@ -8815,10 +8960,10 @@ app.whenReady().then(() => {
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  }).catch((error) => {
+  } catch (error) {
     dialog.showErrorBox("FORGE could not start", error instanceof Error ? error.message : String(error));
     app.quit();
-  });
+  }
 });
 app.on("window-all-closed", async () => {
   terminalService.dispose();
