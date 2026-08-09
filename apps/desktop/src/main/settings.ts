@@ -101,7 +101,7 @@ export class SettingsService {
     return { login: profile.login };
   }
 
-  webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
+ async webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
   updateChannel(): 'stable' | 'beta' { return normalizeUpdateChannel(this.data.updateChannel); }
 
   private validateUrl(value: string): string {

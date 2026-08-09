@@ -78,3 +78,5 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
+}
+
