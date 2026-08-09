@@ -1,9 +1,10 @@
 import { app, BrowserView, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { is } from '@electron-toolkit/utils';
-import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type BrowserStateView, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult, type RuntimeEventType } from '@forge/ipc';
+import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type BrowserBookmark, type BrowserHistoryEntry, type BrowserStateView, type BrowserTabView, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult, type RuntimeEventType } from '@forge/ipc';
 import { WorkspaceService } from '@forge/workspace';
 import { GitHubService, GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
@@ -38,10 +39,13 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
 let mainWindow: BrowserWindow | null = null;
-let browserView: BrowserView | null = null;
+type BrowserTab = { id: string; view: BrowserView; loading: boolean; error: string };
+const browserTabs = new Map<string, BrowserTab>();
+let activeBrowserTabId: string | null = null;
+let attachedBrowserView: BrowserView | null = null;
 let browserLayout: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } } = { visible: false };
-let browserLoading = false;
-let browserError = '';
+let browserBookmarks: BrowserBookmark[] = [];
+let browserHistory: BrowserHistoryEntry[] = [];
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
 function appBuildInfo(): AppBuildInfo {
@@ -94,19 +98,38 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
 }
 
 async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType<WorkspaceService['info']>>> {
-  terminalService.dispose(); dirtyEditorPaths.clear(); await storage.close();
+  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
+  await refreshBrowserRecords();
   return info;
 }
 
 function browserState(): BrowserStateView {
-  const contents = browserView?.webContents;
-  return { url: contents?.getURL() ?? '', title: contents?.getTitle() ?? '', canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false, loading: browserLoading, error: browserError || undefined };
+  const active = activeBrowserTabId ? browserTabs.get(activeBrowserTabId) : undefined;
+  const contents = active?.view.webContents;
+  const tabs: BrowserTabView[] = [...browserTabs.values()].filter((tab) => !tab.view.webContents.isDestroyed()).map((tab) => ({
+    id: tab.id, url: tab.view.webContents.getURL(), title: tab.view.webContents.getTitle() || tab.view.webContents.getURL() || 'New tab',
+    canGoBack: tab.view.webContents.canGoBack(), canGoForward: tab.view.webContents.canGoForward(), loading: tab.loading, error: tab.error || undefined
+  }));
+  return {
+    url: contents?.getURL() ?? '', title: contents?.getTitle() ?? '', canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false,
+    loading: active?.loading ?? false, error: active?.error || undefined, activeTabId: active?.id, showingHome: !active, tabs, bookmarks: browserBookmarks, history: browserHistory
+  };
 }
 
 function sendBrowserState(): void { mainWindow?.webContents.send('browser.state', browserState()); }
+
+async function refreshBrowserRecords(): Promise<void> {
+  if (!workspace.info()) { browserBookmarks = []; browserHistory = []; return; }
+  [browserBookmarks, browserHistory] = await Promise.all([storage.listBrowserBookmarks(), storage.listBrowserHistory()]);
+}
+
+function activeBrowserTab(): BrowserTab | null {
+  const tab = activeBrowserTabId ? browserTabs.get(activeBrowserTabId) : undefined;
+  return tab && !tab.view.webContents.isDestroyed() ? tab : null;
+}
 
 /** Keep page-initiated public redirects inside the native view. Re-loading them
  * through the async validator cancels the page currently being painted, which
@@ -126,68 +149,115 @@ function blockedBrowserNavigation(value: string): string | null {
   return null;
 }
 
-function ensureBrowserView(): BrowserView {
-  if (browserView && !browserView.webContents.isDestroyed()) return browserView;
-  browserView = new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
-  browserView.webContents.setWindowOpenHandler(({ url }) => { void navigateBrowser(url).catch(reportBrowserError); return { action: 'deny' }; });
-  browserView.webContents.on('will-navigate', (event, url) => {
+function createBrowserTab(): BrowserTab {
+  const tab: BrowserTab = { id: randomUUID(), view: new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } }), loading: false, error: '' };
+  const contents = tab.view.webContents;
+  contents.setWindowOpenHandler(({ url }) => { void navigateBrowser(url, true).catch((error) => reportBrowserError(tab, error)); return { action: 'deny' }; });
+  contents.on('will-navigate', (event, url) => {
     const reason = blockedBrowserNavigation(url);
     if (!reason) return;
     event.preventDefault();
-    reportBrowserError(reason);
+    reportBrowserError(tab, reason);
   });
-  browserView.webContents.on('did-start-loading', () => { browserLoading = true; browserError = ''; sendBrowserState(); });
-  browserView.webContents.on('did-finish-load', () => { browserLoading = false; sendBrowserState(); });
-  browserView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => { if (isMainFrame && errorCode !== -3) { browserLoading = false; browserError = `${errorDescription} (${validatedUrl})`; sendBrowserState(); } });
-  browserView.webContents.on('did-navigate', sendBrowserState);
-  browserView.webContents.on('did-navigate-in-page', sendBrowserState);
+  contents.on('did-start-loading', () => { tab.loading = true; tab.error = ''; sendBrowserState(); });
+  contents.on('did-finish-load', () => {
+    tab.loading = false; sendBrowserState();
+    const url = contents.getURL();
+    if (url) void storage.recordBrowserVisit(url, contents.getTitle()).then(refreshBrowserRecords).then(sendBrowserState).catch(() => undefined);
+  });
+  contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => { if (isMainFrame && errorCode !== -3) reportBrowserError(tab, `${errorDescription} (${validatedUrl})`); });
+  contents.on('did-navigate', sendBrowserState);
+  contents.on('did-navigate-in-page', sendBrowserState);
+  browserTabs.set(tab.id, tab);
   setBrowserLayout(browserLayout);
-  return browserView;
+  return tab;
 }
 
-async function navigateBrowser(value: string): Promise<BrowserStateView> {
+async function navigateBrowser(value: string, openInNewTab = false): Promise<BrowserStateView> {
   const url = (await validateExternalUrl(value)).toString();
-  const view = ensureBrowserView();
-  browserLoading = true; browserError = ''; sendBrowserState();
-  try { await view.webContents.loadURL(url); }
+  const tab = openInNewTab ? createBrowserTab() : activeBrowserTab() ?? createBrowserTab();
+  activeBrowserTabId = tab.id; tab.loading = true; tab.error = ''; setBrowserLayout(browserLayout); sendBrowserState();
+  try { await tab.view.webContents.loadURL(url); }
   catch (error) {
     // A page-initiated public redirect supersedes the in-flight navigation and
     // Electron rejects the older load with ERR_ABORTED (-3).  The replacement
     // navigation remains observable through browser state, so it is not a
     // user-facing load failure.
-    if (!/ERR_ABORTED|\(-3\)/i.test(error instanceof Error ? error.message : String(error))) { reportBrowserError(error); throw error; }
+    if (!/ERR_ABORTED|\(-3\)/i.test(error instanceof Error ? error.message : String(error))) { reportBrowserError(tab, error); throw error; }
   }
   return browserState();
 }
 
-function reportBrowserError(error: unknown): void {
-  browserLoading = false;
-  browserError = error instanceof Error ? error.message : String(error);
+function reportBrowserError(tab: BrowserTab, error: unknown): void {
+  tab.loading = false;
+  tab.error = error instanceof Error ? error.message : String(error);
   sendBrowserState();
 }
 
 async function readBrowserPage(): Promise<{ url: string; title: string; text: string; truncated: boolean }> {
-  const view = browserView;
-  if (!view || view.webContents.isDestroyed()) throw new Error('Open a public page in the FORGE Browser before asking the agent to read it.');
-  const url = (await validateExternalUrl(view.webContents.getURL())).toString();
-  const document = await view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true) as { title?: unknown; text?: unknown };
+  const tab = activeBrowserTab();
+  if (!tab) throw new Error('Open a public page in the FORGE Browser before asking the agent to read it.');
+  const url = (await validateExternalUrl(tab.view.webContents.getURL())).toString();
+  const document = await tab.view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true) as { title?: unknown; text?: unknown };
   const text = typeof document.text === 'string' ? document.text : '';
   const limit = 160_000;
-  return { url, title: typeof document.title === 'string' ? document.title : view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
+  return { url, title: typeof document.title === 'string' ? document.title : tab.view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
 }
 
 function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }): void {
   browserLayout = request;
-  if (!browserView || browserView.webContents.isDestroyed()) return;
-  if (!request.visible) { mainWindow?.setBrowserView(null); return; }
+  const tab = activeBrowserTab();
+  if (!request.visible || !tab) {
+    if (attachedBrowserView) mainWindow?.setBrowserView(null);
+    attachedBrowserView = null;
+    return;
+  }
   if (request.bounds) {
     const { x, y, width, height } = request.bounds;
-    browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
+    tab.view.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
   // BrowserView is attached directly to BrowserWindow. On macOS this avoids
   // intermittent WebContentsView compositor frames that render as a blank
   // surface even though the page itself has loaded successfully.
-  mainWindow?.setBrowserView(browserView);
+  // setBrowserView registers native lifecycle listeners. Re-attaching the
+  // same view on every ResizeObserver tick leaks those listeners and can
+  // destabilize long-running browser sessions.
+  if (attachedBrowserView !== tab.view) {
+    mainWindow?.setBrowserView(tab.view);
+    attachedBrowserView = tab.view;
+  }
+}
+
+function showBrowserHome(): BrowserStateView { activeBrowserTabId = null; setBrowserLayout(browserLayout); sendBrowserState(); return browserState(); }
+
+function selectBrowserTab(tabId: string): BrowserStateView {
+  if (!browserTabs.has(tabId)) throw new Error('The browser tab is no longer available.');
+  activeBrowserTabId = tabId; setBrowserLayout(browserLayout); sendBrowserState(); return browserState();
+}
+
+function closeBrowserTab(tabId: string): BrowserStateView {
+  const tab = browserTabs.get(tabId); if (!tab) return browserState();
+  const ordered = [...browserTabs.keys()]; const index = ordered.indexOf(tabId);
+  browserTabs.delete(tabId); if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  if (activeBrowserTabId === tabId) activeBrowserTabId = ordered[index + 1] ?? ordered[index - 1] ?? null;
+  setBrowserLayout(browserLayout); sendBrowserState(); return browserState();
+}
+
+async function addActiveBrowserBookmark(): Promise<BrowserStateView> {
+  const tab = activeBrowserTab(); if (!tab) throw new Error('Open a public page before creating a bookmark.');
+  const url = (await validateExternalUrl(tab.view.webContents.getURL())).toString();
+  await storage.addBrowserBookmark(url, tab.view.webContents.getTitle()); await refreshBrowserRecords(); sendBrowserState(); return browserState();
+}
+
+async function removeBrowserBookmark(bookmarkId: string): Promise<BrowserStateView> {
+  await storage.deleteBrowserBookmark(bookmarkId); await refreshBrowserRecords(); sendBrowserState(); return browserState();
+}
+
+function disposeBrowserTabs(): void {
+  if (attachedBrowserView) mainWindow?.setBrowserView(null);
+  attachedBrowserView = null;
+  for (const tab of browserTabs.values()) if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  browserTabs.clear(); activeBrowserTabId = null; browserBookmarks = []; browserHistory = [];
 }
 
 const browserToolService = {
@@ -292,9 +362,14 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.tasksHandoff, async (request) => taskRuntime.generateHandoff(request.taskId));
   register(IPC_CHANNELS.browserNavigate, async (request) => navigateBrowser(request.url));
   register(IPC_CHANNELS.browserLayout, async (request) => { setBrowserLayout(request); return browserState(); });
-  register(IPC_CHANNELS.browserBack, async () => { if (browserView?.webContents.canGoBack()) browserView.webContents.goBack(); return browserState(); });
-  register(IPC_CHANNELS.browserForward, async () => { if (browserView?.webContents.canGoForward()) browserView.webContents.goForward(); return browserState(); });
-  register(IPC_CHANNELS.browserReload, async () => { browserView?.webContents.reload(); return browserState(); });
+  register(IPC_CHANNELS.browserBack, async () => { const tab = activeBrowserTab(); if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack(); return browserState(); });
+  register(IPC_CHANNELS.browserForward, async () => { const tab = activeBrowserTab(); if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward(); return browserState(); });
+  register(IPC_CHANNELS.browserReload, async () => { const tab = activeBrowserTab(); if (tab) tab.view.webContents.reload(); return browserState(); });
+  register(IPC_CHANNELS.browserHome, async () => showBrowserHome());
+  register(IPC_CHANNELS.browserTabClose, async (request) => closeBrowserTab(request.tabId));
+  register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
+  register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
+  register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
 }
 
 function createWindow(): void {
@@ -302,7 +377,7 @@ function createWindow(): void {
   const packagedRendererUrl = pathToFileURL(rendererFile).toString();
   mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: 'FORGE', webPreferences: { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   mainWindow.on('ready-to-show', () => mainWindow?.show());
-  mainWindow.on('closed', () => { browserView = null; mainWindow = null; });
+  mainWindow.on('closed', () => { disposeBrowserTabs(); mainWindow = null; });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => { const developmentUrl = process.env.ELECTRON_RENDERER_URL; const allowed = is.dev && developmentUrl ? new URL(url).origin === new URL(developmentUrl).origin : url === packagedRendererUrl; if (!allowed) event.preventDefault(); });
   if (is.dev && process.env.ELECTRON_RENDERER_URL) { rendererSource = 'development URL'; void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL); }

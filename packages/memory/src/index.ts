@@ -76,7 +76,11 @@ export class MemoryRetriever {
       return true;
     });
     const now = Date.now();
-    const docs = entries.map((e) => ({ id: e.id, type: e.type as MemoryType, title: (e.title ?? '') as string, content: (e.content ?? '') as string, metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
+    // Score a bounded projection and return bounded evidence. A very large
+    // imported note must not exhaust the local WASM runtime or provider input.
+    const scoringLimit = 24_000;
+    const returnedLimit = 12_000;
+    const docs = entries.map((e) => ({ id: e.id, type: e.type as MemoryType, title: (e.title ?? '') as string, content: String(e.content ?? '').slice(0, scoringLimit), originalContent: String(e.content ?? ''), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
     const N = docs.length || 1;
     const docTokens = docs.map((d) => this.tokenize(d.title + ' ' + d.content));
     const df: Record<string, number> = {};
@@ -128,7 +132,7 @@ export class MemoryRetriever {
       workspaceId: '',
       type: result.entry.type,
       title: result.entry.title || null,
-      content: result.entry.content,
+      content: result.entry.originalContent.slice(0, returnedLimit),
       metadata: { ...(typeof result.entry.metadata === 'object' && result.entry.metadata ? result.entry.metadata : {}), relevance: result.relevance, reasons: result.reasons },
       createdAt: result.entry.createdAt,
       updatedAt: result.entry.updatedAt,

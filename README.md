@@ -4,7 +4,7 @@
 
 FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
 
-**Current build:** [`v2.1.0-beta.2`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2) · macOS universal beta · Electron + React + TypeScript
+**Current build:** [`v2.2.0-beta.2`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.2) · FORGE beta 2.2 · macOS universal beta · Electron + React + TypeScript
 
 ## 🧭 The missing layer between your project and the model
 
@@ -81,8 +81,8 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 ### Install the current beta
 
-1. Open the [`FORGE beta 2.1` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2).
-2. Download `FORGE-2.1.0-beta.2-universal.dmg`.
+1. Open the [`FORGE beta 2.2` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.2).
+2. Download `FORGE-2.2.0-beta.2-universal.dmg`.
 3. Open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
@@ -92,7 +92,7 @@ The current beta is unsigned and not notarized. macOS may require Control-click 
 
 FORGE opens the project folder in place. It does not import, clone, or relocate your source. Workspace-owned state is stored under `<workspace>/.forge/metadata.sqlite`; project files and Git history remain where they already are.
 
-Use the Explorer to browse and edit files, Source Control to inspect Git state, Tasks for persistent work, and Terminal when a CLI agent or normal shell command is the best executor.
+Use the Explorer to browse and edit files, Source Control to inspect Git state, Tasks for persistent work, and Terminal when a CLI agent or normal shell command is the best executor. The built-in **Browser** opens public HTTP(S) research in tabs; bookmarks and history remain in the active workspace database, while an agent may read page text only through the explicit browser tool approval flow.
 
 ## 🏗️ Architecture at a glance
 
@@ -177,7 +177,7 @@ That distinction is important to the direction of the runtime: **bound resources
 
 ## 🚧 Beta status
 
-FORGE beta 2.1 is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, tool runtime, and hosted-provider conversation path are implemented.
+FORGE beta 2.2 is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, tool runtime, and hosted-provider conversation path are implemented.
 
 The architecture is now being separated so workspace intelligence can feed replaceable external and local agent runtimes consistently. Provider-neutral adapters, broader local-model integration, permission simplification, and parallel/unbounded agent orchestration are active architectural work rather than completed release claims.
 

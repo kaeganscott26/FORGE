@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import initSqlJs, { type Database, type SqlValue } from 'sql.js';
 import {
   DEFAULT_WORKSPACE_LAYOUT,
+  type BrowserBookmark,
+  type BrowserHistoryEntry,
   type ConversationEntry,
   type ConversationState,
   type ConversationThread,
@@ -24,7 +26,7 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
 const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 'blocked', 'failed', 'skipped', 'completed']);
 
@@ -417,6 +419,35 @@ export class StorageService {
     await this.persist();
   }
 
+  async listBrowserBookmarks(limit = 80): Promise<BrowserBookmark[]> {
+    const projectId = await this.projectId();
+    return this.all('SELECT id, url, title, created_at FROM browser_bookmarks WHERE project_id = ? ORDER BY created_at DESC LIMIT ?', [projectId, Math.max(1, Math.min(200, limit))]).map((row) => ({ id: String(row.id), url: String(row.url), title: String(row.title), createdAt: Number(row.created_at) }));
+  }
+
+  async addBrowserBookmark(url: string, title: string): Promise<void> {
+    const projectId = await this.projectId(); const now = Date.now();
+    this.ready().run(`INSERT INTO browser_bookmarks (id, project_id, url, title, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, url) DO UPDATE SET title = excluded.title, created_at = excluded.created_at`, [id(), projectId, url, title.slice(0, 500) || url, now]);
+    await this.persist();
+  }
+
+  async deleteBrowserBookmark(bookmarkId: string): Promise<void> {
+    this.ready().run('DELETE FROM browser_bookmarks WHERE id = ? AND project_id = ?', [bookmarkId, await this.projectId()]);
+    await this.persist();
+  }
+
+  async listBrowserHistory(limit = 120): Promise<BrowserHistoryEntry[]> {
+    const projectId = await this.projectId();
+    return this.all('SELECT id, url, title, visited_at, visit_count FROM browser_history WHERE project_id = ? ORDER BY visited_at DESC LIMIT ?', [projectId, Math.max(1, Math.min(300, limit))]).map((row) => ({ id: String(row.id), url: String(row.url), title: String(row.title), visitedAt: Number(row.visited_at), visitCount: Number(row.visit_count) }));
+  }
+
+  async recordBrowserVisit(url: string, title: string): Promise<void> {
+    const projectId = await this.projectId(); const now = Date.now();
+    this.ready().run(`INSERT INTO browser_history (id, project_id, url, title, visited_at, visit_count) VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT(project_id, url) DO UPDATE SET title = excluded.title, visited_at = excluded.visited_at, visit_count = browser_history.visit_count + 1`, [id(), projectId, url, title.slice(0, 500) || url, now]);
+    await this.persist();
+  }
+
   async workspaceId(): Promise<string> { return this.projectId(); }
 
   /** Durable, bounded project observations used to invalidate stale context. */
@@ -476,6 +507,8 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
@@ -536,6 +569,8 @@ export class StorageService {
       CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events(task_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_external_project_type ON task_external_references(project_id, type, external_id);
       CREATE INDEX IF NOT EXISTS idx_task_approvals_step ON task_approvals(task_id, step_id, requested_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_browser_bookmarks_project_created ON browser_bookmarks(project_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_browser_history_project_visited ON browser_history(project_id, visited_at DESC);
     `);
   }
 

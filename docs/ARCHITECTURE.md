@@ -142,7 +142,7 @@ directory selection
   → renderer and intelligence services load project-owned state
 ```
 
-Workspace-owned state includes goals, tasks, checkpoints, conversations, memories, layout, and action history. App-global credentials remain outside the repository.
+Workspace-owned state includes goals, tasks, checkpoints, conversations, memories, layout, action history, and Browser bookmarks/history. App-global credentials remain outside the repository.
 
 ## 💬 Conversation lifecycle
 

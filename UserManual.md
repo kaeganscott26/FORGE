@@ -2,7 +2,7 @@
 
 ## 🚀 1. Install and open FORGE
 
-Download the current beta DMG from [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder.
+Download the current beta DMG from [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.2), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder.
 
 FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It does not move or import the project files themselves.
 
@@ -101,7 +101,7 @@ The terminal is designed for your choice of CLI agent. Launch Codex, Claude Code
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE beta 2.1 reports `2.1.0-beta.2`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.1.0-beta.2-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE beta 2.2 reports `2.2.0-beta.2`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.2.0-beta.2-dev` and `development`.
 
 Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 

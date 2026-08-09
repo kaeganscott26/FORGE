@@ -1,11 +1,11 @@
 import { app, shell, safeStorage, BrowserWindow, dialog, BrowserView, ipcMain, clipboard } from "electron";
+import { randomUUID, createHash } from "node:crypto";
 import { promises, watch, existsSync } from "node:fs";
 import * as path from "node:path";
 import path__default, { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { EventEmitter } from "node:events";
 import simpleGit from "simple-git";
-import { randomUUID, createHash } from "node:crypto";
 import initSqlJs from "sql.js";
 import electronUpdater from "electron-updater";
 import { fetch as fetch$1, Agent as Agent$1 } from "undici";
@@ -2135,7 +2135,12 @@ const IPC_CHANNELS = {
   browserLayout: "browser.layout",
   browserBack: "browser.back",
   browserForward: "browser.forward",
-  browserReload: "browser.reload"
+  browserReload: "browser.reload",
+  browserHome: "browser.home",
+  browserTabClose: "browser.tab.close",
+  browserTabSelect: "browser.tab.select",
+  browserBookmarkAdd: "browser.bookmark.add",
+  browserBookmarkRemove: "browser.bookmark.remove"
 };
 const IGNORED = /* @__PURE__ */ new Set([".git", "node_modules", "dist", "out", "build", ".next", ".forge", "coverage", "__pycache__"]);
 function parseMarkdown(content) {
@@ -2534,7 +2539,7 @@ function parseDiff(text) {
   return { files };
 }
 const id = () => randomUUID();
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
 const STEP_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "waiting", "blocked", "failed", "skipped", "completed"]);
 function normalizeTitle(value) {
@@ -2917,6 +2922,32 @@ class StorageService {
     this.ready().run("DELETE FROM memories WHERE id = ? AND project_id = ?", [memoryId, await this.projectId()]);
     await this.persist();
   }
+  async listBrowserBookmarks(limit = 80) {
+    const projectId = await this.projectId();
+    return this.all("SELECT id, url, title, created_at FROM browser_bookmarks WHERE project_id = ? ORDER BY created_at DESC LIMIT ?", [projectId, Math.max(1, Math.min(200, limit))]).map((row) => ({ id: String(row.id), url: String(row.url), title: String(row.title), createdAt: Number(row.created_at) }));
+  }
+  async addBrowserBookmark(url, title) {
+    const projectId = await this.projectId();
+    const now = Date.now();
+    this.ready().run(`INSERT INTO browser_bookmarks (id, project_id, url, title, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, url) DO UPDATE SET title = excluded.title, created_at = excluded.created_at`, [id(), projectId, url, title.slice(0, 500) || url, now]);
+    await this.persist();
+  }
+  async deleteBrowserBookmark(bookmarkId) {
+    this.ready().run("DELETE FROM browser_bookmarks WHERE id = ? AND project_id = ?", [bookmarkId, await this.projectId()]);
+    await this.persist();
+  }
+  async listBrowserHistory(limit = 120) {
+    const projectId = await this.projectId();
+    return this.all("SELECT id, url, title, visited_at, visit_count FROM browser_history WHERE project_id = ? ORDER BY visited_at DESC LIMIT ?", [projectId, Math.max(1, Math.min(300, limit))]).map((row) => ({ id: String(row.id), url: String(row.url), title: String(row.title), visitedAt: Number(row.visited_at), visitCount: Number(row.visit_count) }));
+  }
+  async recordBrowserVisit(url, title) {
+    const projectId = await this.projectId();
+    const now = Date.now();
+    this.ready().run(`INSERT INTO browser_history (id, project_id, url, title, visited_at, visit_count) VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT(project_id, url) DO UPDATE SET title = excluded.title, visited_at = excluded.visited_at, visit_count = browser_history.visit_count + 1`, [id(), projectId, url, title.slice(0, 500) || url, now]);
+    await this.persist();
+  }
   async workspaceId() {
     return this.projectId();
   }
@@ -3005,6 +3036,8 @@ class StorageService {
       CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
     const columns = this.all("PRAGMA table_info(conversations)").map((row) => String(row.name));
     if (!columns.includes("thread_id")) this.ready().run("ALTER TABLE conversations ADD COLUMN thread_id TEXT");
@@ -3067,6 +3100,8 @@ class StorageService {
       CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events(task_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_external_project_type ON task_external_references(project_id, type, external_id);
       CREATE INDEX IF NOT EXISTS idx_task_approvals_step ON task_approvals(task_id, step_id, requested_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_browser_bookmarks_project_created ON browser_bookmarks(project_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_browser_history_project_visited ON browser_history(project_id, visited_at DESC);
     `);
   }
   async ensureProject() {
@@ -3783,7 +3818,9 @@ class MemoryRetriever {
       return true;
     });
     const now = Date.now();
-    const docs = entries.map((e) => ({ id: e.id, type: e.type, title: e.title ?? "", content: e.content ?? "", metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
+    const scoringLimit = 24e3;
+    const returnedLimit = 12e3;
+    const docs = entries.map((e) => ({ id: e.id, type: e.type, title: e.title ?? "", content: String(e.content ?? "").slice(0, scoringLimit), originalContent: String(e.content ?? ""), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
     const N = docs.length || 1;
     const docTokens = docs.map((d) => this.tokenize(d.title + " " + d.content));
     const df = {};
@@ -3846,7 +3883,7 @@ class MemoryRetriever {
       workspaceId: "",
       type: result.entry.type,
       title: result.entry.title || null,
-      content: result.entry.content,
+      content: result.entry.originalContent.slice(0, returnedLimit),
       metadata: { ...typeof result.entry.metadata === "object" && result.entry.metadata ? result.entry.metadata : {}, relevance: result.relevance, reasons: result.reasons },
       createdAt: result.entry.createdAt,
       updatedAt: result.entry.updatedAt,
@@ -8696,16 +8733,18 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
 let mainWindow = null;
-let browserView = null;
+const browserTabs = /* @__PURE__ */ new Map();
+let activeBrowserTabId = null;
+let attachedBrowserView = null;
 let browserLayout = { visible: false };
-let browserLoading = false;
-let browserError = "";
+let browserBookmarks = [];
+let browserHistory = [];
 let rendererSource = "file:// development build";
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "b2ef0ecd59045eea41720ae257de866f85738487",
-    buildDate: "2026-08-09T12:00:21.017Z",
+    commit: "beb76a4589d684a0194087b4ff025bd082d5e78b",
+    buildDate: "2026-08-09T12:29:03.212Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8756,18 +8795,54 @@ function register(channel, action) {
 async function openWorkspaceAt(rootPath) {
   terminalService.dispose();
   dirtyEditorPaths.clear();
+  disposeBrowserTabs();
   await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
+  await refreshBrowserRecords();
   return info;
 }
 function browserState() {
-  const contents = browserView?.webContents;
-  return { url: contents?.getURL() ?? "", title: contents?.getTitle() ?? "", canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false, loading: browserLoading, error: browserError || void 0 };
+  const active = activeBrowserTabId ? browserTabs.get(activeBrowserTabId) : void 0;
+  const contents = active?.view.webContents;
+  const tabs = [...browserTabs.values()].filter((tab) => !tab.view.webContents.isDestroyed()).map((tab) => ({
+    id: tab.id,
+    url: tab.view.webContents.getURL(),
+    title: tab.view.webContents.getTitle() || tab.view.webContents.getURL() || "New tab",
+    canGoBack: tab.view.webContents.canGoBack(),
+    canGoForward: tab.view.webContents.canGoForward(),
+    loading: tab.loading,
+    error: tab.error || void 0
+  }));
+  return {
+    url: contents?.getURL() ?? "",
+    title: contents?.getTitle() ?? "",
+    canGoBack: contents?.canGoBack() ?? false,
+    canGoForward: contents?.canGoForward() ?? false,
+    loading: active?.loading ?? false,
+    error: active?.error || void 0,
+    activeTabId: active?.id,
+    showingHome: !active,
+    tabs,
+    bookmarks: browserBookmarks,
+    history: browserHistory
+  };
 }
 function sendBrowserState() {
   mainWindow?.webContents.send("browser.state", browserState());
+}
+async function refreshBrowserRecords() {
+  if (!workspace.info()) {
+    browserBookmarks = [];
+    browserHistory = [];
+    return;
+  }
+  [browserBookmarks, browserHistory] = await Promise.all([storage.listBrowserBookmarks(), storage.listBrowserHistory()]);
+}
+function activeBrowserTab() {
+  const tab = activeBrowserTabId ? browserTabs.get(activeBrowserTabId) : void 0;
+  return tab && !tab.view.webContents.isDestroyed() ? tab : null;
 }
 function blockedBrowserNavigation(value) {
   let url;
@@ -8787,82 +8862,136 @@ function blockedBrowserNavigation(value) {
   }
   return null;
 }
-function ensureBrowserView() {
-  if (browserView && !browserView.webContents.isDestroyed()) return browserView;
-  browserView = new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
-  browserView.webContents.setWindowOpenHandler(({ url }) => {
-    void navigateBrowser(url).catch(reportBrowserError);
+function createBrowserTab() {
+  const tab = { id: randomUUID(), view: new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } }), loading: false, error: "" };
+  const contents = tab.view.webContents;
+  contents.setWindowOpenHandler(({ url }) => {
+    void navigateBrowser(url, true).catch((error) => reportBrowserError(tab, error));
     return { action: "deny" };
   });
-  browserView.webContents.on("will-navigate", (event, url) => {
+  contents.on("will-navigate", (event, url) => {
     const reason2 = blockedBrowserNavigation(url);
     if (!reason2) return;
     event.preventDefault();
-    reportBrowserError(reason2);
+    reportBrowserError(tab, reason2);
   });
-  browserView.webContents.on("did-start-loading", () => {
-    browserLoading = true;
-    browserError = "";
+  contents.on("did-start-loading", () => {
+    tab.loading = true;
+    tab.error = "";
     sendBrowserState();
   });
-  browserView.webContents.on("did-finish-load", () => {
-    browserLoading = false;
+  contents.on("did-finish-load", () => {
+    tab.loading = false;
     sendBrowserState();
+    const url = contents.getURL();
+    if (url) void storage.recordBrowserVisit(url, contents.getTitle()).then(refreshBrowserRecords).then(sendBrowserState).catch(() => void 0);
   });
-  browserView.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (isMainFrame && errorCode !== -3) {
-      browserLoading = false;
-      browserError = `${errorDescription} (${validatedUrl})`;
-      sendBrowserState();
-    }
+  contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) reportBrowserError(tab, `${errorDescription} (${validatedUrl})`);
   });
-  browserView.webContents.on("did-navigate", sendBrowserState);
-  browserView.webContents.on("did-navigate-in-page", sendBrowserState);
+  contents.on("did-navigate", sendBrowserState);
+  contents.on("did-navigate-in-page", sendBrowserState);
+  browserTabs.set(tab.id, tab);
   setBrowserLayout(browserLayout);
-  return browserView;
+  return tab;
 }
-async function navigateBrowser(value) {
+async function navigateBrowser(value, openInNewTab = false) {
   const url = (await validateExternalUrl(value)).toString();
-  const view = ensureBrowserView();
-  browserLoading = true;
-  browserError = "";
+  const tab = openInNewTab ? createBrowserTab() : activeBrowserTab() ?? createBrowserTab();
+  activeBrowserTabId = tab.id;
+  tab.loading = true;
+  tab.error = "";
+  setBrowserLayout(browserLayout);
   sendBrowserState();
   try {
-    await view.webContents.loadURL(url);
+    await tab.view.webContents.loadURL(url);
   } catch (error) {
     if (!/ERR_ABORTED|\(-3\)/i.test(error instanceof Error ? error.message : String(error))) {
-      reportBrowserError(error);
+      reportBrowserError(tab, error);
       throw error;
     }
   }
   return browserState();
 }
-function reportBrowserError(error) {
-  browserLoading = false;
-  browserError = error instanceof Error ? error.message : String(error);
+function reportBrowserError(tab, error) {
+  tab.loading = false;
+  tab.error = error instanceof Error ? error.message : String(error);
   sendBrowserState();
 }
 async function readBrowserPage() {
-  const view = browserView;
-  if (!view || view.webContents.isDestroyed()) throw new Error("Open a public page in the FORGE Browser before asking the agent to read it.");
-  const url = (await validateExternalUrl(view.webContents.getURL())).toString();
-  const document = await view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true);
+  const tab = activeBrowserTab();
+  if (!tab) throw new Error("Open a public page in the FORGE Browser before asking the agent to read it.");
+  const url = (await validateExternalUrl(tab.view.webContents.getURL())).toString();
+  const document = await tab.view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true);
   const text = typeof document.text === "string" ? document.text : "";
   const limit = 16e4;
-  return { url, title: typeof document.title === "string" ? document.title : view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
+  return { url, title: typeof document.title === "string" ? document.title : tab.view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
 }
 function setBrowserLayout(request) {
   browserLayout = request;
-  if (!browserView || browserView.webContents.isDestroyed()) return;
-  if (!request.visible) {
-    mainWindow?.setBrowserView(null);
+  const tab = activeBrowserTab();
+  if (!request.visible || !tab) {
+    if (attachedBrowserView) mainWindow?.setBrowserView(null);
+    attachedBrowserView = null;
     return;
   }
   if (request.bounds) {
     const { x, y, width, height } = request.bounds;
-    browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
+    tab.view.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
-  mainWindow?.setBrowserView(browserView);
+  if (attachedBrowserView !== tab.view) {
+    mainWindow?.setBrowserView(tab.view);
+    attachedBrowserView = tab.view;
+  }
+}
+function showBrowserHome() {
+  activeBrowserTabId = null;
+  setBrowserLayout(browserLayout);
+  sendBrowserState();
+  return browserState();
+}
+function selectBrowserTab(tabId) {
+  if (!browserTabs.has(tabId)) throw new Error("The browser tab is no longer available.");
+  activeBrowserTabId = tabId;
+  setBrowserLayout(browserLayout);
+  sendBrowserState();
+  return browserState();
+}
+function closeBrowserTab(tabId) {
+  const tab = browserTabs.get(tabId);
+  if (!tab) return browserState();
+  const ordered = [...browserTabs.keys()];
+  const index = ordered.indexOf(tabId);
+  browserTabs.delete(tabId);
+  if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  if (activeBrowserTabId === tabId) activeBrowserTabId = ordered[index + 1] ?? ordered[index - 1] ?? null;
+  setBrowserLayout(browserLayout);
+  sendBrowserState();
+  return browserState();
+}
+async function addActiveBrowserBookmark() {
+  const tab = activeBrowserTab();
+  if (!tab) throw new Error("Open a public page before creating a bookmark.");
+  const url = (await validateExternalUrl(tab.view.webContents.getURL())).toString();
+  await storage.addBrowserBookmark(url, tab.view.webContents.getTitle());
+  await refreshBrowserRecords();
+  sendBrowserState();
+  return browserState();
+}
+async function removeBrowserBookmark(bookmarkId) {
+  await storage.deleteBrowserBookmark(bookmarkId);
+  await refreshBrowserRecords();
+  sendBrowserState();
+  return browserState();
+}
+function disposeBrowserTabs() {
+  if (attachedBrowserView) mainWindow?.setBrowserView(null);
+  attachedBrowserView = null;
+  for (const tab of browserTabs.values()) if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  browserTabs.clear();
+  activeBrowserTabId = null;
+  browserBookmarks = [];
+  browserHistory = [];
 }
 const browserToolService = {
   enabled: () => settings.webResearchEnabled(),
@@ -9017,17 +9146,25 @@ function registerHandlers() {
     return browserState();
   });
   register(IPC_CHANNELS.browserBack, async () => {
-    if (browserView?.webContents.canGoBack()) browserView.webContents.goBack();
+    const tab = activeBrowserTab();
+    if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
     return browserState();
   });
   register(IPC_CHANNELS.browserForward, async () => {
-    if (browserView?.webContents.canGoForward()) browserView.webContents.goForward();
+    const tab = activeBrowserTab();
+    if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
     return browserState();
   });
   register(IPC_CHANNELS.browserReload, async () => {
-    browserView?.webContents.reload();
+    const tab = activeBrowserTab();
+    if (tab) tab.view.webContents.reload();
     return browserState();
   });
+  register(IPC_CHANNELS.browserHome, async () => showBrowserHome());
+  register(IPC_CHANNELS.browserTabClose, async (request) => closeBrowserTab(request.tabId));
+  register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
+  register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
+  register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
 }
 function createWindow() {
   const rendererFile = join(__dirname, "../renderer/index.html");
@@ -9035,7 +9172,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: "FORGE", webPreferences: { preload: join(__dirname, "../preload/index.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   mainWindow.on("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {
-    browserView = null;
+    disposeBrowserTabs();
     mainWindow = null;
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

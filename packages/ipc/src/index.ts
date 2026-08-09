@@ -144,7 +144,13 @@ export interface ToolResultView { requestId: string; toolName: string; success: 
 export interface ActionLogView { id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string; sanitizedInputs: unknown; approvalDecision: string; executionDurationMs: number; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null; rollback?: ToolResultView['rollback']; }
 export interface TerminalSessionView { id: string; cwd: string; pid: number; state: 'running' | 'exited'; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
 export interface TerminalEventView { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
-export interface BrowserStateView { url: string; title: string; canGoBack: boolean; canGoForward: boolean; loading: boolean; error?: string; }
+export interface BrowserTabView { id: string; url: string; title: string; canGoBack: boolean; canGoForward: boolean; loading: boolean; error?: string; }
+export interface BrowserBookmark { id: string; url: string; title: string; createdAt: number; }
+export interface BrowserHistoryEntry { id: string; url: string; title: string; visitedAt: number; visitCount: number; }
+export interface BrowserStateView {
+  url: string; title: string; canGoBack: boolean; canGoForward: boolean; loading: boolean; error?: string;
+  activeTabId?: string; showingHome: boolean; tabs: BrowserTabView[]; bookmarks: BrowserBookmark[]; history: BrowserHistoryEntry[];
+}
 export interface BrowserLayoutRequest { visible: boolean; bounds?: { x: number; y: number; width: number; height: number }; }
 export type RuntimeEventType = 'workspace.changed' | 'file.changed' | 'git.changed' | 'task.changed' | 'context.invalidated' | 'context.updated' | 'memory.changed' | 'tool.requested' | 'tool.completed' | 'agent.started' | 'agent.progress' | 'agent.completed' | 'agent.blocked' | 'terminal.changed' | 'github.changed';
 export interface RuntimeEvent { type: RuntimeEventType; workspaceId: string; occurredAt: number; payload?: Record<string, unknown>; }
@@ -232,7 +238,8 @@ export const IPC_CHANNELS = {
   , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
   terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove',
   tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
-  browserNavigate: 'browser.navigate', browserLayout: 'browser.layout', browserBack: 'browser.back', browserForward: 'browser.forward', browserReload: 'browser.reload'
+  browserNavigate: 'browser.navigate', browserLayout: 'browser.layout', browserBack: 'browser.back', browserForward: 'browser.forward', browserReload: 'browser.reload',
+  browserHome: 'browser.home', browserTabClose: 'browser.tab.close', browserTabSelect: 'browser.tab.select', browserBookmarkAdd: 'browser.bookmark.add', browserBookmarkRemove: 'browser.bookmark.remove'
 } as const;
 
 export interface IPCRequestMap {
@@ -249,6 +256,7 @@ export interface IPCRequestMap {
   'tool.requests.list': undefined; 'tool.request.approve': { requestId: string; choice: 'run-once' | 'session' }; 'tool.request.reject': { requestId: string }; 'tool.request.cancel': { requestId: string };
   'tool.actions.list': { conversationId?: string; toolName?: string; success?: boolean; from?: number; to?: number } | undefined; 'editor.dirty.update': { paths: string[] };
   'browser.navigate': { url: string }; 'browser.layout': BrowserLayoutRequest; 'browser.back': undefined; 'browser.forward': undefined; 'browser.reload': undefined;
+  'browser.home': undefined; 'browser.tab.close': { tabId: string }; 'browser.tab.select': { tabId: string }; 'browser.bookmark.add': undefined; 'browser.bookmark.remove': { bookmarkId: string };
   'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
   'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
 }
@@ -266,6 +274,7 @@ export interface IPCResponseMap {
   'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.delete': void; 'agent.memories.reindex': void;
   'tool.requests.list': ToolRequestView[]; 'tool.request.approve': ToolResultView; 'tool.request.reject': void; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
   'browser.navigate': BrowserStateView; 'browser.layout': BrowserStateView; 'browser.back': BrowserStateView; 'browser.forward': BrowserStateView; 'browser.reload': BrowserStateView;
+  'browser.home': BrowserStateView; 'browser.tab.close': BrowserStateView; 'browser.tab.select': BrowserStateView; 'browser.bookmark.add': BrowserStateView; 'browser.bookmark.remove': BrowserStateView;
   'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
   'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
 }

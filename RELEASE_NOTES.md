@@ -1,6 +1,29 @@
-# ✨ FORGE beta 2.1
+# ✨ FORGE beta 2.2
 
-FORGE beta 2.1 resets the application to the `8350aab` baseline and repairs the core workspace experience before publication as `v2.1.0-beta.2`.
+FORGE beta 2.2 advances the workspace runtime to `v2.2.0-beta.2` with a dependable protected Browser, durable workspace browsing records, and safer bounded agent context.
+
+## 🌐 FORGE Browser
+
+- Adds a dedicated FORGE Browser home screen whenever no website tab is selected, including update status and a direct link to the FORGE GitHub repository.
+- Adds tab selection, new-tab/home behavior, closing tabs, navigation controls, and page titles without giving renderer content access to Node.js or workspace files.
+- Stores bookmarks and recency/visit-count history in the active workspace's `.forge/metadata.sqlite`; changing workspace does not mix browsing records.
+- Keeps public HTTP(S)-only navigation, blocks credential-bearing, local, and private-network destinations, and preserves the native BrowserView compositor path that prevents blank page surfaces.
+- Lets the agent open, read, find, and save bounded page context only through the existing visible-browser tools and explicit approval boundary.
+
+## 🧠 Runtime resilience
+
+- Bounds durable-memory content before relevance scoring and before it is returned to an agent, so exceptionally large imported notes cannot exhaust local WASM memory or provider request capacity during a repository audit.
+- Preserves progress-aware tool continuation: meaningful sequential work continues while workspace state changes; redundant exact calls against unchanged observed state are suppressed.
+
+## 🧪 Verification
+
+The source gate covers typecheck, lint, storage persistence, memory retrieval, typed IPC, and production bundling. The release workflow additionally validates the tagged source, universal package, updater metadata, serial asset upload, and public artifact hashes.
+
+The beta is unsigned and not notarized. macOS Developer ID signing and trusted unattended replacement are not claimed.
+
+---
+
+# 🗃️ FORGE beta 2.1 historical notes
 
 ## 🗂️ Workspace explorer and editor
 

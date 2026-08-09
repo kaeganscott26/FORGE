@@ -25,6 +25,8 @@ Dependency injection keeps the registry/router independent of Electron and preve
 | `git.commit`, `git.pull`, `git.push` | workspace write / remote | Run once | Local history or remote mutation |
 | `shell.run` | process | Run once | Spawn one executable with an argument array |
 | `web.search`, `web.fetch`, `web.open` | remote | Run once and web enabled | Bounded external research |
+| `browser.open`, `browser.read`, `browser.find` | remote/read | Run once | Open a validated visible public page or disclose bounded rendered text to the configured model |
+| `browser.savecontext` | workspace write | Exact scoped session | Save an agent-authored page summary as durable workspace context |
 | `github.read` | read | automatic | Bounded metadata, branches, commits, issues, pull requests, comments, workflows, releases, and assets for the active origin |
 | `github.mutate` | remote | Run once | Explicitly approved GitHub REST mutation for issues, branches, files, pull requests, comments, workflows, or releases |
 | `task.inspect` | read | automatic | Read the active workspace's structured task evidence |
@@ -45,7 +47,7 @@ FORGE does not impose a small fixed tool-count or continuation-round cap. It run
 
 If a compatible provider emits strict plain JSON naming an actually offered tool, the adapter promotes it to the same validated request structure as a native call. Unoffered names remain text and cannot reach the router. If the provider repeats an already completed call, FORGE deduplicates it and performs one no-tools synthesis pass over the bounded observed results. This protects small compatible models from repeating a completed file read while preserving genuine validated calls for a different next tool.
 
-Existing tools accept optional `taskContext` containing an exact task/step ID. Task association never changes a tool's side effect or approval requirement. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts.
+Existing tools accept optional `taskContext` containing an exact task/step ID. Task association never changes a tool's side effect or approval requirement. Successful linked tool execution creates audit-linked evidence; it does not automatically complete verification criteria. GPT-5.6 tools travel through `/v1/responses`; other compatible provider paths normalize into the same registry contracts. Browser content is external data: a page cannot access Node.js, workspace files, shell, or credentials, and an agent cannot read it until the user approves the exact browser read/find request.
 
 OpenAI-compatible loopback providers may run without an API key. For example, Ollama at `http://127.0.0.1:11434/v1` can list local models and receive a focused provider-neutral file-tool set: list, read, search, create, write, patch, rename/move, and directory creation. This avoids flooding small local models with unrelated Git/release/task tools. Model capability still matters, and all returned calls remain subject to normal validation, tiering, approval, execution, and audit. Remote providers continue to require authentication and retain the full catalog.
 

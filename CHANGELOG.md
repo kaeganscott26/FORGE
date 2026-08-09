@@ -2,6 +2,23 @@
 
 > This file preserves dated implementation and release history. For the supported product, start with the [documentation index](docs/README.md), [project status](docs/PROJECT_STATUS.md), and [current release notes](RELEASE_NOTES.md).
 
+## ✨ 2026-08-09 — FORGE 2.2.0-beta.2 browser and context-runtime hardening
+
+### Implementation
+
+- Rebuilt the protected Browser around independent native tabs, reliable BrowserView attachment, a default FORGE home, back/forward/reload controls, and close/select tab behavior.
+- Added workspace-owned browser bookmarks and visit history with a schema-v7 migration; records remain private to the active workspace and do not create model context by themselves.
+- Added the Browser home update/status panel and a current GitHub repository route.
+- Preserved the public HTTP(S) boundary and made browser-to-agent page reading an explicit approved action.
+- Bounded durable-memory input during retrieval and agent handoff to prevent large notes from producing WASM out-of-bounds faults during context assembly.
+
+### Validation
+
+- `npm run typecheck`, `npm run lint`, focused storage/memory/IPC tests, and `npm run build` passed before release packaging.
+- Native browser validation loaded and rendered `https://www.north3rnlight3r.com/` through the native compositor path after the zero-height surface regression was fixed.
+
+Release provenance, workflow evidence, public hashes, and mounted-DMG acceptance are recorded in the beta.2 verification record after publication.
+
 ## ✨ 2026-08-07 — FORGE 2.1.0-beta.2 reset and UI/file workflow repair
 
 ### Why

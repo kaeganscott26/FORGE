@@ -62,16 +62,45 @@ h1 { font-size: clamp(48px, 7vw, 86px); line-height: .93; letter-spacing: -.07em
 .explorer-context-menu button:hover { background: #263542; }
 .tabbar { height: 40px; flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; border-bottom: 1px solid #252b32; color: #bac4ce; font-size: 13px; }
 .tabbar button { font-size: 11px; padding: 4px 8px; }
-.browser-panel { min-height: 0; flex: 1; position: relative; display: grid; grid-template-rows: 42px minmax(0, 1fr); background: #0d1116; }
+.browser-panel { min-height: 0; flex: 1; position: relative; display: grid; grid-template-rows: 34px 42px minmax(0, 1fr); background: #0d1116; }
+.browser-tab-strip { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; padding: 4px 7px 0; border-bottom: 1px solid #252b32; background: #10161c; scrollbar-width: none; }
+.browser-tab-strip::-webkit-scrollbar { display: none; }
+.browser-tab-strip > button, .browser-tab button { flex: 0 0 auto; min-width: 0; padding: 4px 8px; border-radius: 5px 5px 0 0; background: #1b232c; color: #8f9dac; font-size: 10px; white-space: nowrap; }
+.browser-tab-strip > button.active, .browser-tab.active > button:first-child, .browser-toolbar button.active { background: #b8ff4d; color: #13200c; }
+.browser-tab { display: flex; min-width: 0; max-width: 220px; }
+.browser-tab > button:first-child { overflow: hidden; text-overflow: ellipsis; }
+.browser-tab-close { padding: 4px 6px !important; margin-left: 1px; }
 .browser-toolbar { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border-bottom: 1px solid #252b32; background: #111820; }
 .browser-toolbar button { padding: 4px 8px; font-size: 11px; }
 .browser-toolbar form { min-width: 0; flex: 1; display: flex; gap: 5px; }
 .browser-toolbar input { min-width: 0; flex: 1; border: 1px solid #34404a; border-radius: 4px; padding: 5px 8px; background: #090d11; color: #dce3eb; font-size: 12px; }
-.browser-panel > .terminal-error { position: absolute; z-index: 2; top: 42px; left: 0; right: 0; margin: 0; }
+.browser-panel > .terminal-error { position: absolute; z-index: 4; top: 76px; left: 0; right: 0; margin: 0; }
 .browser-surface { min-height: 0; height: 100%; position: relative; background: #0d1116; }
 .browser-placeholder { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; color: #8c9aa7; text-align: center; }
 .browser-placeholder strong { color: #cbd6df; font-size: 15px; }
 .browser-placeholder span { max-width: 420px; font-size: 11px; }
+.browser-home { position: absolute; inset: 0; overflow: auto; padding: clamp(25px, 7vh, 80px) clamp(24px, 8vw, 110px); background: radial-gradient(circle at 20% 0%, #203424, #0d1116 52%); }
+.browser-home h2 { margin: 6px 0 9px; color: #e2ebf0; font-size: clamp(26px, 4vw, 48px); letter-spacing: -.05em; }
+.browser-home > p:not(.eyebrow) { max-width: 600px; margin: 0 0 20px; color: #98a7b5; line-height: 1.55; }
+.browser-home form { display: flex; max-width: 720px; gap: 7px; }
+.browser-home input { min-width: 0; flex: 1; padding: 10px 12px; border: 1px solid #40505c; border-radius: 6px; background: #090d11; color: #e0e8ee; }
+.browser-home-grid { display: grid; max-width: 720px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 24px; }
+.browser-home-grid article { display: grid; align-content: start; gap: 8px; min-height: 160px; padding: 15px; border: 1px solid #33413c; border-radius: 8px; background: #131b1e; }
+.browser-home-grid strong { color: #b8ff4d; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+.browser-home-grid span { color: #c4ced6; font-size: 12px; line-height: 1.5; }
+.browser-home-grid small { color: #82919e; font-size: 10px; line-height: 1.45; }
+.browser-home-grid button { align-self: end; justify-self: start; padding: 5px 8px; font-size: 10px; }
+.browser-drawer { position: absolute; z-index: 5; top: 10px; right: 10px; bottom: 10px; width: min(390px, calc(100% - 20px)); overflow: auto; border: 1px solid #40505a; border-radius: 8px; background: #121a21; box-shadow: 0 16px 50px rgba(0,0,0,.55); }
+.browser-drawer header { display: flex; align-items: center; justify-content: space-between; padding: 10px; border-bottom: 1px solid #2c3944; }
+.browser-drawer header strong { color: #b8ff4d; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.browser-drawer header button { padding: 2px 7px; }
+.browser-drawer > p { padding: 13px; color: #8998a6; font-size: 11px; }
+.browser-record { display: flex; width: 100%; min-width: 0; padding: 9px 10px; border: 0; border-bottom: 1px solid #26323c; border-radius: 0; background: transparent; text-align: left; }
+.browser-record:hover { background: #1b2730; }
+.browser-record > button:first-child { min-width: 0; flex: 1; padding: 0; background: transparent; text-align: left; }
+.browser-record b, .browser-record small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-record b { color: #d3dde4; font-size: 11px; }.browser-record small { margin-top: 3px; color: #788894; font-size: 9px; }
+.browser-record .danger { flex: 0 0 auto; align-self: center; padding: 4px 6px; font-size: 9px; }
 .empty-editor { margin: auto; color: #8a98a8; text-align: center; line-height: 1.8; }
 .markdown-preview { overflow: auto; padding: 32px; line-height: 1.65; }
 .markdown-preview a { color: #b8ff4d; }

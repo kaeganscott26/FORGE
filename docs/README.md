@@ -29,7 +29,8 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Release Channels](RELEASE_CHANNELS.md) — forward-only Stable/Beta selection.
 - [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md) — manifest-led artifact selection and cleanup.
 - [Releasing FORGE](../RELEASING.md) — exact source, tag, workflow, package, and public-hash procedure.
-- [Current Release Notes](../RELEASE_NOTES.md) — user-facing beta.2 changes.
+- [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE beta 2.2 changes.
+- [FORGE 2.2 beta verification](V2.2.0_BETA2_VERIFICATION.md) — tagged package and public-artifact acceptance evidence.
 
 ## 🗃️ Historical records
 
