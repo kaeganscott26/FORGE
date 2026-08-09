@@ -15,7 +15,7 @@ Good contribution questions include:
 
 ## 🛠️ Local setup
 
-Requirements: macOS 12+, Node.js 22 LTS, npm, and Git.
+Requirements: Node.js 22 LTS, npm, and Git. macOS desktop development currently requires macOS 12+.
 
 ```sh
 nvm use
@@ -43,6 +43,19 @@ Run packaging only when the change affects build output, the main/preload proces
 npm run package:mac:universal
 node scripts/verify-build-manifest.mjs
 ```
+
+Native packaging procedures are documented in [Native packaging](PACKAGING.md). Run the script for the target platform on that platform:
+
+```sh
+./scripts/package-macos.sh
+./scripts/package-linux.sh
+```
+
+```powershell
+.\scripts\package-windows.ps1
+```
+
+Windows and Linux artifacts require native Windows/Linux runners because `node-pty` is native. Packaging artifact verification does not replace a packaged-runtime acceptance pass.
 
 Do not claim a packaged-runtime behavior from source-level tests alone. Test the packaged app separately when the change affects IPC, terminal sessions, updater discovery, application identity, or macOS behavior.
 

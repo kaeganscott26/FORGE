@@ -24,6 +24,8 @@
     "package:mac": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && node scripts/write-build-manifest.mjs arm64",
     "package:mac:universal": "npm run clean:dist && npm run build && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs universal",
     "package:mac:all": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs arm64,universal",
+    "package:win": "npm run clean:dist && npm run build && electron-builder --win --x64 --publish never",
+    "package:linux": "npm run clean:dist && npm run build && electron-builder --linux --x64 --publish never",
     "install:mac": "bash scripts/install-mac.sh",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -84,6 +86,40 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "icon": "apps/desktop/resources/ForgeIcon-1024.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "files": [
+        "apps/desktop/out/**/*",
+        "node_modules/**/*",
+        "package.json"
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "icon": "apps/desktop/resources/ForgeIcon-1024.png"
     }
   },
   "devDependencies": {
