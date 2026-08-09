@@ -15,4 +15,11 @@ describe('web security', () => {
     await expect(service.fetch('https://example.com')).rejects.toThrow(/disabled/);
     await expect(service.search('FORGE architecture')).rejects.toThrow(/disabled/);
   });
+
+  it.runIf(process.env.FORGE_LIVE_WEB_TEST === '1')('retrieves a public page when external research is enabled', async () => {
+    const response = await new WebService(() => true).fetch('https://example.com');
+    expect(response.status).toBe(200);
+    expect(response.contentType).toMatch(/text\/html/i);
+    expect(response.body).toContain('Example Domain');
+  }, 30_000);
 });

@@ -29,10 +29,19 @@ export async function validateExternalUrl(value: string): Promise<URL> {
 
 export class WebService {
   private readonly dispatcher = new Agent({ connect: { lookup: (hostname, options, callback) => {
-    systemLookup(hostname, { ...options, all: false }, (error, address, family) => {
-      if (error) { callback(error, address, family); return; }
-      if (privateAddress(address)) { callback(Object.assign(new Error('Connection to a private or local network address was blocked.'), { code: 'FORGE_PRIVATE_ADDRESS' }), address, family); return; }
-      callback(null, address, family);
+    // Undici can request `all: true`; always resolve a concrete address before
+    // returning to it. Passing an unresolved all-address result produced an
+    // undefined address and made otherwise valid HTTPS fetches fail.
+    const complete = callback as unknown as (error: Error | null, addresses: Array<{ address: string; family: number }>) => void;
+    systemLookup(hostname, { family: options.family, hints: options.hints, all: true, verbatim: true }, (error, addresses) => {
+      if (error) { complete(error, []); return; }
+      const publicAddresses = addresses.filter((candidate) => !privateAddress(candidate.address));
+      const address = publicAddresses.find((candidate) => candidate.family === 4) ?? publicAddresses[0];
+      if (!address) {
+        complete(Object.assign(new Error('Connection to a private or local network address was blocked.'), { code: 'FORGE_PRIVATE_ADDRESS' }), []);
+        return;
+      }
+      complete(null, [address]);
     });
   } } });
   constructor(private readonly enabled: () => boolean, private readonly maxBytes = 2_000_000) {}

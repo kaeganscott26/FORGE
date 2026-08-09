@@ -27,6 +27,10 @@ export default function BrowserPanel(): JSX.Element {
     window.addEventListener('resize', layout);
     return () => { observer.disconnect(); window.removeEventListener('resize', layout); void forgeInvoke('browser.layout', { visible: false }); };
   }, [layout]);
+  useEffect(() => window.forge.onBrowserState((next) => {
+    setState(next);
+    if (next.url) setAddress(next.url);
+  }), []);
   const navigate = async (): Promise<void> => {
     try {
       const next = await data<BrowserStateView>(forgeInvoke('browser.navigate', { url: normalizedUrl(address) }));
@@ -40,6 +44,6 @@ export default function BrowserPanel(): JSX.Element {
   return <div className="browser-panel">
     <div className="browser-toolbar"><button disabled={!state.canGoBack} onClick={() => void control('browser.back')} aria-label="Back">←</button><button disabled={!state.canGoForward} onClick={() => void control('browser.forward')} aria-label="Forward">→</button><button onClick={() => void control('browser.reload')} aria-label="Reload">↻</button><form onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Enter a public website" aria-label="Browser address" /><button className="accent" type="submit">Go</button></form></div>
     {error && <div className="terminal-error">{error}</div>}
-    <div ref={surface} className="browser-surface"><div className="browser-placeholder"><strong>{state.title || 'FORGE Browser'}</strong><span>{state.url || 'Enter an HTTP(S) address to browse the public web inside this workspace.'}</span></div></div>
+    <div ref={surface} className="browser-surface">{!state.url && <div className="browser-placeholder"><strong>FORGE Browser</strong><span>Enter an HTTP(S) address to browse the public web inside this workspace.</span></div>}</div>
   </div>;
 }

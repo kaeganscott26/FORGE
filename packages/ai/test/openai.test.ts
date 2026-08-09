@@ -67,10 +67,26 @@ describe('OpenAIProvider models', () => {
     expect(body.tools[0].name).toBe('forge_0_file_read');
     expect(body.tools[0].function).toBeUndefined();
     expect(body.input).toEqual([{ role: 'user', content: 'read it' }]);
+    expect(body.parallel_tool_calls).toBe(false);
     expect(body.max_output_tokens).toBe(10_000);
     expect(body.reasoning_effort).toBeUndefined();
     expect(response.toolCalls).toEqual([{ id: 'call-1', name: 'file.read', arguments: { path: 'README.md' }, provider: 'openai' }]);
     expect(response.modelId).toBe('gpt-5.6-sol-2026-08-01');
+  });
+
+  it('converts legacy exclusive numeric bounds before sending Responses tools', async () => {
+    let body: any;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ output: [] }), { status: 200 });
+    }));
+    const provider = new OpenAIProvider({ apiKey: 'test-key' });
+    await provider.chatWithTools([{ role: 'user', content: 'inspect GitHub metadata' }], [{
+      name: 'github.read', description: 'Read GitHub metadata', parameters: {
+        type: 'object', properties: { number: { type: 'integer', minimum: 0, exclusiveMinimum: true } }
+      }
+    }]);
+    expect(body.tools[0].parameters.properties.number).toEqual({ type: 'integer', exclusiveMinimum: 0 });
   });
 
   it('reads direct assistant text from a GPT-5.6 Responses result', async () => {
@@ -92,6 +108,7 @@ describe('OpenAIProvider models', () => {
     await provider.chatWithTools([{ role: 'user', content: 'hello' }], [{ name: 'git.status', description: 'Read Git status', parameters: { type: 'object' } }], 'compatible-model');
     expect(url).toBe('https://api.openai.com/v1/chat/completions');
     expect(body.tools[0].function.name).toBe('forge_0_git_status');
+    expect(body.parallel_tool_calls).toBe(false);
     expect(body.max_completion_tokens).toBe(10_000);
   });
 

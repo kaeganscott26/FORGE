@@ -271,4 +271,4 @@ export interface IPCResponseMap {
 }
 
 export type IPCChannel = keyof IPCRequestMap;
-export type ForgeAPI = { invoke<C extends IPCChannel>(channel: C, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>>; onTerminalEvent(listener: (event: TerminalEventView) => void): () => void; onRuntimeEvent(listener: (event: RuntimeEvent) => void): () => void };
+export type ForgeAPI = { invoke<C extends IPCChannel>(channel: C, request: IPCRequestMap[C]): Promise<IPCResult<IPCResponseMap[C]>>; onTerminalEvent(listener: (event: TerminalEventView) => void): () => void; onBrowserState(listener: (state: BrowserStateView) => void): () => void; onRuntimeEvent(listener: (event: RuntimeEvent) => void): () => void };

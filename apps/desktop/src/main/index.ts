@@ -40,6 +40,7 @@ const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.in
 const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 let mainWindow: BrowserWindow | null = null;
 let browserView: WebContentsView | null = null;
+let browserLayout: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } } = { visible: false };
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
 function appBuildInfo(): AppBuildInfo {
@@ -113,6 +114,7 @@ function ensureBrowserView(): WebContentsView {
   browserView.webContents.on('did-navigate', () => mainWindow?.webContents.send('browser.state', browserState()));
   browserView.webContents.on('did-navigate-in-page', () => mainWindow?.webContents.send('browser.state', browserState()));
   mainWindow?.contentView.addChildView(browserView);
+  setBrowserLayout(browserLayout);
   return browserView;
 }
 
@@ -124,6 +126,7 @@ async function navigateBrowser(value: string): Promise<{ url: string; title: str
 }
 
 function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }): void {
+  browserLayout = request;
   if (!browserView || browserView.webContents.isDestroyed()) return;
   browserView.setVisible(request.visible);
   if (request.visible && request.bounds) {

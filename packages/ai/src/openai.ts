@@ -17,6 +17,26 @@ interface ResponsesOutputItem {
   content?: Array<{ type?: unknown; text?: unknown }>;
 }
 
+/**
+ * zod-to-json-schema's OpenAPI output uses the legacy boolean exclusive bounds
+ * form. Responses validates against modern JSON Schema, where those keywords
+ * contain the numeric boundary itself.
+ */
+function responsesCompatibleSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(responsesCompatibleSchema);
+  if (!value || typeof value !== 'object') return value;
+  const schema = Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, responsesCompatibleSchema(entry)]));
+  if (schema.exclusiveMinimum === true && typeof schema.minimum === 'number') {
+    schema.exclusiveMinimum = schema.minimum;
+    delete schema.minimum;
+  }
+  if (schema.exclusiveMaximum === true && typeof schema.maximum === 'number') {
+    schema.exclusiveMaximum = schema.maximum;
+    delete schema.maximum;
+  }
+  return schema;
+}
+
 export class OpenAIProvider {
   public id = 'openai';
   private apiKey: string | undefined;
@@ -109,13 +129,17 @@ export class OpenAIProvider {
     }
     const providerTools = aliasedTools.map(({ alias, tool }) => ({
       type: 'function',
-      function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: tool.parameters }
+      function: { name: alias, description: `${tool.description} (FORGE tool: ${tool.name})`, parameters: responsesCompatibleSchema(tool.parameters) }
     }));
     const request = {
       model: selectedModel,
       messages: messages.map((message) => ({ role: message.role, content: message.content })),
       tools: providerTools,
       tool_choice: 'auto',
+      // FORGE continues from observed results until progress stops. Request one
+      // call at a time so an audit is never rejected for a burst of parallel
+      // calls in a single provider response.
+      parallel_tool_calls: false,
       max_completion_tokens: 10000,
     };
     let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
@@ -156,9 +180,12 @@ export class OpenAIProvider {
         type: 'function',
         name: alias,
         description: `${tool.description} (FORGE tool: ${tool.name})`,
-        parameters: tool.parameters
+        parameters: responsesCompatibleSchema(tool.parameters)
       })),
       tool_choice: 'auto',
+      // This is deliberately not a total tool budget. The native runtime
+      // observes one result, then asks for the next dependency-ready call.
+      parallel_tool_calls: false,
       max_output_tokens: 10_000
     };
     const response = await this.authorizedFetch(`${this.baseUrl}/responses`, {
