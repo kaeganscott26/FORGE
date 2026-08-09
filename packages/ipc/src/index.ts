@@ -144,7 +144,7 @@ export interface ToolResultView { requestId: string; toolName: string; success: 
 export interface ActionLogView { id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string; sanitizedInputs: unknown; approvalDecision: string; executionDurationMs: number; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null; rollback?: ToolResultView['rollback']; }
 export interface TerminalSessionView { id: string; cwd: string; pid: number; state: 'running' | 'exited'; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
 export interface TerminalEventView { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
-export interface BrowserStateView { url: string; title: string; canGoBack: boolean; canGoForward: boolean; }
+export interface BrowserStateView { url: string; title: string; canGoBack: boolean; canGoForward: boolean; loading: boolean; error?: string; }
 export interface BrowserLayoutRequest { visible: boolean; bounds?: { x: number; y: number; width: number; height: number }; }
 export type RuntimeEventType = 'workspace.changed' | 'file.changed' | 'git.changed' | 'task.changed' | 'context.invalidated' | 'context.updated' | 'memory.changed' | 'tool.requested' | 'tool.completed' | 'agent.started' | 'agent.progress' | 'agent.completed' | 'agent.blocked' | 'terminal.changed' | 'github.changed';
 export interface RuntimeEvent { type: RuntimeEventType; workspaceId: string; occurredAt: number; payload?: Record<string, unknown>; }

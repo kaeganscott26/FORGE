@@ -1,1 +1,1 @@
-{"name":"@forge/workspace","version":"2.1.0-beta.2","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@forge/ipc":"*"}}
+{"name":"@forge/workspace","version":"2.2.0-beta.1","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"@forge/ipc":"*"}}

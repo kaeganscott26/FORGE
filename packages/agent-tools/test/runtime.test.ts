@@ -7,14 +7,34 @@ import { boundedToolEvidence, ToolRouter, createToolRegistry, parseStructuredToo
 const fakeGit = { status: async () => ({ branch: 'main', ahead: 0, behind: 0, files: [], head: null }), branches: async () => [], log: async () => [], diff: async () => ({ files: [] }), stage: async () => undefined, unstage: async () => undefined, commit: async () => ({ hash: '1' }), pull: async () => undefined, push: async () => undefined } as any;
 const fakeShell = { run: async () => ({ stdout: '', stderr: '', exitCode: 0, signal: null, timedOut: false, cancelled: false, truncated: false }), cancel: () => true } as any;
 const fakeWeb = { search: async () => ({ query: '', results: [] }), fetch: async () => ({}) } as any;
+const fakeBrowser = { enabled: () => true, open: async (url: string) => ({ url, title: 'Example', canGoBack: false, canGoForward: false }), read: async () => ({ url: 'https://example.com/', title: 'Example Domain', text: 'Example Domain This domain is for use in illustrative examples in documents.', truncated: false }) };
 
 describe('agent tool runtime', () => {
   it('defines every tool with schemas, timeout, audit, cancellation, and boundary metadata', () => {
     const registry = createToolRegistry(); const definitions = registry.list();
     expect(definitions.map((entry) => entry.name)).toContain('shell.run');
     expect(definitions.map((entry) => entry.name)).toContain('web.search');
+    expect(definitions.map((entry) => entry.name)).toEqual(expect.arrayContaining(['browser.open', 'browser.read', 'browser.find', 'browser.savecontext']));
     expect(definitions.every((entry) => entry.inputSchema && entry.outputSchema && entry.timeoutMs > 0 && entry.audit && typeof entry.cancellable === 'boolean')).toBe(true);
     expect(registry.parse({ id: 'linked-write', name: 'file.create', provider: 'test', arguments: { path: 'note.md', content: '', reason: 'Create task output.', taskContext: { taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' } } }).input.taskContext).toEqual({ taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' });
+  });
+
+  it('requires approval before exposing browser text to the model and saves approved page context durably', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-browser-tools-'));
+    const saved: Array<{ type: string; title?: string | null; content: string; metadata?: unknown }> = [];
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, browser: fakeBrowser, memories: { create: async (entry) => { saved.push(entry); return { id: 'memory-1', createdAt: 1, updatedAt: 1 }; } }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const read = await router.request({ id: 'browser-read', name: 'browser.read', provider: 'test', arguments: { reason: 'Summarize the page.' } }, context);
+    expect(read.request.state).toBe('pending');
+    const readResult = await router.approve(read.request.id, context, 'run-once');
+    expect(readResult.output).toMatchObject({ url: 'https://example.com/', text: expect.stringContaining('Example Domain') });
+    const find = await router.request({ id: 'browser-find', name: 'browser.find', provider: 'test', arguments: { query: 'illustrative', reason: 'Find the relevant statement.' } }, context);
+    const findResult = await router.approve(find.request.id, context, 'run-once');
+    expect(findResult.output).toMatchObject({ matches: [{ excerpt: expect.stringContaining('illustrative') }] });
+    const save = await router.request({ id: 'browser-save', name: 'browser.savecontext', provider: 'test', arguments: { title: 'Example reference', content: 'The page is a reserved example domain.', reason: 'Save this reference.' } }, context);
+    expect(save.request.state).toBe('pending');
+    expect((await router.approve(save.request.id, context, 'run-once')).rollback?.available).toBe(true);
+    expect(saved).toEqual([expect.objectContaining({ type: 'document', title: 'Example reference', metadata: expect.objectContaining({ url: 'https://example.com/' }) })]);
   });
 
   it('blocks traversal and symlink workspace escapes', async () => {

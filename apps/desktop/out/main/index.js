@@ -1,4 +1,4 @@
-import { app, shell, safeStorage, BrowserWindow, dialog, ipcMain, clipboard, WebContentsView } from "electron";
+import { app, shell, safeStorage, BrowserWindow, dialog, WebContentsView, ipcMain, clipboard } from "electron";
 import { promises, watch, existsSync } from "node:fs";
 import * as path from "node:path";
 import path__default, { join } from "node:path";
@@ -6341,6 +6341,10 @@ function createToolRegistry() {
   registry.register(definition({ ...base, name: "shell.run", purpose: "Run an approved executable with an argument array.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3), ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => input.expectedOutcome }));
   registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web as explicitly approved external research.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact query to an external search service and return cited results." }));
   for (const name of ["web.fetch", "web.open"]) registry.register(definition({ ...base, name, purpose: "Retrieve an approved public HTTP(S) resource.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded external web evidence without browser automation." }));
+  registry.register(definition({ ...base, name: "browser.open", purpose: "Open a validated public HTTP(S) URL in the user-visible FORGE Browser.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 45e3, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "remote", approval: "explicit", describeTarget: (input) => input.url, describeEffect: () => "Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data." }));
+  registry.register(definition({ ...base, name: "browser.read", purpose: "Read bounded rendered text from the current visible FORGE Browser page.", inputSchema: z.object({ reason, ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: "remote", approval: "explicit", describeTarget: () => "the current FORGE Browser page", describeEffect: () => "Send bounded rendered page text from the current public page to the configured model for analysis." }));
+  registry.register(definition({ ...base, name: "browser.find", purpose: "Find bounded text excerpts on the current visible FORGE Browser page.", inputSchema: z.object({ query: z.string().min(1).max(1e3), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: "remote", approval: "explicit", describeTarget: () => "the current FORGE Browser page", describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
+  registry.register(definition({ ...base, name: "browser.savecontext", purpose: "Save an agent-authored summary of the current browser page as durable workspace context.", inputSchema: z.object({ title: z.string().min(1).max(500), content: z.string().min(1).max(2e5), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 15e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, sideEffect: "workspace-write", approval: "session", sessionScope: (input) => JSON.stringify({ tool: "browser.savecontext", title: input.title }), describeTarget: (input) => `durable workspace context: ${input.title}`, describeEffect: () => "Persist the supplied browser-page summary in workspace-owned durable memory. It can be removed from Durable Memory later." }));
   registry.register(definition({ ...base, name: "github.read", purpose: "Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.", inputSchema: z.object({ resource: z.enum(["metadata", "branches", "commits", "issues", "pulls", "issue-comments", "pull-comments", "workflow-runs", "workflow-jobs", "releases", "release-assets"]), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "read", approval: "automatic", describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => "Read bounded GitHub repository evidence using the active origin." }));
   registry.register(definition({ ...base, name: "github.mutate", purpose: "Perform one explicitly approved GitHub repository mutation through the official REST API.", inputSchema: z.object({ action: z.enum(["create-issue", "update-issue", "comment-issue", "create-branch", "create-file", "create-pull-request", "comment-pull-request", "retry-workflow", "create-release", "update-release"]), input: z.record(z.unknown()), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "remote", approval: "explicit", describeTarget: (input) => `GitHub ${input.action}`, describeEffect: () => "Send one authenticated, audited GitHub API mutation for the active repository." }));
   const taskStepDraft = z.object({ id: z.string().min(1).max(200).optional(), name: z.string().min(1).max(300), purpose: z.string().min(1).max(2e3), riskTier: z.union([z.literal(0), z.literal(1), z.literal(2)]), requiredTool: z.string().max(200).optional(), expectedInput: z.unknown().optional(), expectedOutput: z.unknown().optional(), retryPolicy: z.object({ maxAttempts: z.number().int().min(1).max(20).optional(), backoffMs: z.number().int().min(0).max(864e5).optional(), retryableErrorCodes: z.array(z.string().max(100)).max(50).optional() }).optional(), timeoutMs: z.number().int().min(100).max(864e5).optional(), artifactPaths: z.array(relativePath).max(200).optional(), verificationCriteria: z.array(z.string().min(1).max(1e3)).min(1).max(100), rollbackInstructions: z.string().max(4e3).optional(), dependencies: z.array(z.string().min(1).max(200)).max(100).optional() });
@@ -6679,6 +6683,37 @@ class ToolRouter {
     });
     this.executors.set("web.search", async (input) => ok(await this.dependencies.web.search(input.query)));
     for (const name of ["web.fetch", "web.open"]) this.executors.set(name, async (input) => ok(await this.dependencies.web.fetch(input.url)));
+    this.executors.set("browser.open", async (input) => {
+      if (!this.dependencies.browser) throw new Error("The FORGE Browser is unavailable.");
+      if (!this.dependencies.browser.enabled()) throw new Error("Agent web research is disabled in Settings. Enable it before asking the agent to use the FORGE Browser.");
+      return ok(await this.dependencies.browser.open(input.url));
+    });
+    this.executors.set("browser.read", async () => {
+      if (!this.dependencies.browser) throw new Error("The FORGE Browser is unavailable.");
+      if (!this.dependencies.browser.enabled()) throw new Error("Agent web research is disabled in Settings. Enable it before sending browser content to the model.");
+      return ok(await this.dependencies.browser.read());
+    });
+    this.executors.set("browser.find", async (input) => {
+      if (!this.dependencies.browser) throw new Error("The FORGE Browser is unavailable.");
+      if (!this.dependencies.browser.enabled()) throw new Error("Agent web research is disabled in Settings. Enable it before sending browser content to the model.");
+      const page = await this.dependencies.browser.read();
+      const needle = input.query.toLocaleLowerCase();
+      const matches = [];
+      let offset = 0;
+      while (matches.length < input.maxResults) {
+        const index = page.text.toLocaleLowerCase().indexOf(needle, offset);
+        if (index < 0) break;
+        matches.push({ index, excerpt: page.text.slice(Math.max(0, index - 180), Math.min(page.text.length, index + needle.length + 420)).replace(/\s+/g, " ").trim() });
+        offset = index + Math.max(1, needle.length);
+      }
+      return ok({ url: page.url, title: page.title, query: input.query, matches, truncated: page.truncated || matches.length >= input.maxResults });
+    });
+    this.executors.set("browser.savecontext", async (input) => {
+      if (!this.dependencies.browser || !this.dependencies.memories) throw new Error("Browser context storage is unavailable.");
+      const page = await this.dependencies.browser.read();
+      const memory = await this.dependencies.memories.create({ type: "document", title: input.title, content: input.content, metadata: { source: "forge-browser", url: page.url, pageTitle: page.title, savedAt: Date.now() } });
+      return ok({ memory: { id: memory.id, title: input.title, url: page.url, pageTitle: page.title, createdAt: memory.createdAt } }, [], { rollback: { available: true, instructions: `Delete durable memory ${memory.id} from Workspace Intelligence to remove this saved browser context.` } });
+    });
     this.executors.set("github.read", async (input) => {
       if (!this.dependencies.github) throw new Error("GitHub integration is unavailable.");
       return ok(await this.dependencies.github.read(input.resource, input));
@@ -8660,16 +8695,17 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("terminal.event", event);
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
-const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 let mainWindow = null;
 let browserView = null;
 let browserLayout = { visible: false };
+let browserLoading = false;
+let browserError = "";
 let rendererSource = "file:// development build";
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "700d718918b4d2e16cee2ff46b748b1dfe3a9294",
-    buildDate: "2026-08-09T11:20:22.468Z",
+    commit: "0cc1e2001511047b290bd59553433a87af21a5bd",
+    buildDate: "2026-08-09T11:45:45.021Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8728,22 +8764,61 @@ async function openWorkspaceAt(rootPath) {
 }
 function browserState() {
   const contents = browserView?.webContents;
-  return { url: contents?.getURL() ?? "", title: contents?.getTitle() ?? "", canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false };
+  return { url: contents?.getURL() ?? "", title: contents?.getTitle() ?? "", canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false, loading: browserLoading, error: browserError || void 0 };
+}
+function sendBrowserState() {
+  mainWindow?.webContents.send("browser.state", browserState());
+}
+function blockedBrowserNavigation(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return "The browser rejected an invalid navigation URL.";
+  }
+  if (!["https:", "http:"].includes(url.protocol)) return "Only HTTP and HTTPS browser navigation is allowed.";
+  if (url.username || url.password) return "Credential-bearing URLs are blocked.";
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) return "Local-network URLs are blocked.";
+  const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a >= 224) return "Private and local network addresses are blocked.";
+  }
+  return null;
 }
 function ensureBrowserView() {
   if (browserView && !browserView.webContents.isDestroyed()) return browserView;
   browserView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   browserView.setBackgroundColor("#0d1116");
   browserView.webContents.setWindowOpenHandler(({ url }) => {
-    void navigateBrowser(url);
+    void navigateBrowser(url).catch(reportBrowserError);
     return { action: "deny" };
   });
   browserView.webContents.on("will-navigate", (event, url) => {
+    const reason2 = blockedBrowserNavigation(url);
+    if (!reason2) return;
     event.preventDefault();
-    void navigateBrowser(url);
+    reportBrowserError(reason2);
   });
-  browserView.webContents.on("did-navigate", () => mainWindow?.webContents.send("browser.state", browserState()));
-  browserView.webContents.on("did-navigate-in-page", () => mainWindow?.webContents.send("browser.state", browserState()));
+  browserView.webContents.on("did-start-loading", () => {
+    browserLoading = true;
+    browserError = "";
+    sendBrowserState();
+  });
+  browserView.webContents.on("did-finish-load", () => {
+    browserLoading = false;
+    sendBrowserState();
+  });
+  browserView.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) {
+      browserLoading = false;
+      browserError = `${errorDescription} (${validatedUrl})`;
+      sendBrowserState();
+    }
+  });
+  browserView.webContents.on("did-navigate", sendBrowserState);
+  browserView.webContents.on("did-navigate-in-page", sendBrowserState);
   mainWindow?.contentView.addChildView(browserView);
   setBrowserLayout(browserLayout);
   return browserView;
@@ -8751,18 +8826,53 @@ function ensureBrowserView() {
 async function navigateBrowser(value) {
   const url = (await validateExternalUrl(value)).toString();
   const view = ensureBrowserView();
-  await view.webContents.loadURL(url);
+  browserLoading = true;
+  browserError = "";
+  sendBrowserState();
+  try {
+    await view.webContents.loadURL(url);
+  } catch (error) {
+    if (!/ERR_ABORTED|\(-3\)/i.test(error instanceof Error ? error.message : String(error))) {
+      reportBrowserError(error);
+      throw error;
+    }
+  }
   return browserState();
+}
+function reportBrowserError(error) {
+  browserLoading = false;
+  browserError = error instanceof Error ? error.message : String(error);
+  sendBrowserState();
+}
+async function readBrowserPage() {
+  const view = browserView;
+  if (!view || view.webContents.isDestroyed()) throw new Error("Open a public page in the FORGE Browser before asking the agent to read it.");
+  const url = (await validateExternalUrl(view.webContents.getURL())).toString();
+  const document = await view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true);
+  const text = typeof document.text === "string" ? document.text : "";
+  const limit = 16e4;
+  return { url, title: typeof document.title === "string" ? document.title : view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
 }
 function setBrowserLayout(request) {
   browserLayout = request;
   if (!browserView || browserView.webContents.isDestroyed()) return;
-  browserView.setVisible(request.visible);
-  if (request.visible && request.bounds) {
+  if (!request.visible) {
+    browserView.setVisible(false);
+    return;
+  }
+  if (request.bounds) {
     const { x, y, width, height } = request.bounds;
     browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
+  mainWindow?.contentView.addChildView(browserView);
+  browserView.setVisible(true);
 }
+const browserToolService = {
+  enabled: () => settings.webResearchEnabled(),
+  open: navigateBrowser,
+  read: readBrowserPage
+};
+const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, browser: browserToolService, memories: memoryService, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 function registerHandlers() {
   register(IPC_CHANNELS.workspaceOpen, async () => {
     const selection = await dialog.showOpenDialog({ title: "Open Forge workspace", properties: ["openDirectory", "createDirectory"] });
@@ -8946,27 +9056,39 @@ function createWindow() {
   }
 }
 app.setName("FORGE");
-app.whenReady().then(async () => {
-  const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-1024.png");
-  if (process.platform === "darwin" && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
-  try {
-    await settings.init();
-    await applyAISettings();
-    updater.setChannel(settings.updateChannel());
-    registerHandlers();
-    const startupWorkspace = process.argv.find((argument) => argument.startsWith("--workspace="))?.slice("--workspace=".length);
-    if (startupWorkspace) await openWorkspaceAt(startupWorkspace);
-    createWindow();
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
-  } catch (error) {
-    dialog.showErrorBox("FORGE could not start", error instanceof Error ? error.message : String(error));
-    app.quit();
-  }
-});
-app.on("window-all-closed", async () => {
-  terminalService.dispose();
-  await storage.close();
-  if (process.platform !== "darwin") app.quit();
-});
+const ownsSingleInstanceLock = app.requestSingleInstanceLock();
+if (!ownsSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, commandLine) => {
+    const startupWorkspace = commandLine.find((argument) => argument.startsWith("--workspace="))?.slice("--workspace=".length);
+    if (startupWorkspace) void openWorkspaceAt(startupWorkspace).catch(() => void 0);
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+  app.whenReady().then(async () => {
+    const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-1024.png");
+    if (process.platform === "darwin" && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
+    try {
+      await settings.init();
+      await applyAISettings();
+      updater.setChannel(settings.updateChannel());
+      registerHandlers();
+      const startupWorkspace = process.argv.find((argument) => argument.startsWith("--workspace="))?.slice("--workspace=".length);
+      if (startupWorkspace) await openWorkspaceAt(startupWorkspace);
+      createWindow();
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    } catch (error) {
+      dialog.showErrorBox("FORGE could not start", error instanceof Error ? error.message : String(error));
+      app.quit();
+    }
+  });
+  app.on("window-all-closed", async () => {
+    terminalService.dispose();
+    await storage.close();
+    if (process.platform !== "darwin") app.quit();
+  });
+}

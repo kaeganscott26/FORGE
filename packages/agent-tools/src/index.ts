@@ -38,6 +38,17 @@ export interface AuditStore {
   listActions(filters?: { conversationId?: string; toolName?: string; success?: boolean; from?: number; to?: number }): Promise<AuditRecord[]>;
 }
 
+/**
+ * A deliberately small bridge to the user-visible FORGE browser.  The agent
+ * never receives Electron or webContents access directly; it can only request
+ * these bounded, audited operations through ToolRouter.
+ */
+export interface BrowserToolService {
+  enabled(): boolean;
+  open(url: string): Promise<{ url: string; title: string; canGoBack: boolean; canGoForward: boolean }>;
+  read(): Promise<{ url: string; title: string; text: string; truncated: boolean }>;
+}
+
 export interface ToolRouterContext {
   workspaceId: string;
   conversationId: string;
@@ -143,6 +154,10 @@ export function createToolRegistry(): ToolRegistry {
   registry.register(definition({ ...base, name: 'shell.run', purpose: 'Run an approved executable with an argument array.', inputSchema: z.object({ command: z.string().min(1).max(4_096), args: z.array(z.string().max(32_000)).max(500).default([]), workingDirectory: z.string().max(4_096).default('.'), timeoutMs: z.number().int().min(100).max(600_000).default(120_000), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2_000), ...taskContext }), workspaceBoundary: 'required', timeoutMs: 600_000, audit: { category: 'shell', recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => [input.command, ...(input.args ?? [])].map(quoteArgument).join(' '), describeEffect: (input) => input.expectedOutcome }));
   registry.register(definition({ ...base, name: 'web.search', purpose: 'Search the public web as explicitly approved external research.', inputSchema: z.object({ query: z.string().min(1).max(1_000), reason, projectDataSent: z.string().max(2_000).default('None'), ...taskContext }), workspaceBoundary: 'not-applicable', timeoutMs: 30_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => 'Send the exact query to an external search service and return cited results.' }));
   for (const name of ['web.fetch', 'web.open'] as const) registry.register(definition({ ...base, name, purpose: 'Retrieve an approved public HTTP(S) resource.', inputSchema: z.object({ url: z.string().url().max(8_000), reason, projectDataSent: z.string().max(2_000).default('None'), ...taskContext }), workspaceBoundary: 'not-applicable', timeoutMs: 30_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => 'Retrieve bounded external web evidence without browser automation.' }));
+  registry.register(definition({ ...base, name: 'browser.open', purpose: 'Open a validated public HTTP(S) URL in the user-visible FORGE Browser.', inputSchema: z.object({ url: z.string().url().max(8_000), reason, projectDataSent: z.string().max(2_000).default('None'), ...taskContext }), workspaceBoundary: 'not-applicable', timeoutMs: 45_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: 'remote', approval: 'explicit', describeTarget: (input) => input.url, describeEffect: () => 'Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data.' }));
+  registry.register(definition({ ...base, name: 'browser.read', purpose: 'Read bounded rendered text from the current visible FORGE Browser page.', inputSchema: z.object({ reason, ...taskContext }), workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: 'remote', approval: 'explicit', describeTarget: () => 'the current FORGE Browser page', describeEffect: () => 'Send bounded rendered page text from the current public page to the configured model for analysis.' }));
+  registry.register(definition({ ...base, name: 'browser.find', purpose: 'Find bounded text excerpts on the current visible FORGE Browser page.', inputSchema: z.object({ query: z.string().min(1).max(1_000), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: 'remote', approval: 'explicit', describeTarget: () => 'the current FORGE Browser page', describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
+  registry.register(definition({ ...base, name: 'browser.savecontext', purpose: 'Save an agent-authored summary of the current browser page as durable workspace context.', inputSchema: z.object({ title: z.string().min(1).max(500), content: z.string().min(1).max(200_000), reason, ...taskContext }), workspaceBoundary: 'required', timeoutMs: 15_000, audit: { category: 'memory', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, sideEffect: 'workspace-write', approval: 'session', sessionScope: (input) => JSON.stringify({ tool: 'browser.savecontext', title: input.title }), describeTarget: (input) => `durable workspace context: ${input.title}`, describeEffect: () => 'Persist the supplied browser-page summary in workspace-owned durable memory. It can be removed from Durable Memory later.' }));
   registry.register(definition({ ...base, name: 'github.read', purpose: 'Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.', inputSchema: z.object({ resource: z.enum(['metadata', 'branches', 'commits', 'issues', 'pulls', 'issue-comments', 'pull-comments', 'workflow-runs', 'workflow-jobs', 'releases', 'release-assets']), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), workspaceBoundary: 'required', timeoutMs: 30_000, audit: { category: 'git', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: 'read', approval: 'automatic', describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => 'Read bounded GitHub repository evidence using the active origin.' }));
   registry.register(definition({ ...base, name: 'github.mutate', purpose: 'Perform one explicitly approved GitHub repository mutation through the official REST API.', inputSchema: z.object({ action: z.enum(['create-issue', 'update-issue', 'comment-issue', 'create-branch', 'create-file', 'create-pull-request', 'comment-pull-request', 'retry-workflow', 'create-release', 'update-release']), input: z.record(z.unknown()), reason, ...taskContext }), workspaceBoundary: 'required', timeoutMs: 60_000, audit: { category: 'git', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: 'remote', approval: 'explicit', describeTarget: (input) => `GitHub ${input.action}`, describeEffect: () => 'Send one authenticated, audited GitHub API mutation for the active repository.' }));
   const taskStepDraft = z.object({ id: z.string().min(1).max(200).optional(), name: z.string().min(1).max(300), purpose: z.string().min(1).max(2_000), riskTier: z.union([z.literal(0), z.literal(1), z.literal(2)]), requiredTool: z.string().max(200).optional(), expectedInput: z.unknown().optional(), expectedOutput: z.unknown().optional(), retryPolicy: z.object({ maxAttempts: z.number().int().min(1).max(20).optional(), backoffMs: z.number().int().min(0).max(86_400_000).optional(), retryableErrorCodes: z.array(z.string().max(100)).max(50).optional() }).optional(), timeoutMs: z.number().int().min(100).max(86_400_000).optional(), artifactPaths: z.array(relativePath).max(200).optional(), verificationCriteria: z.array(z.string().min(1).max(1_000)).min(1).max(100), rollbackInstructions: z.string().max(4_000).optional(), dependencies: z.array(z.string().min(1).max(200)).max(100).optional() });
@@ -178,7 +193,7 @@ export class ToolRouter {
   private readonly sessions = new SessionPermissionStore();
   private readonly policy = new PolicyEngine(this.sessions);
 
-  constructor(private readonly dependencies: { git: GitService; github?: GitHubService; shell: ShellService; terminal?: { list(): Array<{ id: string; cwd: string; state: string; exitCode: number | null; recentOutput: string }> }; tasks?: { get(taskId: string): Promise<unknown>; create(draft: any): Promise<unknown>; resume(taskId: string): Promise<unknown>; pause(taskId: string, reason: string): Promise<unknown>; cancel(taskId: string, reason: string, trackingOnly: boolean): Promise<unknown>; checkpoint(taskId: string, input: any): Promise<unknown>; generateHandoff(taskId: string): Promise<unknown>; startBackground(taskId: string, stepId: string, input: ShellRunInput, toolRequestId: string): Promise<unknown> }; web: WebService; audit: AuditStore; dirtyPaths: () => ReadonlySet<string> }) {
+  constructor(private readonly dependencies: { git: GitService; github?: GitHubService; shell: ShellService; terminal?: { list(): Array<{ id: string; cwd: string; state: string; exitCode: number | null; recentOutput: string }> }; tasks?: { get(taskId: string): Promise<unknown>; create(draft: any): Promise<unknown>; resume(taskId: string): Promise<unknown>; pause(taskId: string, reason: string): Promise<unknown>; cancel(taskId: string, reason: string, trackingOnly: boolean): Promise<unknown>; checkpoint(taskId: string, input: any): Promise<unknown>; generateHandoff(taskId: string): Promise<unknown>; startBackground(taskId: string, stepId: string, input: ShellRunInput, toolRequestId: string): Promise<unknown> }; browser?: BrowserToolService; memories?: { create(entry: { type: 'document'; title?: string | null; content: string; metadata?: unknown }): Promise<{ id: string; createdAt: number; updatedAt: number }> }; web: WebService; audit: AuditStore; dirtyPaths: () => ReadonlySet<string> }) {
     this.registry = createToolRegistry(); this.installExecutors();
   }
 
@@ -299,6 +314,37 @@ export class ToolRouter {
     this.executors.set('git.pull', async () => { const status = await this.dependencies.git.status(); if (status.files.length) throw new Error('Pull is blocked while the working tree is dirty.'); await this.dependencies.git.pull(); return ok({ branch: status.branch }); }); this.executors.set('git.push', async () => { const status = await this.dependencies.git.status(); await this.dependencies.git.push(); return ok({ branch: status.branch }); });
     this.executors.set('shell.run', async (input: ShellRunInput, request) => { const output = await this.dependencies.shell.run(input, request.id); return ok(output, [], { exitCode: output.exitCode, truncated: output.truncated, cancelled: output.cancelled }); });
     this.executors.set('web.search', async (input) => ok(await this.dependencies.web.search(input.query))); for (const name of ['web.fetch', 'web.open']) this.executors.set(name, async (input) => ok(await this.dependencies.web.fetch(input.url)));
+    this.executors.set('browser.open', async (input) => {
+      if (!this.dependencies.browser) throw new Error('The FORGE Browser is unavailable.');
+      if (!this.dependencies.browser.enabled()) throw new Error('Agent web research is disabled in Settings. Enable it before asking the agent to use the FORGE Browser.');
+      return ok(await this.dependencies.browser.open(input.url));
+    });
+    this.executors.set('browser.read', async () => {
+      if (!this.dependencies.browser) throw new Error('The FORGE Browser is unavailable.');
+      if (!this.dependencies.browser.enabled()) throw new Error('Agent web research is disabled in Settings. Enable it before sending browser content to the model.');
+      return ok(await this.dependencies.browser.read());
+    });
+    this.executors.set('browser.find', async (input) => {
+      if (!this.dependencies.browser) throw new Error('The FORGE Browser is unavailable.');
+      if (!this.dependencies.browser.enabled()) throw new Error('Agent web research is disabled in Settings. Enable it before sending browser content to the model.');
+      const page = await this.dependencies.browser.read();
+      const needle = input.query.toLocaleLowerCase();
+      const matches: Array<{ index: number; excerpt: string }> = [];
+      let offset = 0;
+      while (matches.length < input.maxResults) {
+        const index = page.text.toLocaleLowerCase().indexOf(needle, offset);
+        if (index < 0) break;
+        matches.push({ index, excerpt: page.text.slice(Math.max(0, index - 180), Math.min(page.text.length, index + needle.length + 420)).replace(/\s+/g, ' ').trim() });
+        offset = index + Math.max(1, needle.length);
+      }
+      return ok({ url: page.url, title: page.title, query: input.query, matches, truncated: page.truncated || matches.length >= input.maxResults });
+    });
+    this.executors.set('browser.savecontext', async (input) => {
+      if (!this.dependencies.browser || !this.dependencies.memories) throw new Error('Browser context storage is unavailable.');
+      const page = await this.dependencies.browser.read();
+      const memory = await this.dependencies.memories.create({ type: 'document', title: input.title, content: input.content, metadata: { source: 'forge-browser', url: page.url, pageTitle: page.title, savedAt: Date.now() } });
+      return ok({ memory: { id: memory.id, title: input.title, url: page.url, pageTitle: page.title, createdAt: memory.createdAt } }, [], { rollback: { available: true, instructions: `Delete durable memory ${memory.id} from Workspace Intelligence to remove this saved browser context.` } });
+    });
     this.executors.set('github.read', async (input) => { if (!this.dependencies.github) throw new Error('GitHub integration is unavailable.'); return ok(await this.dependencies.github.read(input.resource, input)); });
     this.executors.set('github.mutate', async (input) => { if (!this.dependencies.github) throw new Error('GitHub integration is unavailable.'); return ok(await this.dependencies.github.mutate(input.action, input.input)); });
     this.executors.set('task.inspect', async (input) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); return ok({ task: await this.dependencies.tasks.get(input.taskId) }); });

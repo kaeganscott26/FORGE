@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { is } from '@electron-toolkit/utils';
-import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult, type RuntimeEventType } from '@forge/ipc';
+import { buildReleaseIdentity, formatAppBuildInfo, IPC_CHANNELS, type AppBuildInfo, type BrowserStateView, type IPCChannel, type IPCRequestMap, type IPCResponseMap, type IPCResult, type RuntimeEventType } from '@forge/ipc';
 import { WorkspaceService } from '@forge/workspace';
 import { GitHubService, GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
@@ -37,10 +37,11 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('terminal.event', event);
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
-const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 let mainWindow: BrowserWindow | null = null;
 let browserView: WebContentsView | null = null;
 let browserLayout: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } } = { visible: false };
+let browserLoading = false;
+let browserError = '';
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 
 function appBuildInfo(): AppBuildInfo {
@@ -100,40 +101,104 @@ async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType
   return info;
 }
 
-function browserState(): { url: string; title: string; canGoBack: boolean; canGoForward: boolean } {
+function browserState(): BrowserStateView {
   const contents = browserView?.webContents;
-  return { url: contents?.getURL() ?? '', title: contents?.getTitle() ?? '', canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false };
+  return { url: contents?.getURL() ?? '', title: contents?.getTitle() ?? '', canGoBack: contents?.canGoBack() ?? false, canGoForward: contents?.canGoForward() ?? false, loading: browserLoading, error: browserError || undefined };
+}
+
+function sendBrowserState(): void { mainWindow?.webContents.send('browser.state', browserState()); }
+
+/** Keep page-initiated public redirects inside the native view. Re-loading them
+ * through the async validator cancels the page currently being painted, which
+ * leaves sites with client-side redirects on a blank surface. */
+function blockedBrowserNavigation(value: string): string | null {
+  let url: URL;
+  try { url = new URL(value); } catch { return 'The browser rejected an invalid navigation URL.'; }
+  if (!['https:', 'http:'].includes(url.protocol)) return 'Only HTTP and HTTPS browser navigation is allowed.';
+  if (url.username || url.password) return 'Credential-bearing URLs are blocked.';
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return 'Local-network URLs are blocked.';
+  const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224) return 'Private and local network addresses are blocked.';
+  }
+  return null;
 }
 
 function ensureBrowserView(): WebContentsView {
   if (browserView && !browserView.webContents.isDestroyed()) return browserView;
   browserView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   browserView.setBackgroundColor('#0d1116');
-  browserView.webContents.setWindowOpenHandler(({ url }) => { void navigateBrowser(url); return { action: 'deny' }; });
-  browserView.webContents.on('will-navigate', (event, url) => { event.preventDefault(); void navigateBrowser(url); });
-  browserView.webContents.on('did-navigate', () => mainWindow?.webContents.send('browser.state', browserState()));
-  browserView.webContents.on('did-navigate-in-page', () => mainWindow?.webContents.send('browser.state', browserState()));
+  browserView.webContents.setWindowOpenHandler(({ url }) => { void navigateBrowser(url).catch(reportBrowserError); return { action: 'deny' }; });
+  browserView.webContents.on('will-navigate', (event, url) => {
+    const reason = blockedBrowserNavigation(url);
+    if (!reason) return;
+    event.preventDefault();
+    reportBrowserError(reason);
+  });
+  browserView.webContents.on('did-start-loading', () => { browserLoading = true; browserError = ''; sendBrowserState(); });
+  browserView.webContents.on('did-finish-load', () => { browserLoading = false; sendBrowserState(); });
+  browserView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => { if (isMainFrame && errorCode !== -3) { browserLoading = false; browserError = `${errorDescription} (${validatedUrl})`; sendBrowserState(); } });
+  browserView.webContents.on('did-navigate', sendBrowserState);
+  browserView.webContents.on('did-navigate-in-page', sendBrowserState);
   mainWindow?.contentView.addChildView(browserView);
   setBrowserLayout(browserLayout);
   return browserView;
 }
 
-async function navigateBrowser(value: string): Promise<{ url: string; title: string; canGoBack: boolean; canGoForward: boolean }> {
+async function navigateBrowser(value: string): Promise<BrowserStateView> {
   const url = (await validateExternalUrl(value)).toString();
   const view = ensureBrowserView();
-  await view.webContents.loadURL(url);
+  browserLoading = true; browserError = ''; sendBrowserState();
+  try { await view.webContents.loadURL(url); }
+  catch (error) {
+    // A page-initiated public redirect supersedes the in-flight navigation and
+    // Electron rejects the older load with ERR_ABORTED (-3).  The replacement
+    // navigation remains observable through browser state, so it is not a
+    // user-facing load failure.
+    if (!/ERR_ABORTED|\(-3\)/i.test(error instanceof Error ? error.message : String(error))) { reportBrowserError(error); throw error; }
+  }
   return browserState();
+}
+
+function reportBrowserError(error: unknown): void {
+  browserLoading = false;
+  browserError = error instanceof Error ? error.message : String(error);
+  sendBrowserState();
+}
+
+async function readBrowserPage(): Promise<{ url: string; title: string; text: string; truncated: boolean }> {
+  const view = browserView;
+  if (!view || view.webContents.isDestroyed()) throw new Error('Open a public page in the FORGE Browser before asking the agent to read it.');
+  const url = (await validateExternalUrl(view.webContents.getURL())).toString();
+  const document = await view.webContents.executeJavaScript(`(() => ({ title: document.title || '', text: (document.body?.innerText || '').replace(/\\s+/g, ' ').trim() }))()`, true) as { title?: unknown; text?: unknown };
+  const text = typeof document.text === 'string' ? document.text : '';
+  const limit = 160_000;
+  return { url, title: typeof document.title === 'string' ? document.title : view.webContents.getTitle(), text: text.slice(0, limit), truncated: text.length > limit };
 }
 
 function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }): void {
   browserLayout = request;
   if (!browserView || browserView.webContents.isDestroyed()) return;
-  browserView.setVisible(request.visible);
-  if (request.visible && request.bounds) {
+  if (!request.visible) { browserView.setVisible(false); return; }
+  if (request.bounds) {
     const { x, y, width, height } = request.bounds;
     browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
+  // Re-adding an existing view is documented to raise it above its siblings.
+  // This keeps the native web surface above the renderer after React lays out
+  // the Browser panel, instead of leaving a successfully loaded page black.
+  mainWindow?.contentView.addChildView(browserView);
+  browserView.setVisible(true);
 }
+
+const browserToolService = {
+  enabled: (): boolean => settings.webResearchEnabled(),
+  open: navigateBrowser,
+  read: readBrowserPage
+};
+const toolRouter = new ToolRouter({ git, github, shell: shellService, terminal: terminalService, tasks: taskRuntime, browser: browserToolService, memories: memoryService, web: webService, audit: storage, dirtyPaths: () => dirtyEditorPaths });
 
 function registerHandlers(): void {
   register(IPC_CHANNELS.workspaceOpen, async () => {
