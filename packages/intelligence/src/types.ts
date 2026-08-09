@@ -1,4 +1,4 @@
-/** Provider-neutral workspace evidence that can be compiled for any agent runtime. */
+/** Provider-neutral workspace evidence compiled by FORGE for any agent runtime. */
 export type WorkspaceArtifactKind = 'identity' | 'architecture' | 'documentation' | 'source' | 'configuration' | 'git' | 'memory' | 'metadata' | 'conversation' | 'terminal';
 
 export interface WorkspaceArtifact {
@@ -12,7 +12,7 @@ export interface WorkspaceArtifact {
   metadata?: Readonly<Record<string, unknown>>;
 }
 
-export interface ContextAssemblyResult {
+export interface CompiledWorkspaceContext {
   systemPrompt: string;
   artifacts: readonly WorkspaceArtifact[];
   omittedArtifactIds: readonly string[];
@@ -20,27 +20,19 @@ export interface ContextAssemblyResult {
   characterCount: number;
 }
 
-export interface ContextBudgetPolicy {
-  select(artifacts: readonly WorkspaceArtifact[], characterBudget: number): {
-    selected: readonly WorkspaceArtifact[];
-    omittedArtifactIds: readonly string[];
-  };
-}
-
-/** Small stable interface consumed by Codex, Ollama, hosted providers, or any future agent adapter. */
 export interface WorkspaceContextCompiler {
-  assemble(query: string, memories?: readonly unknown[] | null, characterBudget?: number): Promise<ContextAssemblyResult>;
+  assemble(query: string, options?: { characterBudget?: number }): Promise<CompiledWorkspaceContext>;
 }
 
-export interface AgentContextEnvelope {
+export interface AgentContextEnvelope extends CompiledWorkspaceContext {
   query: string;
-  systemPrompt: string;
-  artifacts: readonly WorkspaceArtifact[];
-  omittedArtifactIds: readonly string[];
   generatedAt: number;
 }
 
-/** Adapter contract: FORGE compiles context; the external runtime decides how to execute. */
+/**
+ * Agent adapters consume FORGE context. They own model-specific transport and execution.
+ * FORGE remains responsible for project evidence, memory, chronology, permissions, and tools.
+ */
 export interface AgentAdapter {
   readonly id: string;
   prepare(context: AgentContextEnvelope): Promise<unknown>;
@@ -51,15 +43,9 @@ export interface ContextSourceProvider {
   collect(query: string): Promise<readonly WorkspaceArtifact[]>;
 }
 
-export interface ArchitecturalMemoryStore {
-  remember(artifact: WorkspaceArtifact): Promise<void>;
-  retrieve(query: string, limit?: number): Promise<readonly WorkspaceArtifact[]>;
-}
-
-export interface ProjectTimelineService {
-  events(options?: { before?: number; after?: number; limit?: number }): Promise<readonly WorkspaceArtifact[]>;
-}
-
-export interface ContextInspector {
-  snapshot(): Promise<ContextAssemblyResult | null>;
+export interface ContextBudgetPolicy {
+  select(artifacts: readonly WorkspaceArtifact[], characterBudget: number): {
+    selected: readonly WorkspaceArtifact[];
+    omittedArtifactIds: readonly string[];
+  };
 }
