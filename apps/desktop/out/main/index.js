@@ -1,4 +1,4 @@
-import { app, shell, safeStorage, BrowserWindow, dialog, WebContentsView, ipcMain, clipboard } from "electron";
+import { app, shell, safeStorage, BrowserWindow, dialog, BrowserView, ipcMain, clipboard } from "electron";
 import { promises, watch, existsSync } from "node:fs";
 import * as path from "node:path";
 import path__default, { join } from "node:path";
@@ -8704,8 +8704,8 @@ let rendererSource = "file:// development build";
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "41e52b6a65662ec71ae9f5bb2e8de341facbffe4",
-    buildDate: "2026-08-09T11:46:18.490Z",
+    commit: "f6708314568311f0535eab619075b14c420eff41",
+    buildDate: "2026-08-09T11:53:06.896Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8789,8 +8789,7 @@ function blockedBrowserNavigation(value) {
 }
 function ensureBrowserView() {
   if (browserView && !browserView.webContents.isDestroyed()) return browserView;
-  browserView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
-  browserView.setBackgroundColor("#0d1116");
+  browserView = new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   browserView.webContents.setWindowOpenHandler(({ url }) => {
     void navigateBrowser(url).catch(reportBrowserError);
     return { action: "deny" };
@@ -8819,7 +8818,6 @@ function ensureBrowserView() {
   });
   browserView.webContents.on("did-navigate", sendBrowserState);
   browserView.webContents.on("did-navigate-in-page", sendBrowserState);
-  mainWindow?.contentView.addChildView(browserView);
   setBrowserLayout(browserLayout);
   return browserView;
 }
@@ -8857,15 +8855,14 @@ function setBrowserLayout(request) {
   browserLayout = request;
   if (!browserView || browserView.webContents.isDestroyed()) return;
   if (!request.visible) {
-    browserView.setVisible(false);
+    mainWindow?.setBrowserView(null);
     return;
   }
   if (request.bounds) {
     const { x, y, width, height } = request.bounds;
     browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
-  mainWindow?.contentView.addChildView(browserView);
-  browserView.setVisible(true);
+  mainWindow?.setBrowserView(browserView);
 }
 const browserToolService = {
   enabled: () => settings.webResearchEnabled(),

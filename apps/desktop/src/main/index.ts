@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, WebContentsView } from 'electron';
+import { app, BrowserView, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -38,7 +38,7 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
 let mainWindow: BrowserWindow | null = null;
-let browserView: WebContentsView | null = null;
+let browserView: BrowserView | null = null;
 let browserLayout: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } } = { visible: false };
 let browserLoading = false;
 let browserError = '';
@@ -126,10 +126,9 @@ function blockedBrowserNavigation(value: string): string | null {
   return null;
 }
 
-function ensureBrowserView(): WebContentsView {
+function ensureBrowserView(): BrowserView {
   if (browserView && !browserView.webContents.isDestroyed()) return browserView;
-  browserView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
-  browserView.setBackgroundColor('#0d1116');
+  browserView = new BrowserView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   browserView.webContents.setWindowOpenHandler(({ url }) => { void navigateBrowser(url).catch(reportBrowserError); return { action: 'deny' }; });
   browserView.webContents.on('will-navigate', (event, url) => {
     const reason = blockedBrowserNavigation(url);
@@ -142,7 +141,6 @@ function ensureBrowserView(): WebContentsView {
   browserView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => { if (isMainFrame && errorCode !== -3) { browserLoading = false; browserError = `${errorDescription} (${validatedUrl})`; sendBrowserState(); } });
   browserView.webContents.on('did-navigate', sendBrowserState);
   browserView.webContents.on('did-navigate-in-page', sendBrowserState);
-  mainWindow?.contentView.addChildView(browserView);
   setBrowserLayout(browserLayout);
   return browserView;
 }
@@ -181,16 +179,15 @@ async function readBrowserPage(): Promise<{ url: string; title: string; text: st
 function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: number; width: number; height: number } }): void {
   browserLayout = request;
   if (!browserView || browserView.webContents.isDestroyed()) return;
-  if (!request.visible) { browserView.setVisible(false); return; }
+  if (!request.visible) { mainWindow?.setBrowserView(null); return; }
   if (request.bounds) {
     const { x, y, width, height } = request.bounds;
     browserView.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
-  // Re-adding an existing view is documented to raise it above its siblings.
-  // This keeps the native web surface above the renderer after React lays out
-  // the Browser panel, instead of leaving a successfully loaded page black.
-  mainWindow?.contentView.addChildView(browserView);
-  browserView.setVisible(true);
+  // BrowserView is attached directly to BrowserWindow. On macOS this avoids
+  // intermittent WebContentsView compositor frames that render as a blank
+  // surface even though the page itself has loaded successfully.
+  mainWindow?.setBrowserView(browserView);
 }
 
 const browserToolService = {
