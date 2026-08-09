@@ -2106,8 +2106,12 @@ const IPC_CHANNELS = {
   agentConversationSelect: "agent.conversation.select",
   agentConversationRename: "agent.conversation.rename",
   agentConversationClear: "agent.conversation.clear",
+  agentConversationDelete: "agent.conversation.delete",
+  agentConversationsClearAll: "agent.conversations.clearAll",
   agentMemoriesList: "agent.memories.list",
+  agentMemoriesStats: "agent.memories.stats",
   agentMemoriesDelete: "agent.memories.delete",
+  agentMemoriesClear: "agent.memories.clear",
   agentMemoriesReindex: "agent.memories.reindex",
   toolRequestsList: "tool.requests.list",
   toolRequestApprove: "tool.request.approve",
@@ -2129,6 +2133,7 @@ const IPC_CHANNELS = {
   tasksResume: "tasks.resume",
   tasksPause: "tasks.pause",
   tasksCancel: "tasks.cancel",
+  tasksDelete: "tasks.delete",
   tasksRetryStep: "tasks.retry.step",
   tasksHandoff: "tasks.handoff",
   browserNavigate: "browser.navigate",
@@ -2540,6 +2545,8 @@ function parseDiff(text) {
 }
 const id = () => randomUUID();
 const CURRENT_SCHEMA_VERSION = 7;
+const MAX_MEMORY_CONTENT_CHARS = 2e5;
+const MAX_MEMORY_METADATA_CHARS = 1e5;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
 const STEP_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "waiting", "blocked", "failed", "skipped", "completed"]);
 function normalizeTitle(value) {
@@ -2773,6 +2780,15 @@ class StorageService {
     this.ready().run("DELETE FROM conversation_threads WHERE id = ? AND project_id = ?", [validId, projectId]);
     this.ready().run("UPDATE workspace_state SET active_conversation_id = NULL, updated_at = ? WHERE project_id = ? AND active_conversation_id = ?", [Date.now(), projectId, validId]);
     await this.persist();
+    return this.conversationState();
+  }
+  async clearAllConversations() {
+    const projectId = await this.projectId();
+    this.ready().run("DELETE FROM conversations WHERE project_id = ?", [projectId]);
+    this.ready().run("DELETE FROM conversation_threads WHERE project_id = ?", [projectId]);
+    this.ready().run("UPDATE workspace_state SET active_conversation_id = NULL, updated_at = ? WHERE project_id = ?", [Date.now(), projectId]);
+    await this.persist();
+    return this.conversationState();
   }
   async conversationState(conversationId) {
     const activeConversationId = conversationId ? await this.assertConversation(conversationId) : await this.ensureActiveConversation();
@@ -2874,24 +2890,36 @@ class StorageService {
     return normalized;
   }
   async createMemory(type, title, content, metadata) {
+    if (content.length > MAX_MEMORY_CONTENT_CHARS) throw new Error(`Memory content exceeds the ${MAX_MEMORY_CONTENT_CHARS.toLocaleString()} character safety limit.`);
+    const serializedMetadata = metadata === void 0 ? null : JSON.stringify(metadata);
+    if ((serializedMetadata?.length ?? 0) > MAX_MEMORY_METADATA_CHARS) throw new Error("Memory metadata exceeds the storage safety limit.");
     const projectId = await this.projectId();
     const now = Date.now();
     const memoryId = id();
-    this.ready().run("INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [memoryId, projectId, type, title ?? null, content, metadata ? JSON.stringify(metadata) : null, now, now]);
+    this.ready().run("INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [memoryId, projectId, type, title ?? null, content, serializedMetadata, now, now]);
     await this.persist();
     return { id: memoryId, type, title, content, metadata, createdAt: now, updatedAt: now };
   }
-  async listMemories(limit = 100) {
+  async listMemories(limit = 100, contentLimit = 12e3) {
     const projectId = await this.projectId();
-    return this.all("SELECT id, type, title, content, metadata, created_at, updated_at FROM memories WHERE project_id = ? ORDER BY created_at DESC LIMIT ?", [projectId, limit]).map((row) => ({
+    const boundedLimit = Math.max(0, Math.min(24e3, Math.floor(contentLimit)));
+    return this.all("SELECT id, type, title, substr(content, 1, ?) AS content, length(content) AS content_length, metadata, created_at, updated_at FROM memories WHERE project_id = ? ORDER BY created_at DESC LIMIT ?", [boundedLimit, projectId, Math.max(1, Math.min(2e3, Math.floor(limit)))]).map((row) => ({
       id: String(row.id),
       type: String(row.type),
       title: row.title ? String(row.title) : null,
       content: String(row.content),
-      metadata: row.metadata ? JSON.parse(String(row.metadata)) : void 0,
+      contentLength: Number(row.content_length),
+      metadata: parseJson(row.metadata, void 0),
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at)
     }));
+  }
+  async memoryStats() {
+    const projectId = await this.projectId();
+    const records = this.all("SELECT metadata, length(content) AS content_length FROM memories WHERE project_id = ?", [projectId]);
+    const indexedCount = records.filter((record) => parseJson(record.metadata, void 0)?.origin === "workspace-index").length;
+    const lengths = records.map((record) => Number(record.content_length) || 0);
+    return { recordCount: records.length, indexedCount, durableCount: records.length - indexedCount, totalContentChars: lengths.reduce((sum, length) => sum + length, 0), largestContentChars: Math.max(0, ...lengths) };
   }
   async updateMemory(memoryId, fields) {
     const projectId = await this.projectId();
@@ -2906,12 +2934,15 @@ class StorageService {
       params.push(fields.title);
     }
     if (fields.content !== void 0) {
+      if (fields.content.length > MAX_MEMORY_CONTENT_CHARS) throw new Error(`Memory content exceeds the ${MAX_MEMORY_CONTENT_CHARS.toLocaleString()} character safety limit.`);
       set.push("content = ?");
       params.push(fields.content);
     }
     if (fields.metadata !== void 0) {
+      const serializedMetadata = fields.metadata ? JSON.stringify(fields.metadata) : null;
+      if ((serializedMetadata?.length ?? 0) > MAX_MEMORY_METADATA_CHARS) throw new Error("Memory metadata exceeds the storage safety limit.");
       set.push("metadata = ?");
-      params.push(fields.metadata ? JSON.stringify(fields.metadata) : null);
+      params.push(serializedMetadata);
     }
     if (!set.length) return;
     params.push(Date.now(), memoryId, projectId);
@@ -2920,6 +2951,20 @@ class StorageService {
   }
   async deleteMemory(memoryId) {
     this.ready().run("DELETE FROM memories WHERE id = ? AND project_id = ?", [memoryId, await this.projectId()]);
+    await this.persist();
+  }
+  async clearMemories() {
+    const projectId = await this.projectId();
+    const deleted = Number(this.one("SELECT COUNT(*) AS count FROM memories WHERE project_id = ?", [projectId])?.count ?? 0);
+    this.ready().run("DELETE FROM memories WHERE project_id = ?", [projectId]);
+    await this.persist();
+    return { deleted };
+  }
+  async deletePersistentTask(taskId) {
+    await this.assertTask(taskId);
+    const projectId = await this.projectId();
+    this.ready().run("DELETE FROM task_dependencies WHERE task_id = ? OR depends_on_task_id = ?", [taskId, taskId]);
+    this.ready().run("DELETE FROM tasks WHERE id = ? AND project_id = ?", [taskId, projectId]);
     await this.persist();
   }
   async listBrowserBookmarks(limit = 80) {
@@ -3788,8 +3833,8 @@ class MemoryService {
   async create(entry) {
     return this.storage.createMemory(entry.type, entry.title ?? null, entry.content, entry.metadata);
   }
-  async list(limit = 100) {
-    return this.storage.listMemories(limit);
+  async list(limit = 100, contentLimit = 12e3) {
+    return this.storage.listMemories(limit, contentLimit);
   }
   async update(id2, fields) {
     return this.storage.updateMemory(id2, fields);
@@ -3810,7 +3855,8 @@ class MemoryRetriever {
   async search(query, limit = 10) {
     const asksForObsidian = /\bobsidian\b/i.test(query);
     const asksForConfiguration = /\b(?:config|configuration|build|tooling|package|typescript|test|vitest|eslint|vite)\b/i.test(query);
-    const entries = (await this.memoryService.list(500)).filter((entry) => {
+    const scoringLimit = 24e3;
+    const entries = (await this.memoryService.list(500, scoringLimit)).filter((entry) => {
       const metadata = typeof entry.metadata === "object" && entry.metadata ? entry.metadata : {};
       const sourcePath = String(metadata.path ?? "");
       if (/(?:^|\/)\.obsidian(?:\/|$)/i.test(sourcePath) && !asksForObsidian) return false;
@@ -3818,9 +3864,8 @@ class MemoryRetriever {
       return true;
     });
     const now = Date.now();
-    const scoringLimit = 24e3;
     const returnedLimit = 12e3;
-    const docs = entries.map((e) => ({ id: e.id, type: e.type, title: e.title ?? "", content: String(e.content ?? "").slice(0, scoringLimit), originalContent: String(e.content ?? ""), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
+    const docs = entries.map((e) => ({ id: e.id, type: e.type, title: e.title ?? "", content: String(e.content ?? ""), metadata: e.metadata, createdAt: e.createdAt || 0, updatedAt: e.updatedAt || e.createdAt || 0 }));
     const N = docs.length || 1;
     const docTokens = docs.map((d) => this.tokenize(d.title + " " + d.content));
     const df = {};
@@ -3883,7 +3928,7 @@ class MemoryRetriever {
       workspaceId: "",
       type: result.entry.type,
       title: result.entry.title || null,
-      content: result.entry.originalContent.slice(0, returnedLimit),
+      content: result.entry.content.slice(0, returnedLimit),
       metadata: { ...typeof result.entry.metadata === "object" && result.entry.metadata ? result.entry.metadata : {}, relevance: result.relevance, reasons: result.reasons },
       createdAt: result.entry.createdAt,
       updatedAt: result.entry.updatedAt,
@@ -3910,7 +3955,7 @@ class MemoryIndexer {
       }
     };
     walk(files);
-    const existing = await this.memoryService.list(2e3);
+    const existing = await this.memoryService.list(2e3, 0);
     const indexed = existing.filter((entry) => {
       const metadata = typeof entry.metadata === "object" && entry.metadata ? entry.metadata : {};
       return metadata.origin === "workspace-index" || ["document", "code"].includes(entry.type) && typeof metadata.path === "string";
@@ -3931,13 +3976,14 @@ class MemoryIndexer {
       if (count >= limitPerType) break;
       try {
         const fc = await this.workspace.readFile(sourcePath);
-        const metadata = { origin: "workspace-index", path: sourcePath, classification: classification.label, reason: classification.reason };
+        const indexedContent = fc.content.slice(0, 12e4);
+        const metadata = { origin: "workspace-index", path: sourcePath, classification: classification.label, reason: classification.reason, truncated: indexedContent.length < fc.content.length };
         const matches = byPath.get(sourcePath) ?? [];
         if (matches[0]) {
-          await this.memoryService.update(matches[0].id, { type: classification.type, title: f.name, content: fc.content, metadata });
+          await this.memoryService.update(matches[0].id, { type: classification.type, title: f.name, content: indexedContent, metadata });
           for (const duplicate of matches.slice(1)) await this.memoryService.delete(duplicate.id);
         } else {
-          await this.memoryService.create({ type: classification.type, title: f.name, content: fc.content, metadata });
+          await this.memoryService.create({ type: classification.type, title: f.name, content: indexedContent, metadata });
         }
         count += 1;
       } catch {
@@ -6274,7 +6320,9 @@ class PolicyEngine {
   }
 }
 const MAX_TEXT_BYTES = 2e6;
+const MAX_RANGED_TEXT_BYTES = 8e6;
 const MAX_SEARCH_RESULTS = 200;
+const MAX_LIST_ENTRIES = 1e3;
 const textOutput = z.object({ success: z.boolean() }).passthrough();
 const relativePath = z.string().min(1).max(4096).refine((value) => !path__default.isAbsolute(value) && !value.split(/[\\/]/).includes(".."), "Path must be workspace-relative and may not traverse upward.");
 const reason = z.string().min(3).max(2e3);
@@ -6315,9 +6363,9 @@ function unifiedDiff(filePath, before, after) {
   for (let index = prefix; index < newLines.length; index += 1) lines.push(`+${newLines[index]}`);
   return lines.join("\n").slice(0, 25e4);
 }
-async function readText(absolute) {
+async function readText(absolute, maxBytes = MAX_TEXT_BYTES) {
   const [buffer, stat] = await Promise.all([promises.readFile(absolute), promises.stat(absolute)]);
-  if (buffer.byteLength > MAX_TEXT_BYTES) throw new Error("File exceeds the supported text size limit.");
+  if (buffer.byteLength > maxBytes) throw new Error(`File exceeds the supported ${maxBytes.toLocaleString()} byte text size limit.`);
   if (buffer.includes(0)) throw new Error("Binary files are not supported by this tool.");
   const bom = buffer.length >= 3 && buffer[0] === 239 && buffer[1] === 187 && buffer[2] === 191;
   return { content: buffer.subarray(bom ? 3 : 0).toString("utf8"), encoding: bom ? "utf8-bom" : "utf8", mode: stat.mode };
@@ -6341,57 +6389,64 @@ async function backupPath(root, relative) {
   return destination;
 }
 const definition = (value) => {
-  const sideEffect = value.sideEffect ?? inferSideEffect(value.name, value.networkAccess, value.audit.recordsAffectedPaths);
-  const approval = value.approval ?? (sideEffect === "read" ? "automatic" : sideEffect === "workspace-write" ? "session" : "explicit");
-  const sessionScope = value.sessionScope ?? (approval === "session" ? (input) => JSON.stringify({ paths: input.files ?? [input.path ?? input.from ?? input.to].filter(Boolean), workingDirectory: input.workingDirectory ?? ".", tool: value.name }) : void 0);
-  return { ...value, sideEffect, approval, sessionScope };
+  const sessionScope = value.sessionScope ?? (value.approval === "session" ? (input) => JSON.stringify({ paths: input.files ?? [input.path ?? input.from ?? input.to].filter(Boolean), workingDirectory: input.workingDirectory ?? ".", tool: value.name }) : void 0);
+  return { ...value, sessionScope };
 };
-function inferSideEffect(name, networkAccess, recordsAffectedPaths) {
-  if (networkAccess) return "remote";
-  if (name === "file.delete") return "destructive";
-  if (name === "shell.run" || name === "task.process.start") return "process";
-  if (recordsAffectedPaths || ["git.stage", "git.unstage", "git.commit", "task.create", "task.resume", "task.pause", "task.cancel", "task.checkpoint"].includes(name)) return "workspace-write";
-  return "read";
-}
 function createToolRegistry() {
   const registry = new ToolRegistry();
   const base = { outputSchema: textOutput, cancellable: true };
   const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };
-  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
-  registry.register(definition({ ...base, name: "file.read", purpose: "Read a supported workspace text file.", inputSchema: z.object({ path: relativePath, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read text without changing the workspace." }));
-  registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
-  registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));
-  registry.register(definition({ ...base, name: "file.write", purpose: "Replace a workspace text file after showing a diff.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Atomically write the approved diff with a rollback backup." }));
-  registry.register(definition({ ...base, name: "file.patch", purpose: "Apply a targeted workspace text replacement.", inputSchema: z.object({ path: relativePath, expected: z.string().min(1).max(MAX_TEXT_BYTES), replacement: z.string().max(MAX_TEXT_BYTES), replaceAll: z.boolean().default(false), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Apply the displayed targeted patch atomically." }));
-  for (const name of ["file.rename", "file.move"]) registry.register(definition({ ...base, name, purpose: "Move a workspace path without overwriting.", inputSchema: z.object({ from: relativePath, to: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.from} → ${input.to}`, describeEffect: () => "Move the path without overwriting the destination." }));
-  registry.register(definition({ ...base, name: "directory.create", purpose: "Create a workspace directory.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a directory inside the workspace." }));
-  registry.register(definition({ ...base, name: "file.delete", purpose: "Delete a workspace path after creating a rollback backup.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Back up then delete the selected source path." }));
-  registry.register(definition({ ...base, name: "terminal.read", purpose: "Read bounded recent output from an existing user terminal session.", inputSchema: z.object({ sessionId: z.string().uuid().optional(), maxCharacters: z.number().int().min(100).max(2e4).default(4e3), ...taskContext }), workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "shell", recordsAffectedPaths: false, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.sessionId ?? "all terminal sessions", describeEffect: () => "Read bounded, redacted recent terminal evidence without changing the session." }));
-  const gitRead = (name, schema, effect) => registry.register(definition({ ...base, name, purpose: effect, inputSchema: schema, workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "active Git workspace", describeEffect: () => effect }));
+  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
+  registry.register(definition({ ...base, name: "file.read", purpose: "Read a bounded range of a supported workspace text file. Use the returned continuation to inspect more without exhausting context.", inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(2e5).default(12e3), ...taskContext }).refine((input) => input.endLine === void 0 || input.startLine === void 0 || input.endLine >= input.startLine, "endLine must not precede startLine.").refine((input) => input.offset === void 0 || input.startLine === void 0 && input.endLine === void 0, "offset cannot be combined with line ranges."), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read bounded text without changing the workspace." }));
+  registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
+  registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));
+  registry.register(definition({ ...base, name: "file.write", purpose: "Replace a workspace text file after showing a diff.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Atomically write the approved diff with a rollback backup." }));
+  registry.register(definition({ ...base, name: "file.patch", purpose: "Apply a targeted workspace text replacement.", inputSchema: z.object({ path: relativePath, expected: z.string().min(1).max(MAX_TEXT_BYTES), replacement: z.string().max(MAX_TEXT_BYTES), replaceAll: z.boolean().default(false), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Apply the displayed targeted patch atomically." }));
+  for (const name of ["file.rename", "file.move"]) registry.register(definition({ ...base, name, purpose: "Move a workspace path without overwriting.", inputSchema: z.object({ from: relativePath, to: relativePath, reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.from} → ${input.to}`, describeEffect: () => "Move the path without overwriting the destination." }));
+  registry.register(definition({ ...base, name: "directory.create", purpose: "Create a workspace directory.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a directory inside the workspace." }));
+  registry.register(definition({ ...base, name: "file.delete", purpose: "Delete a workspace path after creating a rollback backup.", inputSchema: z.object({ path: relativePath, reason, ...taskContext }), sideEffect: "destructive", approval: "explicit", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Back up then delete the selected source path." }));
+  registry.register(definition({ ...base, name: "terminal.read", purpose: "Read bounded recent output from an existing user terminal session.", inputSchema: z.object({ sessionId: z.string().uuid().optional(), maxCharacters: z.number().int().min(100).max(2e4).default(4e3), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "shell", recordsAffectedPaths: false, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.sessionId ?? "all terminal sessions", describeEffect: () => "Read bounded, redacted recent terminal evidence without changing the session." }));
+  const gitRead = (name, schema, effect) => registry.register(definition({ ...base, name, purpose: effect, inputSchema: schema, sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "active Git workspace", describeEffect: () => effect }));
   gitRead("git.status", z.object({ ...taskContext }), "Inspect current branch and working tree status.");
   gitRead("git.diff", z.object({ staged: z.boolean().default(false), ...taskContext }), "Inspect the Git diff.");
   gitRead("git.log", z.object({ limit: z.number().int().min(1).max(100).default(30), ...taskContext }), "Inspect recent Git history.");
   gitRead("git.branches", z.object({ ...taskContext }), "Inspect Git branches.");
-  for (const name of ["git.stage", "git.unstage"]) registry.register(definition({ ...base, name, purpose: `${name === "git.stage" ? "Stage" : "Unstage"} selected Git paths.`, inputSchema: z.object({ files: z.array(relativePath).min(1).max(200), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.files.join(", "), describeEffect: () => `${name === "git.stage" ? "Stage" : "Unstage"} only the listed paths.` }));
-  registry.register(definition({ ...base, name: "git.commit", purpose: "Commit the exact staged Git paths.", inputSchema: z.object({ message: z.string().min(1).max(5e3), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "current branch and staged files", describeEffect: (input) => `Create a commit with message ${JSON.stringify(input.message)}.` }));
-  for (const name of ["git.pull", "git.push"]) registry.register(definition({ ...base, name, purpose: `${name === "git.pull" ? "Pull from" : "Push to"} the configured remote.`, inputSchema: z.object({ reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 12e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: () => "origin and current branch", describeEffect: () => `${name === "git.pull" ? "Receive remote changes" : "Send local commits"} using protected Git credentials.` }));
-  registry.register(definition({ ...base, name: "shell.run", purpose: "Run an approved executable with an argument array.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3), ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => input.expectedOutcome }));
-  registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web as explicitly approved external research.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact query to an external search service and return cited results." }));
-  for (const name of ["web.fetch", "web.open"]) registry.register(definition({ ...base, name, purpose: "Retrieve an approved public HTTP(S) resource.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded external web evidence without browser automation." }));
-  registry.register(definition({ ...base, name: "browser.open", purpose: "Open a validated public HTTP(S) URL in the user-visible FORGE Browser.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.string().max(2e3).default("None"), ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 45e3, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "remote", approval: "explicit", describeTarget: (input) => input.url, describeEffect: () => "Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data." }));
-  registry.register(definition({ ...base, name: "browser.read", purpose: "Read bounded rendered text from the current visible FORGE Browser page.", inputSchema: z.object({ reason, ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: "remote", approval: "explicit", describeTarget: () => "the current FORGE Browser page", describeEffect: () => "Send bounded rendered page text from the current public page to the configured model for analysis." }));
-  registry.register(definition({ ...base, name: "browser.find", purpose: "Find bounded text excerpts on the current visible FORGE Browser page.", inputSchema: z.object({ query: z.string().min(1).max(1e3), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, sideEffect: "remote", approval: "explicit", describeTarget: () => "the current FORGE Browser page", describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
+  for (const name of ["git.stage", "git.unstage"]) registry.register(definition({ ...base, name, purpose: `${name === "git.stage" ? "Stage" : "Unstage"} selected Git paths.`, inputSchema: z.object({ files: z.array(relativePath).min(1).max(200), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.files.join(", "), describeEffect: () => `${name === "git.stage" ? "Stage" : "Unstage"} only the listed paths.` }));
+  registry.register(definition({ ...base, name: "git.commit", purpose: "Commit the exact staged Git paths.", inputSchema: z.object({ message: z.string().min(1).max(5e3), reason, ...taskContext }), sideEffect: "repository-write", approval: "explicit", workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "current branch and staged files", describeEffect: (input) => `Create a commit with message ${JSON.stringify(input.message)}.` }));
+  for (const name of ["git.pull", "git.push"]) registry.register(definition({ ...base, name, purpose: `${name === "git.pull" ? "Pull from" : "Push to"} the configured remote.`, inputSchema: z.object({ reason, ...taskContext }), sideEffect: "write-network", approval: "explicit", workspaceBoundary: "required", timeoutMs: 12e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: () => "origin and current branch", describeEffect: () => `${name === "git.pull" ? "Receive remote changes" : "Send local commits"} using protected Git credentials.` }));
+  registry.register(definition({ ...base, name: "shell.run", purpose: "Run an approved executable with an argument array and an explicit network execution profile.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3), ...taskContext }), sideEffect: "process", approval: "explicit", workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Network profile: ${input.networkProfile}.` }));
+  registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact public query to an external search service and return cited results." }));
+  registry.register(definition({ ...base, name: "web.fetch", purpose: "Retrieve a public HTTP(S) resource when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded public web evidence without browser automation." }));
+  registry.register(definition({ ...base, name: "browser.open", purpose: "Open a validated public HTTP(S) URL in the user-visible FORGE Browser.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 45e3, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data." }));
+  registry.register(definition({ ...base, name: "browser.read", purpose: "Read bounded rendered text from the current visible FORGE Browser page.", inputSchema: z.object({ reason, ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: () => "Send bounded rendered page text from the current public page to the configured model for analysis." }));
+  registry.register(definition({ ...base, name: "browser.find", purpose: "Find bounded text excerpts on the current visible FORGE Browser page.", inputSchema: z.object({ query: z.string().min(1).max(1e3), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
   registry.register(definition({ ...base, name: "browser.savecontext", purpose: "Save an agent-authored summary of the current browser page as durable workspace context.", inputSchema: z.object({ title: z.string().min(1).max(500), content: z.string().min(1).max(2e5), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 15e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, sideEffect: "workspace-write", approval: "session", sessionScope: (input) => JSON.stringify({ tool: "browser.savecontext", title: input.title }), describeTarget: (input) => `durable workspace context: ${input.title}`, describeEffect: () => "Persist the supplied browser-page summary in workspace-owned durable memory. It can be removed from Durable Memory later." }));
-  registry.register(definition({ ...base, name: "github.read", purpose: "Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.", inputSchema: z.object({ resource: z.enum(["metadata", "branches", "commits", "issues", "pulls", "issue-comments", "pull-comments", "workflow-runs", "workflow-jobs", "releases", "release-assets"]), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "read", approval: "automatic", describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => "Read bounded GitHub repository evidence using the active origin." }));
-  registry.register(definition({ ...base, name: "github.mutate", purpose: "Perform one explicitly approved GitHub repository mutation through the official REST API.", inputSchema: z.object({ action: z.enum(["create-issue", "update-issue", "comment-issue", "create-branch", "create-file", "create-pull-request", "comment-pull-request", "retry-workflow", "create-release", "update-release"]), input: z.record(z.unknown()), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, sideEffect: "remote", approval: "explicit", describeTarget: (input) => `GitHub ${input.action}`, describeEffect: () => "Send one authenticated, audited GitHub API mutation for the active repository." }));
+  registry.register(definition({ ...base, name: "github.read", purpose: "Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.", inputSchema: z.object({ resource: z.enum(["metadata", "branches", "commits", "issues", "pulls", "issue-comments", "pull-comments", "workflow-runs", "workflow-jobs", "releases", "release-assets"]), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => "Read bounded GitHub repository evidence using the active origin." }));
+  const githubMutationContext = { reason, ...taskContext };
+  const githubMutation = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("create-issue"), title: z.string().min(1).max(500), body: z.string().max(65e3).optional(), labels: z.array(z.string().max(100)).max(100).optional(), assignees: z.array(z.string().max(100)).max(100).optional(), ...githubMutationContext }),
+    z.object({ action: z.literal("update-issue"), number: z.number().int().positive(), title: z.string().min(1).max(500).optional(), body: z.string().max(65e3).optional(), state: z.enum(["open", "closed"]).optional(), labels: z.array(z.string().max(100)).max(100).optional(), assignees: z.array(z.string().max(100)).max(100).optional(), ...githubMutationContext }),
+    z.object({ action: z.literal("comment-issue"), number: z.number().int().positive(), body: z.string().min(1).max(65e3), ...githubMutationContext }),
+    z.object({ action: z.literal("create-branch"), branch: z.string().min(1).max(255).regex(/^[A-Za-z0-9._/-]+$/), sha: z.string().min(7).max(100), ...githubMutationContext }),
+    z.object({ action: z.literal("create-file"), path: relativePath, message: z.string().min(1).max(500), content: z.string().min(1).max(2e6), branch: z.string().min(1).max(255).optional(), sha: z.string().min(7).max(100).optional(), ...githubMutationContext }),
+    z.object({ action: z.literal("create-pull-request"), title: z.string().min(1).max(500), head: z.string().min(1).max(500), base: z.string().min(1).max(500), body: z.string().max(65e3).optional(), draft: z.boolean().optional(), ...githubMutationContext }),
+    z.object({ action: z.literal("comment-pull-request"), number: z.number().int().positive(), body: z.string().min(1).max(65e3), ...githubMutationContext }),
+    z.object({ action: z.literal("retry-workflow"), runId: z.number().int().positive(), ...githubMutationContext }),
+    z.object({ action: z.literal("create-release"), tag_name: z.string().min(1).max(255), target_commitish: z.string().min(1).max(255).optional(), name: z.string().max(500).optional(), body: z.string().max(65e3).optional(), draft: z.boolean().optional(), prerelease: z.boolean().optional(), ...githubMutationContext }),
+    z.object({ action: z.literal("update-release"), releaseId: z.number().int().positive(), tag_name: z.string().min(1).max(255).optional(), target_commitish: z.string().min(1).max(255).optional(), name: z.string().max(500).optional(), body: z.string().max(65e3).optional(), draft: z.boolean().optional(), prerelease: z.boolean().optional(), ...githubMutationContext })
+  ]).superRefine((input, context) => {
+    if (input.action === "update-issue" && input.title === void 0 && input.body === void 0 && input.state === void 0 && input.labels === void 0 && input.assignees === void 0) context.addIssue({ code: z.ZodIssueCode.custom, message: "An issue update requires at least one changed field." });
+    if (input.action === "update-release" && input.tag_name === void 0 && input.target_commitish === void 0 && input.name === void 0 && input.body === void 0 && input.draft === void 0 && input.prerelease === void 0) context.addIssue({ code: z.ZodIssueCode.custom, message: "A release update requires at least one changed field." });
+  });
+  registry.register(definition({ ...base, name: "github.mutate", purpose: "Perform one explicitly approved, typed GitHub repository mutation through the official REST API.", inputSchema: githubMutation, sideEffect: "write-network", approval: "explicit", workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => `GitHub ${input.action}`, describeEffect: () => "Send one authenticated, audited GitHub API mutation for the active repository." }));
   const taskStepDraft = z.object({ id: z.string().min(1).max(200).optional(), name: z.string().min(1).max(300), purpose: z.string().min(1).max(2e3), riskTier: z.union([z.literal(0), z.literal(1), z.literal(2)]), requiredTool: z.string().max(200).optional(), expectedInput: z.unknown().optional(), expectedOutput: z.unknown().optional(), retryPolicy: z.object({ maxAttempts: z.number().int().min(1).max(20).optional(), backoffMs: z.number().int().min(0).max(864e5).optional(), retryableErrorCodes: z.array(z.string().max(100)).max(50).optional() }).optional(), timeoutMs: z.number().int().min(100).max(864e5).optional(), artifactPaths: z.array(relativePath).max(200).optional(), verificationCriteria: z.array(z.string().min(1).max(1e3)).min(1).max(100), rollbackInstructions: z.string().max(4e3).optional(), dependencies: z.array(z.string().min(1).max(200)).max(100).optional() });
   const taskDraft = z.object({ title: z.string().min(1).max(300), description: z.string().max(1e4).optional(), taskType: z.string().min(1).max(100), priority: z.enum(["low", "medium", "high"]).optional(), originatingConversationId: z.string().uuid().optional(), assignedProvider: z.string().max(200).optional(), assignedModel: z.string().max(200).optional(), progressSummary: z.string().max(4e3).optional(), resumeInstructions: z.string().min(1).max(1e4), associatedBranch: z.string().max(500).optional(), associatedCommitSha: z.string().max(100).optional(), associatedPullRequest: z.string().max(2e3).optional(), associatedReleaseTag: z.string().max(500).optional(), associatedWorkflowRun: z.string().max(500).optional(), taskDependencies: z.array(z.string().uuid()).max(100).optional(), steps: z.array(taskStepDraft).max(500) });
-  registry.register(definition({ ...base, name: "task.inspect", purpose: "Inspect one workspace-owned persistent task and its verified checkpoints.", inputSchema: z.object({ taskId: z.string().uuid() }), workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Read persistent task state without changing it." }));
-  registry.register(definition({ ...base, name: "task.create", purpose: "Create a draft workspace-owned task without executing any step.", inputSchema: taskDraft.extend({ reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.title, describeEffect: () => "Persist a draft task and its structured steps; no executable work will start." }));
-  for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.` }));
-  registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a task checkpoint; verified checkpoints require an audit reference.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Persist a structured checkpoint without executing another tool." }));
-  registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of authoritative SQLite task state.", inputSchema: z.object({ taskId: z.string().uuid(), reason }), workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => "Atomically write or update a human-readable task handoff." }));
-  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), reason, expectedOutcome: z.string().min(1).max(2e3) }), workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...input.args ?? []].map(quoteArgument).join(" ")}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation.` }));
+  registry.register(definition({ ...base, name: "task.inspect", purpose: "Inspect one workspace-owned persistent task and its verified checkpoints.", inputSchema: z.object({ taskId: z.string().uuid() }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 5e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Read persistent task state without changing it." }));
+  registry.register(definition({ ...base, name: "task.create", purpose: "Create a draft workspace-owned task without executing any step.", inputSchema: taskDraft.extend({ reason }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.title, describeEffect: () => "Persist a draft task and its structured steps; no executable work will start." }));
+  for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.` }));
+  registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a task checkpoint; verified checkpoints require an audit reference.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Persist a structured checkpoint without executing another tool." }));
+  registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of authoritative SQLite task state.", inputSchema: z.object({ taskId: z.string().uuid(), reason }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => "Atomically write or update a human-readable task handoff." }));
+  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", approval: "explicit", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...input.args ?? []].map(quoteArgument).join(" ")}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
   return registry;
 }
 function quoteArgument(value) {
@@ -6424,7 +6479,7 @@ class ToolRouter {
     return this.registry.list();
   }
   providerDefinitions() {
-    return this.registry.list().map((entry) => ({ name: entry.name, description: entry.purpose, parameters: zodToJsonSchema(entry.inputSchema, { target: "openApi3" }), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: "Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable." }));
+    return this.registry.list().filter((entry) => this.availability(entry.name).available).map((entry) => ({ name: entry.name, description: entry.purpose, parameters: zodToJsonSchema(entry.inputSchema, { target: "openApi3" }), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: "Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable." }));
   }
   listRequests(workspaceId) {
     return [...this.requests.values()].filter((request) => !workspaceId || request.workspaceId === workspaceId).sort((a, b) => b.requestedAt - a.requestedAt).map((request) => ({ ...request, input: sanitizeToolData(request.input) }));
@@ -6442,6 +6497,12 @@ class ToolRouter {
       throw error;
     }
     const { definition: definition2, input } = parsed;
+    const availability = this.availability(definition2.name);
+    if (!availability.available) {
+      const error = new ToolValidationError("UNKNOWN_TOOL", `${definition2.name} is not available: ${availability.reason ?? "a required FORGE capability is unavailable."}`);
+      await this.auditValidationFailure(call, context, error);
+      throw error;
+    }
     this.workspaceRoots.set(context.workspaceId, context.workspaceRoot);
     const now = Date.now();
     const prediction = await this.predict(definition2.name, input, context.workspaceRoot);
@@ -6457,7 +6518,7 @@ class ToolRouter {
       workingDirectory: typeof input.workingDirectory === "string" ? input.workingDirectory : void 0,
       expectedEffect: definition2.describeEffect(input),
       predictedAffectedPaths: prediction.paths,
-      networkAccess: definition2.networkAccess,
+      networkAccess: definition2.networkAccess && (input.networkProfile ?? "network") !== "offline",
       externalDataDescription: typeof input.projectDataSent === "string" ? input.projectDataSent : void 0,
       diff: prediction.diff,
       approvalRequired: this.policy.requiresApproval(context.workspaceId, definition2, input),
@@ -6544,6 +6605,16 @@ class ToolRouter {
     if (!request) throw new Error("Unknown tool request.");
     return request;
   }
+  availability(name) {
+    if (name === "terminal.read" && !this.dependencies.terminal) return { available: false, reason: "the user terminal service is unavailable" };
+    if (name.startsWith("github.") && !this.dependencies.github) return { available: false, reason: "GitHub integration is unavailable" };
+    if (name.startsWith("task.") && !this.dependencies.tasks) return { available: false, reason: "the persistent task runtime is unavailable" };
+    if (name.startsWith("browser.") && !this.dependencies.browser) return { available: false, reason: "the FORGE Browser is unavailable" };
+    if (name.startsWith("browser.") && !this.dependencies.browser?.enabled()) return { available: false, reason: "external web research is disabled in Settings" };
+    if (name === "browser.savecontext" && !this.dependencies.memories) return { available: false, reason: "durable workspace memory is unavailable" };
+    if (name.startsWith("web.") && !this.dependencies.web.isEnabled()) return { available: false, reason: "external web research is disabled in Settings" };
+    return { available: true };
+  }
   async predict(name, input, root) {
     if (name === "file.create") return { paths: [input.path], diff: unifiedDiff(input.path, "", input.content) };
     if (name === "file.write") {
@@ -6579,26 +6650,50 @@ class ToolRouter {
     const missing = (requestedPath) => ({ missing: true, requestedPath, recovery: { action: "restart-at-workspace-root", path: ".", nearestRequestedParent: path__default.dirname(requestedPath) || ".", instruction: "List the workspace root, discover the real layout, and retry only with an observed path." } });
     this.executors.set("file.list", async (input, request) => {
       const requestedPath = input.path === "." ? "." : input.path;
-      const absolute = await resolveContainedPath(this.root(request), requestedPath, true);
+      const root = await promises.realpath(this.root(request));
+      const absolute = await resolveContainedPath(root, requestedPath, true);
       if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), entries: [], truncated: false });
       const entries = [];
       const visit = async (current, depth) => {
-        for (const entry of await promises.readdir(current, { withFileTypes: true })) {
+        const directory = await promises.readdir(current, { withFileTypes: true });
+        directory.sort((left, right) => left.name.localeCompare(right.name));
+        for (const entry of directory) {
           if ([".git", ".forge", "node_modules", "dist_electron", "out"].includes(entry.name)) continue;
           const child = path__default.join(current, entry.name);
           const stat = await promises.lstat(child);
-          entries.push({ path: path__default.relative(this.root(request), child), type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file", size: stat.size });
+          entries.push({ path: path__default.relative(root, child), type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file", size: stat.size });
           if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1);
         }
       };
       await visit(absolute, 0);
-      return ok({ entries: entries.slice(0, 5e3), truncated: entries.length > 5e3 });
+      const page = entries.slice(input.offset, input.offset + input.maxEntries);
+      const nextOffset = input.offset + page.length;
+      const truncated = nextOffset < entries.length;
+      return ok({ entries: page, totalEntries: entries.length, truncated, continuation: truncated ? { offset: nextOffset, instruction: "Call file.list again with the same path, recursion, and depth plus this offset." } : void 0 });
     });
     this.executors.set("file.read", async (input, request) => {
       const absolute = await resolveContainedPath(this.root(request), input.path, true);
       if (!await pathExists(absolute)) return ok(missing(input.path));
-      const data = await readText(absolute);
-      return ok({ path: input.path, content: data.content, encoding: data.encoding });
+      const data = await readText(absolute, input.startLine !== void 0 || input.endLine !== void 0 || input.offset !== void 0 ? MAX_RANGED_TEXT_BYTES : MAX_TEXT_BYTES);
+      const content = data.content;
+      const lineStarts = [0];
+      for (let index = 0; index < content.length; index += 1) if (content[index] === "\n") lineStarts.push(index + 1);
+      const totalLines = lineStarts.length;
+      const startOffset = input.offset ?? lineStarts[(input.startLine ?? 1) - 1] ?? content.length;
+      const requestedEnd = input.endLine === void 0 ? content.length : lineStarts[input.endLine] ?? content.length;
+      const endOffset = Math.max(startOffset, Math.min(content.length, requestedEnd));
+      const maxEnd = Math.min(endOffset, startOffset + input.maxCharacters);
+      const returned = content.slice(startOffset, maxEnd);
+      const lineAt = (offset) => {
+        let line = 0;
+        for (let index = 1; index < lineStarts.length; index += 1) {
+          if (lineStarts[index] > offset) break;
+          line = index;
+        }
+        return line + 1;
+      };
+      const truncated = maxEnd < endOffset;
+      return ok({ path: input.path, content: returned, encoding: data.encoding, totalCharacters: content.length, totalLines, returnedRange: { offset: startOffset, length: returned.length, startLine: lineAt(startOffset), endLine: lineAt(Math.max(startOffset, maxEnd - 1)) }, truncated, continuation: truncated ? { offset: maxEnd, instruction: "Call file.read again with this offset and the same maxCharacters." } : void 0 });
     });
     this.executors.set("file.search", async (input, request, signal) => {
       const requestedPath = input.path === "." ? "." : input.path;
@@ -6719,7 +6814,7 @@ class ToolRouter {
       return ok(output, [], { exitCode: output.exitCode, truncated: output.truncated, cancelled: output.cancelled });
     });
     this.executors.set("web.search", async (input) => ok(await this.dependencies.web.search(input.query)));
-    for (const name of ["web.fetch", "web.open"]) this.executors.set(name, async (input) => ok(await this.dependencies.web.fetch(input.url)));
+    this.executors.set("web.fetch", async (input) => ok(await this.dependencies.web.fetch(input.url)));
     this.executors.set("browser.open", async (input) => {
       if (!this.dependencies.browser) throw new Error("The FORGE Browser is unavailable.");
       if (!this.dependencies.browser.enabled()) throw new Error("Agent web research is disabled in Settings. Enable it before asking the agent to use the FORGE Browser.");
@@ -6757,7 +6852,7 @@ class ToolRouter {
     });
     this.executors.set("github.mutate", async (input) => {
       if (!this.dependencies.github) throw new Error("GitHub integration is unavailable.");
-      return ok(await this.dependencies.github.mutate(input.action, input.input));
+      return ok(await this.dependencies.github.mutate(input.action, input));
     });
     this.executors.set("task.inspect", async (input) => {
       if (!this.dependencies.tasks) throw new Error("Persistent task runtime is unavailable.");
@@ -6791,7 +6886,7 @@ class ToolRouter {
     });
     this.executors.set("task.process.start", async (input, request) => {
       if (!this.dependencies.tasks) throw new Error("Persistent task runtime is unavailable.");
-      const processInput = { command: input.command, args: input.args, workingDirectory: input.workingDirectory, timeoutMs: input.timeoutMs, environment: input.environment, environmentAllowlist: input.environmentAllowlist, reason: input.reason, expectedOutcome: input.expectedOutcome };
+      const processInput = { command: input.command, args: input.args, workingDirectory: input.workingDirectory, timeoutMs: input.timeoutMs, environment: input.environment, environmentAllowlist: input.environmentAllowlist, networkProfile: input.networkProfile, reason: input.reason, expectedOutcome: input.expectedOutcome };
       const started = await this.dependencies.tasks.startBackground(input.taskId, input.stepId, processInput, request.id);
       return ok({ started }, started.process?.outputPath ? [started.process.outputPath] : []);
     });
@@ -6834,6 +6929,29 @@ function parseStructuredToolFallback(provider, text) {
 }
 const SECRET_NAME = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(?:_|$)/i;
 const SAFE_PARENT_ENV = ["PATH", "LANG", "LC_ALL", "TERM", "TMPDIR"];
+const NETWORK_COMMANDS = /* @__PURE__ */ new Map([
+  ["curl", "network"],
+  ["wget", "network"],
+  ["ssh", "network"],
+  ["scp", "network"],
+  ["npm", "package-manager"],
+  ["npx", "package-manager"],
+  ["pnpm", "package-manager"],
+  ["yarn", "package-manager"],
+  ["bun", "package-manager"],
+  ["git", "git"]
+]);
+function assertNetworkProfile(input) {
+  const executable = path__default.basename(input.command).toLowerCase();
+  let required2 = NETWORK_COMMANDS.get(executable);
+  const primaryArgument = input.args.find((argument) => !argument.startsWith("-"))?.toLowerCase();
+  if (executable === "git" && !["clone", "fetch", "pull", "push", "ls-remote"].includes(primaryArgument ?? "")) required2 = void 0;
+  if (["npm", "pnpm", "yarn", "bun"].includes(executable) && !["install", "ci", "add", "update", "publish", "dlx", "create"].includes(primaryArgument ?? "")) required2 = void 0;
+  const profile = input.networkProfile ?? "offline";
+  if (required2 && profile === "offline") throw new Error(`${executable} requires an explicit ${required2} network profile; offline commands may not use a known network-capable executable.`);
+  if (required2 === "package-manager" && !["package-manager", "network"].includes(profile)) throw new Error(`${executable} requires the package-manager or network profile.`);
+  if (required2 === "git" && !["git", "network"].includes(profile)) throw new Error("git requires the git or network profile.");
+}
 async function resolveWorkspacePath(workspaceRoot, requested = ".") {
   if (path__default.isAbsolute(requested)) throw new Error("Absolute paths require a separate, explicitly approved policy.");
   const root = await promises.realpath(workspaceRoot);
@@ -6890,6 +7008,7 @@ class ShellService {
     if (!root) throw new Error("Open a workspace before running a shell tool.");
     if (!input.command.trim() || input.command.includes("\0")) throw new Error("A valid executable is required.");
     if (input.args.some((argument) => argument.includes("\0"))) throw new Error("Shell arguments may not contain null bytes.");
+    assertNetworkProfile(input);
     const cwd = await resolveWorkspacePath(root, input.workingDirectory || ".");
     const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 10 * 6e4);
     const environment = filteredEnvironment(input.environment, input.environmentAllowlist);
@@ -6957,6 +7076,7 @@ class ShellService {
     const root = this.workspaceRoot();
     if (!root) throw new Error("Open a workspace before running a background shell task.");
     if (!input.command.trim() || input.command.includes("\0") || input.args.some((argument) => argument.includes("\0"))) throw new Error("A valid executable and null-free arguments are required.");
+    assertNetworkProfile(input);
     if (!outputPath || path__default.isAbsolute(outputPath) || outputPath.split(/[\\/]/).includes("..")) throw new Error("Background output path must be workspace-relative.");
     const cwd = await resolveWorkspacePath(root, input.workingDirectory || ".");
     const realRoot = await promises.realpath(root);
@@ -7127,6 +7247,9 @@ class WebService {
       complete(null, [address]);
     });
   } } });
+  isEnabled() {
+    return this.enabled();
+  }
   async fetch(urlValue, timeoutMs = 2e4) {
     if (!this.enabled()) throw new Error("External web research is disabled in Settings.");
     let url = await validateExternalUrl(urlValue);
@@ -8740,11 +8863,24 @@ let browserLayout = { visible: false };
 let browserBookmarks = [];
 let browserHistory = [];
 let rendererSource = "file:// development build";
+function liveMainWindow() {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+}
+function detachBrowserView() {
+  const window = liveMainWindow();
+  if (attachedBrowserView && window) {
+    try {
+      window.setBrowserView(null);
+    } catch {
+    }
+  }
+  attachedBrowserView = null;
+}
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "b8e5665dcfb5864541a7939fe7d9e256eea0c91c",
-    buildDate: "2026-08-09T12:38:05.777Z",
+    commit: "302ff52b87e415d357c6fe5039869c742d5ecb24",
+    buildDate: "2026-08-09T16:43:24.273Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8830,7 +8966,8 @@ function browserState() {
   };
 }
 function sendBrowserState() {
-  mainWindow?.webContents.send("browser.state", browserState());
+  const window = liveMainWindow();
+  if (window) window.webContents.send("browser.state", browserState());
 }
 async function refreshBrowserRecords() {
   if (!workspace.info()) {
@@ -8931,8 +9068,7 @@ function setBrowserLayout(request) {
   browserLayout = request;
   const tab = activeBrowserTab();
   if (!request.visible || !tab) {
-    if (attachedBrowserView) mainWindow?.setBrowserView(null);
-    attachedBrowserView = null;
+    detachBrowserView();
     return;
   }
   if (request.bounds) {
@@ -8940,8 +9076,14 @@ function setBrowserLayout(request) {
     tab.view.setBounds({ x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
   }
   if (attachedBrowserView !== tab.view) {
-    mainWindow?.setBrowserView(tab.view);
-    attachedBrowserView = tab.view;
+    const window = liveMainWindow();
+    if (!window) return;
+    try {
+      window.setBrowserView(tab.view);
+      attachedBrowserView = tab.view;
+    } catch {
+      attachedBrowserView = null;
+    }
   }
 }
 function showBrowserHome() {
@@ -8985,8 +9127,7 @@ async function removeBrowserBookmark(bookmarkId) {
   return browserState();
 }
 function disposeBrowserTabs() {
-  if (attachedBrowserView) mainWindow?.setBrowserView(null);
-  attachedBrowserView = null;
+  detachBrowserView();
   for (const tab of browserTabs.values()) if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
   browserTabs.clear();
   activeBrowserTabId = null;
@@ -9072,11 +9213,15 @@ function registerHandlers() {
   register(IPC_CHANNELS.agentConversationSelect, async (request) => storage.selectConversation(request.conversationId));
   register(IPC_CHANNELS.agentConversationRename, async (request) => storage.renameConversation(request.conversationId, request.title));
   register(IPC_CHANNELS.agentConversationClear, async (request) => storage.clearConversation(request.conversationId));
-  register(IPC_CHANNELS.agentMemoriesList, async () => storage.listMemories());
+  register(IPC_CHANNELS.agentConversationDelete, async (request) => storage.deleteConversation(request.conversationId));
+  register(IPC_CHANNELS.agentConversationsClearAll, async () => storage.clearAllConversations());
+  register(IPC_CHANNELS.agentMemoriesList, async () => storage.listMemories(250, 1200));
+  register(IPC_CHANNELS.agentMemoriesStats, async () => storage.memoryStats());
   register(IPC_CHANNELS.agentMemoriesDelete, async (request) => {
     await storage.deleteMemory(request.id);
     return void 0;
   });
+  register(IPC_CHANNELS.agentMemoriesClear, async () => storage.clearMemories());
   register(IPC_CHANNELS.agentMemoriesReindex, async () => {
     await memoryIndexer.indexWorkspaceFiles();
     return void 0;
@@ -9135,6 +9280,10 @@ function registerHandlers() {
   register(IPC_CHANNELS.tasksResume, async (request) => nativeAgent.runTaskStep(request.taskId));
   register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));
   register(IPC_CHANNELS.tasksCancel, async (request) => taskRuntime.cancel(request.taskId, request.reason, request.trackingOnly));
+  register(IPC_CHANNELS.tasksDelete, async (request) => {
+    await storage.deletePersistentTask(request.taskId);
+    return void 0;
+  });
   register(IPC_CHANNELS.tasksRetryStep, async (request) => {
     await taskRuntime.retryStep(request.taskId, request.stepId);
     return nativeAgent.runTaskStep(request.taskId);
@@ -9172,8 +9321,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: "FORGE", webPreferences: { preload: join(__dirname, "../preload/index.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   mainWindow.on("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {
-    disposeBrowserTabs();
     mainWindow = null;
+    disposeBrowserTabs();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
