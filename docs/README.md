@@ -20,7 +20,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Core Architecture](Architecture/Core.md) — reusable `@forge/core` contracts and future runtime adapters.
 - [Agent Tools](AGENT_TOOLS.md) — provider-neutral tool routing and bounded continuation.
 - [Tools in Plain English](TOOLING_GUIDE.md) — what the agent can request, when it needs approval, its limits, and how to change models.
-- [Tool Security](TOOL_SECURITY.md) — threat model, risk tiers, filesystem, shell, web, and secret controls.
+- [Tool Security](TOOL_SECURITY.md) — threat model, side-effect policy, approvals, filesystem, shell, web, and secret controls.
 - [Persistent Tasks](PERSISTENT_TASKS.md) — durable task state, checkpoints, handoffs, and process reconciliation.
 - [Task Recovery](TASK_RECOVERY.md) — how a human or replacement agent resumes safely.
 - [Integrated Terminal](TERMINAL.md) — user-controlled PTYs and CLI-agent workflows.
