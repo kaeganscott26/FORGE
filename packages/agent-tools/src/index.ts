@@ -10,7 +10,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 export type { ProviderToolCall, ToolRequest, ToolResult } from '@forge/tool-policy';
 
 const MAX_TEXT_BYTES = 2_000_000;
-const MAX_RANGED_TEXT_BYTES = 8_000_000;
+const MAX_RANGED_TEXT_BYTES = 64_000_000;
 const MAX_SEARCH_RESULTS = 200;
 const MAX_LIST_ENTRIES = 1_000;
 const textOutput = z.object({ success: z.boolean() }).passthrough();
@@ -327,7 +327,9 @@ export class ToolRouter {
     this.executors.set('file.list', async (input, request) => { const requestedPath = input.path === '.' ? '.' : input.path; const root = await fs.realpath(this.root(request)); const absolute = await resolveContainedPath(root, requestedPath, true); if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), entries: [], truncated: false }); const entries: Array<{ path: string; type: string; size: number }> = []; const visit = async (current: string, depth: number): Promise<void> => { const directory = await fs.readdir(current, { withFileTypes: true }); directory.sort((left, right) => left.name.localeCompare(right.name)); for (const entry of directory) { if (['.git', '.forge', 'node_modules', 'dist_electron', 'out'].includes(entry.name)) continue; const child = path.join(current, entry.name); const stat = await fs.lstat(child); entries.push({ path: path.relative(root, child), type: entry.isDirectory() ? 'directory' : entry.isSymbolicLink() ? 'symlink' : 'file', size: stat.size }); if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1); } }; await visit(absolute, 0); const page = entries.slice(input.offset, input.offset + input.maxEntries); const nextOffset = input.offset + page.length; const truncated = nextOffset < entries.length; return ok({ entries: page, totalEntries: entries.length, truncated, continuation: truncated ? { offset: nextOffset, instruction: 'Call file.list again with the same path, recursion, and depth plus this offset.' } : undefined }); });
     this.executors.set('file.read', async (input, request) => {
       const absolute = await resolveContainedPath(this.root(request), input.path, true); if (!await pathExists(absolute)) return ok(missing(input.path));
-      const data = await readText(absolute, input.startLine !== undefined || input.endLine !== undefined || input.offset !== undefined ? MAX_RANGED_TEXT_BYTES : MAX_TEXT_BYTES);
+      const stat = await fs.stat(absolute);
+      if (!stat.isFile()) return ok({ path: input.path, unreadable: true, reason: 'not-a-file', recovery: { action: 'list-path', path: input.path, instruction: 'Use file.list for directories, then call file.read with an observed file path.' } });
+      const data = await readText(absolute, MAX_RANGED_TEXT_BYTES);
       const content = data.content; const lineStarts = [0]; for (let index = 0; index < content.length; index += 1) if (content[index] === '\n') lineStarts.push(index + 1);
       const totalLines = lineStarts.length; const startOffset = input.offset ?? lineStarts[(input.startLine ?? 1) - 1] ?? content.length;
       const requestedEnd = input.endLine === undefined ? content.length : (lineStarts[input.endLine] ?? content.length);

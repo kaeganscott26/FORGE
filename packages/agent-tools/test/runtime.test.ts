@@ -81,6 +81,20 @@ describe('agent tool runtime', () => {
     expect(first.result?.output).toMatchObject({ content: 'one\nt', truncated: true, continuation: { offset: 5 } });
   });
 
+  it('keeps file.read recoverable for directories and bounded reads above the legacy 2 MB limit', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-read-resilience-'));
+    await mkdir(path.join(root, 'folder'));
+    await writeFile(path.join(root, 'large.txt'), 'x'.repeat(2_100_000));
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const directory = await router.request({ id: 'read-directory', name: 'file.read', provider: 'test', arguments: { path: 'folder' } }, context);
+    expect(directory.result?.success).toBe(true);
+    expect(directory.result?.output).toMatchObject({ success: true, unreadable: true, reason: 'not-a-file', recovery: { action: 'list-path', path: 'folder' } });
+    const large = await router.request({ id: 'read-large', name: 'file.read', provider: 'test', arguments: { path: 'large.txt', maxCharacters: 64 } }, context);
+    expect(large.result?.success).toBe(true);
+    expect(large.result?.output).toMatchObject({ content: 'x'.repeat(64), truncated: true, continuation: { offset: 64 } });
+  });
+
   it('advertises only tools available to the current FORGE configuration', () => {
     const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => false }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
     const names = router.providerDefinitions().map((definition) => definition.name);
