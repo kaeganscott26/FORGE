@@ -6320,7 +6320,7 @@ class PolicyEngine {
   }
 }
 const MAX_TEXT_BYTES = 2e6;
-const MAX_RANGED_TEXT_BYTES = 8e6;
+const MAX_RANGED_TEXT_BYTES = 64e6;
 const MAX_SEARCH_RESULTS = 200;
 const MAX_LIST_ENTRIES = 1e3;
 const textOutput = z.object({ success: z.boolean() }).passthrough();
@@ -6674,7 +6674,9 @@ class ToolRouter {
     this.executors.set("file.read", async (input, request) => {
       const absolute = await resolveContainedPath(this.root(request), input.path, true);
       if (!await pathExists(absolute)) return ok(missing(input.path));
-      const data = await readText(absolute, input.startLine !== void 0 || input.endLine !== void 0 || input.offset !== void 0 ? MAX_RANGED_TEXT_BYTES : MAX_TEXT_BYTES);
+      const stat = await promises.stat(absolute);
+      if (!stat.isFile()) return ok({ path: input.path, unreadable: true, reason: "not-a-file", recovery: { action: "list-path", path: input.path, instruction: "Use file.list for directories, then call file.read with an observed file path." } });
+      const data = await readText(absolute, MAX_RANGED_TEXT_BYTES);
       const content = data.content;
       const lineStarts = [0];
       for (let index = 0; index < content.length; index += 1) if (content[index] === "\n") lineStarts.push(index + 1);
@@ -6997,6 +6999,12 @@ function terminalEnvironment(shell2) {
     PATH: [...new Set(pathEntries)].join(path__default.delimiter)
   };
 }
+function defaultTerminalShell(environment = process.env) {
+  const configuredShell = environment.SHELL;
+  if (configuredShell && path__default.isAbsolute(configuredShell)) return configuredShell;
+  if (process.platform === "win32") return environment.COMSPEC || "cmd.exe";
+  return "/bin/bash";
+}
 class ShellService {
   constructor(workspaceRoot, outputLimit = 1e6) {
     this.workspaceRoot = workspaceRoot;
@@ -7150,7 +7158,7 @@ class TerminalService {
     const canonicalWorkspaceRoot = await promises.realpath(root);
     const id2 = requestedId ?? randomUUID();
     if (this.sessions.has(id2)) throw new Error("Terminal session already exists.");
-    const shell2 = process.env.SHELL && path__default.isAbsolute(process.env.SHELL) ? process.env.SHELL : "/bin/zsh";
+    const shell2 = defaultTerminalShell();
     const terminal = pty.spawn(shell2, ["-l"], { name: "xterm-256color", cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell2) });
     const info = { id: id2, cwd, pid: terminal.pid, state: "running", exitCode: null, createdAt: Date.now(), title: path__default.basename(cwd), recentOutput: "" };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
@@ -8879,8 +8887,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "0df394305489ac3b27d958c30d10bc45eb1c3251",
-    buildDate: "2026-08-09T19:08:26.981Z",
+    commit: "57deb4b401d0962621a733d7a5a86353f51f6a4b",
+    buildDate: "2026-08-10T05:23:01.984Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,

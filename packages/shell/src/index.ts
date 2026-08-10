@@ -99,6 +99,17 @@ export function terminalEnvironment(shell: string): Record<string, string> {
   };
 }
 
+/**
+ * Select a shell that exists on the minimal Linux systems FORGE supports when
+ * a graphical launcher did not preserve the user's SHELL environment variable.
+ */
+export function defaultTerminalShell(environment: NodeJS.ProcessEnv = process.env): string {
+  const configuredShell = environment.SHELL;
+  if (configuredShell && path.isAbsolute(configuredShell)) return configuredShell;
+  if (process.platform === 'win32') return environment.COMSPEC || 'cmd.exe';
+  return '/bin/bash';
+}
+
 export class ShellService {
   private readonly running = new Map<string, ChildProcess>();
   constructor(private readonly workspaceRoot: () => string | null, private readonly outputLimit = 1_000_000) {}
@@ -208,7 +219,7 @@ export class TerminalService {
     const canonicalWorkspaceRoot = await fs.realpath(root);
     const id = requestedId ?? randomUUID();
     if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
-    const shell = process.env.SHELL && path.isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
+    const shell = defaultTerminalShell();
     const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
     const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };

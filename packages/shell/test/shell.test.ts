@@ -2,7 +2,7 @@ import { mkdtemp, realpath, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { filteredEnvironment, ShellService, terminalEnvironment, TerminalService } from '../src';
+import { defaultTerminalShell, filteredEnvironment, ShellService, terminalEnvironment, TerminalService } from '../src';
 
 describe('shell and terminal services', () => {
   it('filters the parent environment and blocks secret-like requested variables', () => {
@@ -18,6 +18,11 @@ describe('shell and terminal services', () => {
     expect(environment.TERM_PROGRAM).toBe('FORGE');
     expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local/bin')]));
     expect(environment.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it('uses the configured absolute shell or a minimal-Linux Bash fallback', () => {
+    expect(defaultTerminalShell({ SHELL: '/bin/fish' })).toBe('/bin/fish');
+    if (process.platform !== 'win32') expect(defaultTerminalShell({})).toBe('/bin/bash');
   });
 
   it('enforces output limits and timeouts', async () => {

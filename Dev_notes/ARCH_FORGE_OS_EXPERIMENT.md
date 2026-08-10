@@ -75,6 +75,24 @@ The USB does **not** become FORGE OS and it does not need to remain connected af
 - Your GitHub access for cloning FORGE.
 - Your OpenAI/ChatGPT login for Codex.
 
+## Hard compatibility gate
+
+This runbook targets a **separate x86_64 UEFI computer**. FORGE's current Linux
+package target is x64, and the Arch ISO used here is x86_64. An Apple Silicon
+Mac can create the installer USB, but it is not the target machine for these
+instructions.
+
+Before any partitioning command, boot the USB on the target and verify:
+
+```bash
+uname -m
+test -d /sys/firmware/efi/efivars && echo 'UEFI boot confirmed'
+```
+
+The first command must print `x86_64`, and the second must succeed. Stop if
+either condition is false; do not attempt to adapt the disk or bootloader
+instructions while in the installer.
+
 ## Important disk warning
 
 The disk-formatting section intentionally destroys the selected target disk.
@@ -630,6 +648,15 @@ npm --version
 
 FORGE currently targets Node.js 22 LTS, which Arch provides as `nodejs-lts-jod`.
 
+Record the exact installed versions before building. The source repository's
+`.nvmrc` is the authority for the Node major version:
+
+```bash
+node --version
+npm --version
+cat ~/FORGE/.nvmrc 2>/dev/null || true
+```
+
 ---
 
 # 18. Clone and build FORGE
@@ -652,6 +679,7 @@ Verify the project before trying to make it the graphical shell:
 
 ```bash
 npm run typecheck
+npm run lint
 npm test
 npm run build
 ```
@@ -662,17 +690,48 @@ If one of those fails, fix the actual build/runtime issue before continuing. The
 
 # 19. Configure a minimal X session that launches FORGE
 
-Create the X startup script:
+Create a deliberately temporary, logged development-session script. This proves
+that the installed X stack, Electron, and FORGE can run together; it is not the
+production session that the integration repository will later install.
+
+First create the workspace FORGE will open and ensure its live database is not
+mistakenly committed as source:
+
+```bash
+mkdir -p ~/FORGE-OS
+cd ~/FORGE-OS
+git init
+printf '.forge/metadata.sqlite\n.forge/task-output/\n' > .gitignore
+cat > README.md <<'EOF'
+# FORGE OS Experiment
+
+Arch Linux provides the kernel, hardware support, package management, networking, filesystems, and system services.
+
+FORGE is being tested as the persistent user-facing workspace/intelligence/runtime layer above that substrate.
+EOF
+git add README.md .gitignore
+git commit -m "chore: initialize FORGE OS experiment"
+mkdir -p "$HOME/.local/state/forge"
+```
+
+Then create the X startup script:
 
 ```bash
 cat > ~/.xinitrc <<'EOF'
 #!/bin/sh
 
-# Minimal graphical substrate for the FORGE experiment.
+# Preserve the standard xinit environment hooks when Arch provides them.
+if [ -d /etc/X11/xinit/xinitrc.d ]; then
+  for hook in /etc/X11/xinit/xinitrc.d/*; do
+    [ -x "$hook" ] && . "$hook"
+  done
+fi
+
+# Minimal graphical substrate for the first FORGE experiment.
 openbox-session &
 
-cd "$HOME/FORGE"
-exec npm run dev
+exec sh -lc 'cd "$HOME/FORGE" && exec npm run dev -- --workspace="$HOME/FORGE-OS"' \
+  >>"$HOME/.local/state/forge/session.log" 2>&1
 EOF
 ```
 
@@ -709,6 +768,31 @@ ldd ~/FORGE/node_modules/electron/dist/electron | grep 'not found'
 ```
 
 Install the missing Arch package(s), then retry `startx`.
+
+Record the initial session result and inspect its log after closing FORGE or if
+the window does not appear:
+
+```bash
+tail -n 200 "$HOME/.local/state/forge/session.log"
+```
+
+Do not treat this development launch as Linux support. Before Phase 6 makes
+FORGE the normal graphical workflow, build the actual Linux package on the
+target, start its unpacked executable under X, and exercise the same core
+workflow (open a workspace, edit/save, open the PTY, run `pwd`, restart the
+application, and reopen the workspace):
+
+```bash
+cd ~/FORGE
+./scripts/package-linux.sh
+test -x dist_electron/linux-unpacked/FORGE
+sha256sum dist_electron/linux-unpacked/FORGE
+```
+
+Start `dist_electron/linux-unpacked/FORGE` under the same X/Openbox substrate
+with `--workspace="$HOME/FORGE-OS"`. Record its path, SHA-256, and the manual
+acceptance result in `~/FORGE-OS/BUILD_STATE.md`. The later reproducible
+launcher must invoke this packaged/staged runtime, not `npm run dev`.
 
 ---
 
@@ -760,7 +844,7 @@ codex --help
 Authenticate:
 
 ```bash
-codex --login
+codex login
 ```
 
 Complete the ChatGPT/OpenAI sign-in flow.
@@ -775,7 +859,9 @@ The architectural point is important:
 
 Do not use the FORGE source repository itself as the operating-system integration repo.
 
-Create a separate workspace that represents the evolving operating environment:
+Create a separate workspace that represents the evolving operating environment.
+If section 19 already created it, do not reinitialize it; continue from that
+committed control point. Otherwise use the following:
 
 ```bash
 mkdir -p ~/FORGE-OS
@@ -802,10 +888,16 @@ FORGE is being tested as the persistent user-facing workspace/intelligence/runti
 EOF
 ```
 
+Ignore FORGE's live per-workspace records before they are created:
+
+```bash
+printf '.forge/metadata.sqlite\n.forge/task-output/\n' > .gitignore
+```
+
 Commit the blank control point:
 
 ```bash
-git add README.md
+git add README.md .gitignore
 git commit -m "chore: initialize FORGE OS experiment"
 ```
 
@@ -1136,6 +1228,7 @@ Create BUILD_STATE.md and record:
 - root filesystem
 - installed graphics stack
 - FORGE source commit
+- FORGE source remote URL and whether the source tree is clean
 - FORGE build status
 - Node/npm versions
 - current startup path
@@ -1160,6 +1253,13 @@ Design the smallest reliable graphical session that makes FORGE the primary envi
 The current temporary path is startx + Openbox + `npm run dev`.
 
 Evolve that into a reproducible launcher rather than depending forever on an ad-hoc .xinitrc.
+
+`npm run dev` is bootstrap evidence only. Before a launcher is enabled for the
+normal graphical workflow, run the repository's native Linux packaging script,
+start the resulting packaged executable under X, and manually verify workspace
+open/edit/save, PTY `pwd`, restart, and workspace-state persistence. Record the
+executable path and SHA-256 in BUILD_STATE.md. Do not point a boot/login
+launcher at a mutable development checkout.
 
 Requirements:
 
@@ -1189,7 +1289,8 @@ The scripts should:
 - detect Arch rather than silently assuming it;
 - verify required commands;
 - install only justified packages;
-- build/install FORGE using the repo's actual supported Linux workflow;
+- build/install FORGE using the repo's actual supported Linux workflow and a
+  recorded source commit, lockfile, artifact path, and SHA-256;
 - install/update session integration;
 - create required directories with explicit owners/modes;
 - install systemd units only when they provide real value;
@@ -1607,8 +1708,7 @@ Official Arch resources:
 
 OpenAI Codex:
 
-- Codex CLI getting started: https://help.openai.com/en/articles/11096431
-- Codex with ChatGPT plans: https://help.openai.com/en/articles/11369540
+- Codex CLI commands, login, approvals, and sandboxing: https://learn.chatgpt.com/docs/developer-commands?surface=cli
 
 FORGE source-of-truth documents to inspect during the experiment:
 
