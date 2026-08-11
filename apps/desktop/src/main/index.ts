@@ -411,7 +411,9 @@ function registerHandlers(): void {
 function createWindow(): void {
   const rendererFile = join(__dirname, '../renderer/index.html');
   const packagedRendererUrl = pathToFileURL(rendererFile).toString();
+  const forgeOsShell = process.platform === 'linux' && (process.env.FORGE_OS_SESSION === '1' || process.env.XDG_CURRENT_DESKTOP?.toUpperCase() === 'FORGE') && process.env.FORGE_SHELL_MODE !== '0';
   mainWindow = new BrowserWindow({ width: 1500, height: 950, minWidth: 1100, minHeight: 700, show: false, title: 'FORGE', webPreferences: { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
+  if (forgeOsShell) mainWindow.maximize();
   mainWindow.on('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => { mainWindow = null; disposeBrowserTabs(); });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

@@ -21,13 +21,20 @@ describe('shell and terminal services', () => {
   });
 
   it('inherits validated graphical session variables without inheriting secrets', () => {
-    const previous = { DISPLAY: process.env.DISPLAY, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS };
-    process.env.DISPLAY = ':7'; process.env.XDG_RUNTIME_DIR = '/run/user/1000'; process.env.DBUS_SESSION_BUS_ADDRESS = 'unix:path=/run/user/1000/bus';
+    const previous = { DISPLAY: process.env.DISPLAY, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, FORGE_OS_SESSION: process.env.FORGE_OS_SESSION, FORGE_SHELL_MODE: process.env.FORGE_SHELL_MODE, FORGE_OS_VERSION: process.env.FORGE_OS_VERSION };
+    process.env.DISPLAY = ':7'; process.env.XDG_RUNTIME_DIR = '/run/user/1000'; process.env.DBUS_SESSION_BUS_ADDRESS = 'unix:path=/run/user/1000/bus'; process.env.FORGE_OS_SESSION = '1'; process.env.FORGE_SHELL_MODE = '1'; process.env.FORGE_OS_VERSION = '0.1.0-alpha';
     try {
       const environment = terminalEnvironment('/bin/bash');
       expect(environment.DISPLAY).toBe(':7');
       expect(environment.XDG_RUNTIME_DIR).toBe('/run/user/1000');
       expect(environment.DBUS_SESSION_BUS_ADDRESS).toBe('unix:path=/run/user/1000/bus');
+      expect(environment.FORGE_OS_SESSION).toBe('1');
+      expect(environment.FORGE_SHELL_MODE).toBe('1');
+      expect(environment.FORGE_OS_VERSION).toBe('0.1.0-alpha');
+      const toolEnvironment = filteredEnvironment();
+      expect(toolEnvironment.FORGE_OS_SESSION).toBe('1');
+      expect(toolEnvironment.FORGE_SHELL_MODE).toBe('1');
+      expect(toolEnvironment.FORGE_OS_VERSION).toBe('0.1.0-alpha');
     } finally {
       for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
     }
