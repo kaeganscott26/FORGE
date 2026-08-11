@@ -34,6 +34,9 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
+# Local credential scratch file (migrate its value to .env, never commit it)
+API_KEY.txt
+
 # TypeScript
 *.tsbuildinfo
 
