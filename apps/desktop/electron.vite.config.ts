@@ -8,7 +8,20 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const repositoryRoot = resolve(here, '../..');
 const packageSource = (name: string) => resolve(here, `../../packages/${name}/src`);
 const rendererRoot = resolve(here, 'src/renderer');
-const buildCommit = process.env.FORGE_BUILD_COMMIT?.trim() || execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
+
+function resolveBuildCommit(): string {
+  const explicit = process.env.FORGE_BUILD_COMMIT?.trim();
+  if (explicit) return explicit;
+  try {
+    const topLevel = resolve(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: repositoryRoot, encoding: 'utf8' }).trim());
+    if (topLevel !== repositoryRoot) return 'unknown';
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const buildCommit = resolveBuildCommit();
 const buildDate = process.env.FORGE_BUILD_DATE?.trim() || new Date().toISOString();
 
 export default defineConfig({
