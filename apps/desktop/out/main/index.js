@@ -9034,8 +9034,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "056633e49628dabd09a9fca1e783225af798ea22",
-    buildDate: "2026-08-11T14:45:01.340Z",
+    commit: "1f383db40cd911ae2e458fd8bbb150a8a18c5d38",
+    buildDate: "2026-08-11T14:16:01.573Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
