@@ -153,3 +153,44 @@ is alive.
 - Keep `/home/North3rnLight3r/FORGE-OS` as the source authority for installed OS
   integration files; do not hand-edit system state without a reproducible
   tracked source.
+
+## 2026-08-11 implementation completion log
+
+The earlier package-transaction and next-work sections above are historical.
+They were reconciled rather than assumed complete.
+
+- Read all documentation in `Dev_notes`: `ARCH_FORGE_OS_EXPERIMENT.md`,
+  `FORGE_Linux_OS_Prompt.md`, `codexLastAction.md`, and `toolRiskRemoval`.
+  The Cloudflare/AIFRED and tool-risk-removal instructions were retained as
+  context but were not substituted for this Linux OS mission.
+- Recovered from the abandoned slow package transaction, benchmarked mirrors,
+  preserved the prior mirror list, and installed the tracked mirror order.
+- Completed the Arch synchronization and minimal package installation. Node is
+  now 22.23.2; Xorg, xinit, Openbox, Electron runtime libraries, fonts,
+  `libxss`, and `libxcrypt-compat` are installed. The installed kernel is 7.1.7
+  while the running kernel remains 7.1.6 pending a human-controlled reboot.
+- Located the pre-existing blanket passwordless sudo rule in `/etc/sudoers`
+  line 128. It remains in place pending human validation of password-backed
+  wheel access.
+- Added the tracked FORGE-OS package manifest, mirror configuration, bootstrap,
+  build, immutable-runtime install, session install/rollback, acceptance-gated
+  login handoff, verification scripts, architecture decisions, acceptance,
+  recovery, changelog, and current build-state documentation.
+- Fixed Linux packaging metadata and corrected the verifier so Linux requires
+  its actual native `pty.node` resource, not macOS-only `spawn-helper`.
+- Final build from FORGE commit
+  `1c1b50ef26d3a86d8c815ba3ab56f71d256003d5` passed typecheck, lint, all 27
+  test files (113 passed, 2 skipped), production build, AppImage, DEB, and
+  native-module checks. Artifact hashes are recorded in FORGE-OS
+  `BUILD_STATE.md`.
+- Installed the immutable runtime at `/opt/forge/releases/<commit>`, pointed
+  `/opt/forge/current` at it, and installed the normal-user manual `startx`
+  session. `tests/verify.sh` finished with 0 failures and one warning for the
+  known passwordless sudo rule.
+- Did not install the `/etc/profile.d` login handoff, generate the human
+  acceptance marker, reboot, or claim graphical/PTY/persistence acceptance.
+  Those are the remaining human-observed steps in FORGE-OS
+  `docs/ACCEPTANCE.md`.
+- Restored and preserved the user's pre-existing generated
+  `apps/desktop/out/main/index.js` build-metadata modification after every
+  build; it was never staged with the implementation changes.
