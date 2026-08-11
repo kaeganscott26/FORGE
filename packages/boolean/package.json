@@ -1,0 +1,10 @@
+{
+  "name": "boolean",
+  "version": "3.2.1",
+  "private": true,
+  "description": "Maintained compatibility replacement for the deprecated boolean package",
+  "main": "index.cjs",
+  "engines": {
+    "node": ">=18"
+  }
+}

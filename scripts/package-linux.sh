@@ -25,7 +25,10 @@ for required_file in package.json package-lock.json scripts/prepare-node-pty.mjs
   fi
 done
 
-npm ci
+# Linux packaging does not need peer-only macOS and Windows packagers. Keep
+# optional dependencies because Rollup distributes its native Linux binary as
+# one, even though it is required at runtime by Vite and Vitest.
+npm ci --omit=peer
 npm run typecheck
 npm run lint
 npm test

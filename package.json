@@ -167,9 +167,13 @@
   },
   "allowScripts": {
     "electron@43.3.0": true,
+    "electron-winstaller@5.4.0": true,
     "fsevents@2.3.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.21.5": true,
     "node-pty@1.1.0": true
+  },
+  "overrides": {
+    "@electron/asar": "^4.2.1"
   }
 }
