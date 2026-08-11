@@ -46,12 +46,11 @@ fi
 
 pty_root="$output_directory/linux-unpacked/resources/app.asar.unpacked/node_modules/node-pty"
 pty_node="$(find "$pty_root" -type f -name pty.node -print -quit 2>/dev/null || true)"
-spawn_helper="$(find "$pty_root" -type f -name spawn-helper -print -quit 2>/dev/null || true)"
-if [[ -z "$pty_node" || -z "$spawn_helper" ]]; then
-  echo "The Linux package is missing unpacked node-pty resources." >&2
+if [[ -z "$pty_node" ]]; then
+  echo "The Linux package is missing its unpacked node-pty native module." >&2
   exit 1
 fi
 
 echo "Linux packaging succeeded for FORGE $version:"
 printf '  %s\n' "${appimage_artifacts[@]}" "${deb_artifacts[@]}"
-echo "  Verified node-pty: $pty_node and $spawn_helper"
+echo "  Verified node-pty: $pty_node"

@@ -3,7 +3,10 @@
   "version": "2.3.0-beta.1",
   "private": true,
   "description": "Local-first AI-native development workspace",
-  "author": "Kaegan Scott",
+  "author": {
+    "name": "Kaegan Scott",
+    "email": "kaeganscott26@gmail.com"
+  },
   "homepage": "https://github.com/kaeganscott26/FORGE",
   "repository": {
     "type": "git",
