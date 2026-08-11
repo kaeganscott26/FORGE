@@ -1,6 +1,7 @@
 {
   "name": "forge",
   "version": "2.3.0-beta.1",
+  "desktopName": "forge.desktop",
   "private": true,
   "description": "Local-first AI-native development workspace",
   "author": {
@@ -107,6 +108,7 @@
       ]
     },
     "linux": {
+      "syncDesktopName": true,
       "target": [
         {
           "target": "AppImage",
