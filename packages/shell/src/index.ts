@@ -6,7 +6,21 @@ import path from 'node:path';
 import * as pty from 'node-pty';
 
 const SECRET_NAME = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(?:_|$)/i;
-const SAFE_PARENT_ENV = ['PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR'] as const;
+const SAFE_PARENT_ENV = [
+  'PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
+  'DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
+  'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME',
+  'XDG_DATA_DIRS', 'XDG_CONFIG_DIRS', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE',
+  'DESKTOP_SESSION', 'BROWSER'
+] as const;
+
+function validSessionVariable(name: string, value: string): boolean {
+  if (value.includes('\0') || value.includes('\n') || value.includes('\r')) return false;
+  if (name === 'DISPLAY') return /^:[0-9]+(?:\.[0-9]+)?$/.test(value) || /^[A-Za-z0-9_.-]+:[0-9]+(?:\.[0-9]+)?$/.test(value);
+  if (name === 'DBUS_SESSION_BUS_ADDRESS') return /^(?:unix:(?:path|abstract)=|autolaunch:)/.test(value);
+  if (name === 'XDG_RUNTIME_DIR' || name === 'XAUTHORITY') return path.isAbsolute(value);
+  return true;
+}
 
 export interface ShellRunInput {
   command: string;
@@ -65,7 +79,10 @@ export async function resolveWorkspacePath(workspaceRoot: string, requested = '.
 export function filteredEnvironment(requested: Record<string, string> = {}, allowlist: string[] = []): NodeJS.ProcessEnv {
   const allowed = new Set(allowlist);
   const environment: NodeJS.ProcessEnv = {};
-  for (const name of SAFE_PARENT_ENV) if (process.env[name]) environment[name] = process.env[name];
+  for (const name of SAFE_PARENT_ENV) {
+    const value = process.env[name];
+    if (value && validSessionVariable(name, value)) environment[name] = value;
+  }
   for (const [name, value] of Object.entries(requested)) {
     if (!allowed.has(name)) continue;
     if (SECRET_NAME.test(name)) throw new Error(`Secret-like environment variable is blocked: ${name}`);

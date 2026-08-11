@@ -1,0 +1,7 @@
+import { describe, expect, it } from 'vitest';
+import { parseDesktopEntry, ForgeOsService } from '../src/index';
+describe('FORGE OS integration', () => {
+  it('normalizes desktop metadata and removes field codes', () => { const app = parseDesktopEntry('[Desktop Entry]\nType=Application\nName=Browser\nExec=/usr/bin/browser --new-window %U\nCategories=Network;WebBrowser;\n', '/usr/share/applications/browser.desktop'); expect(app).toMatchObject({ id: 'browser.desktop', executable: '/usr/bin/browser', arguments: ['--new-window'], categories: ['Network', 'WebBrowser'] }); });
+  it('does not interpret shell operators', () => { const app = parseDesktopEntry('[Desktop Entry]\nType=Application\nName=Literal\nExec=/bin/echo hello;touch /tmp/nope\n', '/tmp/literal.desktop'); expect(app?.arguments).toContain('hello;touch'); });
+  it('requires FORGE desktop identity for shell mode', () => { expect(new ForgeOsService({ XDG_CURRENT_DESKTOP: 'FORGE' }).context().shellMode).toBe(true); expect(new ForgeOsService({ XDG_CURRENT_DESKTOP: 'GNOME' }).context().shellMode).toBe(false); });
+});

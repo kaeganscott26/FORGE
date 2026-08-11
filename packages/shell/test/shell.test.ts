@@ -20,6 +20,26 @@ describe('shell and terminal services', () => {
     expect(environment.OPENAI_API_KEY).toBeUndefined();
   });
 
+  it('inherits validated graphical session variables without inheriting secrets', () => {
+    const previous = { DISPLAY: process.env.DISPLAY, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS };
+    process.env.DISPLAY = ':7'; process.env.XDG_RUNTIME_DIR = '/run/user/1000'; process.env.DBUS_SESSION_BUS_ADDRESS = 'unix:path=/run/user/1000/bus';
+    try {
+      const environment = terminalEnvironment('/bin/bash');
+      expect(environment.DISPLAY).toBe(':7');
+      expect(environment.XDG_RUNTIME_DIR).toBe('/run/user/1000');
+      expect(environment.DBUS_SESSION_BUS_ADDRESS).toBe('unix:path=/run/user/1000/bus');
+    } finally {
+      for (const [name, value] of Object.entries(previous)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+    }
+  });
+
+  it('drops malformed graphical session variables', () => {
+    const previous = process.env.DBUS_SESSION_BUS_ADDRESS;
+    process.env.DBUS_SESSION_BUS_ADDRESS = 'tcp:host=untrusted.example';
+    try { expect(terminalEnvironment('/bin/bash').DBUS_SESSION_BUS_ADDRESS).toBeUndefined(); }
+    finally { if (previous === undefined) delete process.env.DBUS_SESSION_BUS_ADDRESS; else process.env.DBUS_SESSION_BUS_ADDRESS = previous; }
+  });
+
   it('uses the configured absolute shell or a minimal-Linux Bash fallback', () => {
     expect(defaultTerminalShell({ SHELL: '/bin/fish' })).toBe('/bin/fish');
     if (process.platform !== 'win32') expect(defaultTerminalShell({})).toBe('/bin/bash');

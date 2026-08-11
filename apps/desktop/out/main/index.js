@@ -11,12 +11,14 @@ import electronUpdater from "electron-updater";
 import { fetch as fetch$1, Agent as Agent$1 } from "undici";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { spawn } from "node:child_process";
-import os from "node:os";
+import { spawn, execFile } from "node:child_process";
+import os, { platform, homedir, totalmem, release, hostname } from "node:os";
 import * as pty from "node-pty";
 import { lookup as lookup$1 } from "node:dns/promises";
 import { lookup } from "node:dns";
 import { isIP } from "node:net";
+import { readdir, readFile, statfs } from "node:fs/promises";
+import { promisify } from "node:util";
 import __cjs_mod__ from "node:module";
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;
@@ -381,8 +383,8 @@ function requireSemver$4() {
     }
     // preminor will bump the version up to the next minor release, and immediately
     // down to pre-release. premajor and prepatch work the same way.
-    inc(release, identifier, identifierBase) {
-      if (release.startsWith("pre")) {
+    inc(release2, identifier, identifierBase) {
+      if (release2.startsWith("pre")) {
         if (!identifier && identifierBase === false) {
           throw new Error("invalid increment argument: identifier is empty");
         }
@@ -393,7 +395,7 @@ function requireSemver$4() {
           }
         }
       }
-      switch (release) {
+      switch (release2) {
         case "premajor":
           this.prerelease.length = 0;
           this.patch = 0;
@@ -485,7 +487,7 @@ function requireSemver$4() {
           break;
         }
         default:
-          throw new Error(`invalid increment argument: ${release}`);
+          throw new Error(`invalid increment argument: ${release2}`);
       }
       this.raw = this.format();
       if (this.build.length) {
@@ -551,7 +553,7 @@ function requireInc$1() {
   if (hasRequiredInc$1) return inc_1$1;
   hasRequiredInc$1 = 1;
   const SemVer = requireSemver$4();
-  const inc = (version, release, options, identifier, identifierBase) => {
+  const inc = (version, release2, options, identifier, identifierBase) => {
     if (typeof options === "string") {
       identifierBase = identifier;
       identifier = options;
@@ -561,7 +563,7 @@ function requireInc$1() {
       return new SemVer(
         version instanceof SemVer ? version.version : version,
         options
-      ).inc(release, identifier, identifierBase).version;
+      ).inc(release2, identifier, identifierBase).version;
     } catch (er) {
       return null;
     }
@@ -2145,7 +2147,12 @@ const IPC_CHANNELS = {
   browserTabClose: "browser.tab.close",
   browserTabSelect: "browser.tab.select",
   browserBookmarkAdd: "browser.bookmark.add",
-  browserBookmarkRemove: "browser.bookmark.remove"
+  browserBookmarkRemove: "browser.bookmark.remove",
+  forgeOsContext: "forge-os.context",
+  forgeOsApplications: "forge-os.applications",
+  forgeOsApplicationLaunch: "forge-os.application.launch",
+  forgeOsOverview: "forge-os.overview",
+  forgeOsSessionAction: "forge-os.session.action"
 };
 const IGNORED = /* @__PURE__ */ new Set([".git", "node_modules", "dist", "out", "build", ".next", ".forge", "coverage", "__pycache__"]);
 function parseMarkdown(content) {
@@ -3550,8 +3557,8 @@ class OpenAIProvider {
     });
   }
   isLoopbackProvider() {
-    const hostname = new URL(this.baseUrl).hostname.toLowerCase();
-    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
+    const hostname2 = new URL(this.baseUrl).hostname.toLowerCase();
+    return ["localhost", "127.0.0.1", "::1"].includes(hostname2);
   }
   textToolCall(content, tools, providerNames) {
     const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
@@ -4344,8 +4351,8 @@ function requireSemver$2() {
     }
     // preminor will bump the version up to the next minor release, and immediately
     // down to pre-release. premajor and prepatch work the same way.
-    inc(release, identifier, identifierBase) {
-      if (release.startsWith("pre")) {
+    inc(release2, identifier, identifierBase) {
+      if (release2.startsWith("pre")) {
         if (!identifier && identifierBase === false) {
           throw new Error("invalid increment argument: identifier is empty");
         }
@@ -4356,7 +4363,7 @@ function requireSemver$2() {
           }
         }
       }
-      switch (release) {
+      switch (release2) {
         case "premajor":
           this.prerelease.length = 0;
           this.patch = 0;
@@ -4448,7 +4455,7 @@ function requireSemver$2() {
           break;
         }
         default:
-          throw new Error(`invalid increment argument: ${release}`);
+          throw new Error(`invalid increment argument: ${release2}`);
       }
       this.raw = this.format();
       if (this.build.length) {
@@ -4514,7 +4521,7 @@ function requireInc() {
   if (hasRequiredInc) return inc_1;
   hasRequiredInc = 1;
   const SemVer = requireSemver$2();
-  const inc = (version, release, options, identifier, identifierBase) => {
+  const inc = (version, release2, options, identifier, identifierBase) => {
     if (typeof options === "string") {
       identifierBase = identifier;
       identifier = options;
@@ -4524,7 +4531,7 @@ function requireInc() {
       return new SemVer(
         version instanceof SemVer ? version.version : version,
         options
-      ).inc(release, identifier, identifierBase).version;
+      ).inc(release2, identifier, identifierBase).version;
     } catch (er) {
       return null;
     }
@@ -6021,19 +6028,19 @@ function safeMetadataAssetUrl(rawUrl, owner, repo, tagName, assetName) {
 function selectCompatibleRelease(releases, currentVersion, channel, repository) {
   if (!semverExports$1.valid(currentVersion)) return null;
   const candidates = [];
-  for (const release of releases) {
-    if (release.draft || release.published_at === null) continue;
-    const version = semverExports$1.valid(release.tag_name);
-    if (!version || !semverExports$1.gt(version, currentVersion) || !isCompatibleVersion(version, release.prerelease, channel)) continue;
+  for (const release2 of releases) {
+    if (release2.draft || release2.published_at === null) continue;
+    const version = semverExports$1.valid(release2.tag_name);
+    if (!version || !semverExports$1.gt(version, currentVersion) || !isCompatibleVersion(version, release2.prerelease, channel)) continue;
     const isPrerelease = semverExports$1.prerelease(version) !== null;
     const feedChannel = isPrerelease ? "beta" : "latest";
     const assetName = `${feedChannel}-mac.yml`;
-    const asset = release.assets.find((entry) => entry.name === assetName);
-    const assetUrl = asset ? safeMetadataAssetUrl(asset.browser_download_url, repository.owner, repository.repo, release.tag_name, assetName) : null;
+    const asset = release2.assets.find((entry) => entry.name === assetName);
+    const assetUrl = asset ? safeMetadataAssetUrl(asset.browser_download_url, repository.owner, repository.repo, release2.tag_name, assetName) : null;
     if (!assetUrl) continue;
     candidates.push({
       version,
-      tagName: release.tag_name,
+      tagName: release2.tag_name,
       prerelease: isPrerelease,
       feedBaseUrl: new URL(".", assetUrl).href,
       feedChannel,
@@ -6930,7 +6937,34 @@ function parseStructuredToolFallback(provider, text) {
   return { id: parsed.data.id ?? randomUUID(), name: parsed.data.tool, arguments: parsed.data.arguments, provider };
 }
 const SECRET_NAME = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(?:_|$)/i;
-const SAFE_PARENT_ENV = ["PATH", "LANG", "LC_ALL", "TERM", "TMPDIR"];
+const SAFE_PARENT_ENV = [
+  "PATH",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TMPDIR",
+  "DISPLAY",
+  "XAUTHORITY",
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "XDG_DATA_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_STATE_HOME",
+  "XDG_DATA_DIRS",
+  "XDG_CONFIG_DIRS",
+  "XDG_CURRENT_DESKTOP",
+  "XDG_SESSION_TYPE",
+  "DESKTOP_SESSION",
+  "BROWSER"
+];
+function validSessionVariable(name, value) {
+  if (value.includes("\0") || value.includes("\n") || value.includes("\r")) return false;
+  if (name === "DISPLAY") return /^:[0-9]+(?:\.[0-9]+)?$/.test(value) || /^[A-Za-z0-9_.-]+:[0-9]+(?:\.[0-9]+)?$/.test(value);
+  if (name === "DBUS_SESSION_BUS_ADDRESS") return /^(?:unix:(?:path|abstract)=|autolaunch:)/.test(value);
+  if (name === "XDG_RUNTIME_DIR" || name === "XAUTHORITY") return path__default.isAbsolute(value);
+  return true;
+}
 const NETWORK_COMMANDS = /* @__PURE__ */ new Map([
   ["curl", "network"],
   ["wget", "network"],
@@ -6967,7 +7001,10 @@ async function resolveWorkspacePath(workspaceRoot, requested = ".") {
 function filteredEnvironment(requested = {}, allowlist = []) {
   const allowed = new Set(allowlist);
   const environment = {};
-  for (const name of SAFE_PARENT_ENV) if (process.env[name]) environment[name] = process.env[name];
+  for (const name of SAFE_PARENT_ENV) {
+    const value = process.env[name];
+    if (value && validSessionVariable(name, value)) environment[name] = value;
+  }
   for (const [name, value] of Object.entries(requested)) {
     if (!allowed.has(name)) continue;
     if (SECRET_NAME.test(name)) throw new Error(`Secret-like environment variable is blocked: ${name}`);
@@ -7227,10 +7264,10 @@ async function validateExternalUrl(value) {
   }
   if (!["https:", "http:"].includes(url.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed.");
   if (url.username || url.password) throw new Error("Credentials in URLs are forbidden.");
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) throw new Error("Local-network URLs are blocked.");
-  if (isIP(hostname) && privateAddress(hostname)) throw new Error("Private and local network addresses are blocked.");
-  const addresses = await lookup$1(hostname, { all: true });
+  const hostname2 = url.hostname.toLowerCase();
+  if (hostname2 === "localhost" || hostname2.endsWith(".localhost") || hostname2.endsWith(".local")) throw new Error("Local-network URLs are blocked.");
+  if (isIP(hostname2) && privateAddress(hostname2)) throw new Error("Private and local network addresses are blocked.");
+  const addresses = await lookup$1(hostname2, { all: true });
   if (!addresses.length || addresses.some(({ address }) => privateAddress(address))) throw new Error("The URL resolves to a private or unsafe network address.");
   return url;
 }
@@ -7239,9 +7276,9 @@ class WebService {
     this.enabled = enabled;
     this.maxBytes = maxBytes;
   }
-  dispatcher = new Agent$1({ connect: { lookup: (hostname, options, callback) => {
+  dispatcher = new Agent$1({ connect: { lookup: (hostname2, options, callback) => {
     const complete = callback;
-    lookup(hostname, { family: options.family, hints: options.hints, all: true, verbatim: true }, (error, addresses) => {
+    lookup(hostname2, { family: options.family, hints: options.hints, all: true, verbatim: true }, (error, addresses) => {
       if (error) {
         complete(error, []);
         return;
@@ -7609,8 +7646,8 @@ function requireSemver() {
         }
       } while (++i2);
     };
-    SemVer.prototype.inc = function(release, identifier) {
-      switch (release) {
+    SemVer.prototype.inc = function(release2, identifier) {
+      switch (release2) {
         case "premajor":
           this.prerelease.length = 0;
           this.patch = 0;
@@ -7686,20 +7723,20 @@ function requireSemver() {
           }
           break;
         default:
-          throw new Error("invalid increment argument: " + release);
+          throw new Error("invalid increment argument: " + release2);
       }
       this.format();
       this.raw = this.version;
       return this;
     };
     exports.inc = inc;
-    function inc(version, release, loose, identifier) {
+    function inc(version, release2, loose, identifier) {
       if (typeof loose === "string") {
         identifier = loose;
         loose = void 0;
       }
       try {
-        return new SemVer(version, loose).inc(release, identifier).version;
+        return new SemVer(version, loose).inc(release2, identifier).version;
       } catch (er) {
         return null;
       }
@@ -8847,6 +8884,115 @@ ${checkpointWarning}` : ""}`);
   };
   return { runAgentTurn, runTaskStep, continueAfterApproval };
 }
+const execFileAsync = promisify(execFile);
+const FIELD_CODE = /^%[fFuUdDnNickvm]$/;
+function tokenizeExec(value) {
+  const tokens = [];
+  let token = "", quote = "", escaped = false;
+  for (const character of value.trim()) {
+    if (escaped) {
+      token += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = "";
+      else token += character;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (/\s/.test(character)) {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+      continue;
+    }
+    token += character;
+  }
+  if (escaped || quote) throw new Error("Malformed desktop Exec field.");
+  if (token) tokens.push(token);
+  return tokens;
+}
+function parseDesktopEntry(contents, desktopFile) {
+  const values = /* @__PURE__ */ new Map();
+  let section = "";
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (line.startsWith("[") && line.endsWith("]")) {
+      section = line.slice(1, -1);
+      continue;
+    }
+    if (section !== "Desktop Entry") continue;
+    const separator = line.indexOf("=");
+    if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
+  }
+  if (values.get("Type") !== "Application" || !values.get("Name") || !values.get("Exec")) return null;
+  const tokens = tokenizeExec(values.get("Exec"));
+  if (!tokens.length || tokens[0].includes("\0")) return null;
+  const arguments_ = [];
+  for (const token of tokens.slice(1)) {
+    if (token === "%%") arguments_.push("%");
+    else if (FIELD_CODE.test(token) || /%[fFuUdDnNickvm]/.test(token)) continue;
+    else arguments_.push(token);
+  }
+  return { id: path__default.basename(desktopFile), name: values.get("Name"), description: values.get("Comment") ?? "", icon: values.get("Icon"), executable: tokens[0], arguments: arguments_, categories: (values.get("Categories") ?? "").split(";").filter(Boolean), desktopFile, terminal: values.get("Terminal") === "true", hidden: values.get("Hidden") === "true", noDisplay: values.get("NoDisplay") === "true" };
+}
+function applicationDirectories(environment) {
+  const dataHome = environment.XDG_DATA_HOME || path__default.join(homedir(), ".local/share");
+  return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));
+}
+class ForgeOsService {
+  constructor(environment = process.env) {
+    this.environment = environment;
+  }
+  applications = /* @__PURE__ */ new Map();
+  context() {
+    const forgeOsSession = platform() === "linux" && (this.environment.FORGE_OS_SESSION === "1" || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === "FORGE");
+    return { platform: platform(), forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };
+  }
+  async discoverApplications() {
+    const discovered = /* @__PURE__ */ new Map();
+    for (const directory of applicationDirectories(this.environment)) for (const file of (await readdir(directory).catch(() => [])).filter((entry) => entry.endsWith(".desktop")).sort()) {
+      if (discovered.has(file)) continue;
+      const desktopFile = path__default.join(directory, file);
+      const parsed = parseDesktopEntry(await readFile(desktopFile, "utf8").catch(() => ""), desktopFile);
+      if (parsed) discovered.set(file, parsed);
+    }
+    this.applications = discovered;
+    return [...discovered.values()].filter((entry) => !entry.hidden && !entry.noDisplay).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async launchApplication(id2) {
+    if (!this.context().shellMode) throw new Error("Application launch is available only in FORGE-OS shell mode.");
+    if (!this.applications.size) await this.discoverApplications();
+    const application = this.applications.get(id2);
+    if (!application || application.hidden || application.noDisplay) throw new Error("Application is not available.");
+    const child = spawn(application.executable, application.arguments, { detached: true, stdio: "ignore", shell: false, env: this.environment });
+    child.once("error", () => void 0);
+    child.unref();
+  }
+  async overview(forgeVersion) {
+    const osRelease = await readFile("/etc/os-release", "utf8").catch(() => "");
+    const pretty = /^PRETTY_NAME=(?:"([^"]+)"|(.*))$/m.exec(osRelease);
+    const cpu = (await readFile("/proc/cpuinfo", "utf8").catch(() => "")).match(/^model name\s*:\s*(.+)$/m)?.[1] ?? "Unknown";
+    const disk = await statfs(homedir());
+    return { hostname: hostname(), os: pretty?.[1] || pretty?.[2] || platform(), kernel: release(), cpu, memoryBytes: totalmem(), storage: { totalBytes: disk.blocks * disk.bsize, freeBytes: disk.bavail * disk.bsize }, forgeVersion, forgeOsVersion: this.environment.FORGE_OS_VERSION || "0.x development", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };
+  }
+  async sessionAction(action) {
+    if (!this.context().shellMode) throw new Error("Session actions are available only in FORGE-OS shell mode.");
+    if (action === "logout") return;
+    const argumentsByAction = { lock: ["lock-session"], restart: ["reboot"], shutdown: ["poweroff"] };
+    await execFileAsync("loginctl", [...argumentsByAction[action]], { timeout: 1e4 });
+  }
+}
 const workspace = new WorkspaceService();
 const settings = new SettingsService();
 const git = new GitService(() => settings.githubCredentials());
@@ -8863,6 +9009,7 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("terminal.event", event);
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
+const forgeOs = new ForgeOsService();
 let mainWindow = null;
 const browserTabs = /* @__PURE__ */ new Map();
 let activeBrowserTabId = null;
@@ -8887,8 +9034,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "ab650e63714b9e23b87200b8c0d61a327f5ec118",
-    buildDate: "2026-08-10T13:33:23.268Z",
+    commit: "362928b328d27e2f154c7d6579cfb2ba74fd959c",
+    buildDate: "2026-08-11T13:12:18.599Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -8998,9 +9145,9 @@ function blockedBrowserNavigation(value) {
   }
   if (!["https:", "http:"].includes(url.protocol)) return "Only HTTP and HTTPS browser navigation is allowed.";
   if (url.username || url.password) return "Credential-bearing URLs are blocked.";
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) return "Local-network URLs are blocked.";
-  const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname);
+  const hostname2 = url.hostname.toLowerCase();
+  if (hostname2 === "localhost" || hostname2.endsWith(".localhost") || hostname2.endsWith(".local")) return "Local-network URLs are blocked.";
+  const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname2);
   if (ipv4) {
     const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
     if (a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a >= 224) return "Private and local network addresses are blocked.";
@@ -9322,6 +9469,18 @@ function registerHandlers() {
   register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
   register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
+  register(IPC_CHANNELS.forgeOsContext, async () => forgeOs.context());
+  register(IPC_CHANNELS.forgeOsApplications, async () => forgeOs.discoverApplications());
+  register(IPC_CHANNELS.forgeOsApplicationLaunch, async (request) => {
+    await forgeOs.launchApplication(request.id);
+    return void 0;
+  });
+  register(IPC_CHANNELS.forgeOsOverview, async () => forgeOs.overview(app.getVersion()));
+  register(IPC_CHANNELS.forgeOsSessionAction, async (request) => {
+    await forgeOs.sessionAction(request.action);
+    if (request.action === "logout") app.quit();
+    return void 0;
+  });
 }
 function createWindow() {
   const rendererFile = join(__dirname, "../renderer/index.html");

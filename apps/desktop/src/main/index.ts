@@ -18,6 +18,7 @@ import { ShellService, TerminalService } from '@forge/shell';
 import { validateExternalUrl, WebService } from '@forge/web';
 import { TaskRuntime } from '@forge/tasks';
 import { createNativeAgentRuntime } from './native-agent-runtime';
+import { ForgeOsService } from '@forge/os-integration';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -38,6 +39,7 @@ const terminalService = new TerminalService(() => workspace.info()?.rootPath ?? 
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('terminal.event', event);
 });
 const taskRuntime = new TaskRuntime({ storage, workspaceRoot: () => workspace.info()?.rootPath ?? null, git, shell: shellService });
+const forgeOs = new ForgeOsService();
 let mainWindow: BrowserWindow | null = null;
 type BrowserTab = { id: string; view: BrowserView; loading: boolean; error: string };
 const browserTabs = new Map<string, BrowserTab>();
@@ -399,6 +401,11 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
   register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
+  register(IPC_CHANNELS.forgeOsContext, async () => forgeOs.context());
+  register(IPC_CHANNELS.forgeOsApplications, async () => forgeOs.discoverApplications());
+  register(IPC_CHANNELS.forgeOsApplicationLaunch, async (request) => { await forgeOs.launchApplication(request.id); return undefined; });
+  register(IPC_CHANNELS.forgeOsOverview, async () => forgeOs.overview(app.getVersion()));
+  register(IPC_CHANNELS.forgeOsSessionAction, async (request) => { await forgeOs.sessionAction(request.action); if (request.action === 'logout') app.quit(); return undefined; });
 }
 
 function createWindow(): void {
