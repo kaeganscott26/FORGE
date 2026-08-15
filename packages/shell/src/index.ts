@@ -7,7 +7,8 @@ import * as pty from 'node-pty';
 
 const SECRET_NAME = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(?:_|$)/i;
 const SAFE_PARENT_ENV = [
-  'PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR',
+  'PATH', 'LANG', 'LC_ALL', 'TERM', 'TMPDIR', 'TEMP', 'TMP',
+  'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
   'DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
   'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME',
   'XDG_DATA_DIRS', 'XDG_CONFIG_DIRS', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE',
@@ -96,12 +97,15 @@ export function terminalEnvironment(shell: string): Record<string, string> {
   const home = os.homedir();
   const username = os.userInfo().username;
   const inherited = filteredEnvironment();
+  const platformCliPaths = process.platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']
+    : process.platform === 'linux'
+      ? ['/usr/local/bin']
+      : [path.join(home, 'AppData', 'Roaming', 'npm')];
   const pathEntries = [
-    `${home}/.local/bin`,
-    `${home}/.opencode/bin`,
-    '/opt/homebrew/bin',
-    '/opt/homebrew/sbin',
-    '/usr/local/bin',
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.opencode', 'bin'),
+    ...platformCliPaths,
     ...(inherited.PATH ?? '').split(path.delimiter)
   ].filter(Boolean);
   return {
@@ -122,10 +126,20 @@ export function terminalEnvironment(shell: string): Record<string, string> {
  * a graphical launcher did not preserve the user's SHELL environment variable.
  */
 export function defaultTerminalShell(environment: NodeJS.ProcessEnv = process.env): string {
+  if (process.platform === 'win32') return environment.COMSPEC || 'cmd.exe';
   const configuredShell = environment.SHELL;
   if (configuredShell && path.isAbsolute(configuredShell)) return configuredShell;
-  if (process.platform === 'win32') return environment.COMSPEC || 'cmd.exe';
   return '/bin/bash';
+}
+
+function terminateProcessTree(child: ChildProcess): void {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    killer.once('error', () => { try { child.kill(); } catch { /* process already exited */ } });
+    return;
+  }
+  try { process.kill(-child.pid, 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch { /* process already exited */ } }
 }
 
 export class ShellService {
@@ -159,11 +173,7 @@ export class ShellService {
       };
       child.stdout?.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
       child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
-      const stopTree = (): void => {
-        if (!child.pid) return;
-        try { if (process.platform === 'win32') child.kill('SIGTERM'); else process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
-      };
-      const timer = setTimeout(() => { timedOut = true; stopTree(); }, timeoutMs);
+      const timer = setTimeout(() => { timedOut = true; terminateProcessTree(child); }, timeoutMs);
       child.once('error', (error) => {
         clearTimeout(timer); this.running.delete(requestId);
         if (!settled) { settled = true; reject(error); }
@@ -195,13 +205,7 @@ export class ShellService {
         const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 24 * 60 * 60_000);
         const timer = setTimeout(() => {
           const running = this.running.get(requestId);
-          if (!running?.pid) return;
-          try {
-            if (process.platform === 'win32') running.kill('SIGTERM');
-            else process.kill(-running.pid, 'SIGTERM');
-          } catch {
-            running.kill('SIGTERM');
-          }
+          if (running) terminateProcessTree(running);
         }, timeoutMs);
         timer.unref();
         child.once('close', () => { clearTimeout(timer); this.running.delete(requestId); });
@@ -215,7 +219,7 @@ export class ShellService {
     const child = this.running.get(requestId);
     if (!child?.pid) return false;
     this.cancelled.add(requestId);
-    try { if (process.platform === 'win32') child.kill('SIGTERM'); else process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+    terminateProcessTree(child);
     return true;
   }
 }
@@ -238,7 +242,8 @@ export class TerminalService {
     const id = requestedId ?? randomUUID();
     if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
     const shell = defaultTerminalShell();
-    const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
+    const shellArguments = process.platform === 'win32' ? [] : ['-l'];
+    const terminal = pty.spawn(shell, shellArguments, { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
     const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id, session);
