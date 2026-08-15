@@ -1,4 +1,4 @@
-xq# 🧰 FORGE Tools in Plain English
+# 🧰 FORGE Tools in Plain English
 
 This is the practical guide to what the built-in agent can ask FORGE to do in **v2.3.0-beta.1**. A tool request is never direct access to your Mac: FORGE checks the request, shows approval when needed, performs the operation inside the active workspace boundary, records the result, and returns limited evidence to the model.
 
