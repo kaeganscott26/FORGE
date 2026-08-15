@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import type { FileContent, FileNode, ParsedMarkdown, WorkspaceInfo } from '@forge/ipc';
 
 const IGNORED = new Set(['.git', 'node_modules', 'dist', 'out', 'build', '.next', '.forge', 'coverage', '__pycache__']);
+const portablePath = (value: string): string => value.split(path.sep).join('/');
+
 export function parseMarkdown(content: string): ParsedMarkdown {
   const frontmatter: Record<string, string | string[]> = {};
   const matched = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -34,7 +36,7 @@ export class WorkspaceService extends EventEmitter {
   }
   info(): WorkspaceInfo | null { return this.workspaceInfo ? { ...this.workspaceInfo } : null; }
   async close(): Promise<void> { this.watcher?.close(); this.watcher = undefined; this.rootPath = null; this.realRoot = null; this.workspaceInfo = null; }
-  async list(relativePath = ''): Promise<FileNode[]> { return this.listDirectory(await this.resolve(relativePath), relativePath); }
+  async list(relativePath = ''): Promise<FileNode[]> { return this.listDirectory(await this.resolve(relativePath), portablePath(relativePath)); }
   async readFile(relativePath: string): Promise<FileContent> {
     const absolute = await this.resolve(relativePath);
     const stat = await fs.stat(absolute);
@@ -44,9 +46,9 @@ export class WorkspaceService extends EventEmitter {
     let content: string;
     try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { throw new Error('Forge could not decode this file as UTF-8 text.'); }
-    return { path: relativePath, content, modifiedAt: stat.mtimeMs };
+    return { path: portablePath(relativePath), content, modifiedAt: stat.mtimeMs };
   }
-  async writeFile(relativePath: string, content: string): Promise<FileContent> { const absolute = await this.resolve(relativePath, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); await fs.writeFile(absolute, content, 'utf8'); const stat = await fs.stat(absolute); return { path: relativePath, content, modifiedAt: stat.mtimeMs }; }
+  async writeFile(relativePath: string, content: string): Promise<FileContent> { const absolute = await this.resolve(relativePath, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); await fs.writeFile(absolute, content, 'utf8'); const stat = await fs.stat(absolute); return { path: portablePath(relativePath), content, modifiedAt: stat.mtimeMs }; }
   async create(relativePath: string, type: 'file' | 'directory', content = ''): Promise<FileNode> { const absolute = await this.resolve(relativePath, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); if (type === 'directory') await fs.mkdir(absolute, { recursive: false }); else await fs.writeFile(absolute, content, { flag: 'wx' }); return this.nodeFor(absolute); }
   async delete(relativePath: string): Promise<void> { const absolute = await this.resolve(relativePath); if (absolute === this.realRoot) throw new Error('Cannot delete the workspace root.'); await fs.rm(absolute, { recursive: true, force: false }); }
   async rename(oldPath: string, newPath: string): Promise<FileNode> { const oldAbsolute = await this.resolve(oldPath); const newAbsolute = await this.resolve(newPath, true); await fs.mkdir(path.dirname(newAbsolute), { recursive: true }); await fs.rename(oldAbsolute, newAbsolute); return this.nodeFor(newAbsolute); }
@@ -64,9 +66,17 @@ export class WorkspaceService extends EventEmitter {
     return this.nodeFor(destination);
   }
   async parse(relativePath: string): Promise<ParsedMarkdown> { return parseMarkdown((await this.readFile(relativePath)).content); }
-  watch(): void { if (!this.rootPath) throw new Error('No workspace is open.'); this.watcher?.close(); this.watcher = watchFs(this.rootPath, { recursive: true }, (_event, filename) => { if (filename && !filename.toString().split(path.sep).some((part) => IGNORED.has(part))) this.emit('changed', filename.toString()); }); }
+  watch(): void {
+    if (!this.rootPath) throw new Error('No workspace is open.');
+    this.watcher?.close();
+    this.watcher = watchFs(this.rootPath, { recursive: true }, (_event, filename) => {
+      if (!filename) return;
+      const relative = portablePath(filename.toString());
+      if (!relative.split('/').some((part) => IGNORED.has(part))) this.emit('changed', relative);
+    });
+  }
 
-  private async listDirectory(absolute: string, relative: string): Promise<FileNode[]> { const entries = await fs.readdir(absolute, { withFileTypes: true }); const nodes: FileNode[] = []; for (const entry of entries) { if (IGNORED.has(entry.name) || entry.isSymbolicLink()) continue; const childRelative = relative ? path.join(relative, entry.name) : entry.name; const childAbsolute = path.join(absolute, entry.name); const node = await this.nodeFor(childAbsolute, childRelative); if (entry.isDirectory()) node.children = await this.listDirectory(childAbsolute, childRelative); nodes.push(node); } return nodes.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1); }
-  private async nodeFor(absolute: string, relative = path.relative(this.rootPath!, absolute)): Promise<FileNode> { const stat = await fs.stat(absolute); return { path: absolute, relativePath: relative, name: path.basename(absolute), type: stat.isDirectory() ? 'directory' : 'file', extension: stat.isFile() ? path.extname(absolute).slice(1) || undefined : undefined, size: stat.isFile() ? stat.size : undefined, modifiedAt: stat.mtimeMs }; }
+  private async listDirectory(absolute: string, relative: string): Promise<FileNode[]> { const entries = await fs.readdir(absolute, { withFileTypes: true }); const nodes: FileNode[] = []; for (const entry of entries) { if (IGNORED.has(entry.name) || entry.isSymbolicLink()) continue; const childRelative = relative ? `${relative}/${entry.name}` : entry.name; const childAbsolute = path.join(absolute, entry.name); const node = await this.nodeFor(childAbsolute, childRelative); if (entry.isDirectory()) node.children = await this.listDirectory(childAbsolute, childRelative); nodes.push(node); } return nodes.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1); }
+  private async nodeFor(absolute: string, relative = path.relative(this.rootPath!, absolute)): Promise<FileNode> { const stat = await fs.stat(absolute); return { path: absolute, relativePath: portablePath(relative), name: path.basename(absolute), type: stat.isDirectory() ? 'directory' : 'file', extension: stat.isFile() ? path.extname(absolute).slice(1) || undefined : undefined, size: stat.isFile() ? stat.size : undefined, modifiedAt: stat.mtimeMs }; }
   private async resolve(input: string, allowMissing = false): Promise<string> { if (!this.rootPath || !this.realRoot) throw new Error('No workspace is open.'); if (path.isAbsolute(input)) throw new Error('Workspace paths must be relative.'); const candidate = path.resolve(this.rootPath, input); if (candidate !== this.rootPath && !candidate.startsWith(`${this.rootPath}${path.sep}`)) throw new Error('Path escapes the workspace.'); let inspect = candidate; if (allowMissing) while (inspect !== this.rootPath) { try { await fs.access(inspect); break; } catch { inspect = path.dirname(inspect); } } const resolved = await fs.realpath(inspect); if (resolved !== this.realRoot && !resolved.startsWith(`${this.realRoot}${path.sep}`)) throw new Error('Symlink escapes the workspace.'); return candidate; }
 }
