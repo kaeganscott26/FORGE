@@ -1,0 +1,42 @@
+name: Verify Windows package
+
+on:
+  push:
+    branches:
+      - 'chatgpt/windows-recovery-2026-08-14'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-windows-recovery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Package Windows x64 app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Verify and package Windows app
+        shell: pwsh
+        run: .\scripts\package-windows.ps1
+
+      - name: Upload Windows package evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: FORGE-Windows-x64-recovery
+          path: |
+            dist_electron/FORGE-*.exe
+            dist_electron/*.blockmap
+            dist_electron/latest*.yml
+            dist_electron/beta*.yml
+          if-no-files-found: error
