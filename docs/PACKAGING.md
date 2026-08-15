@@ -32,9 +32,19 @@ Run in PowerShell on a Windows x64 machine or native Windows CI runner:
 .\scripts\package-windows.ps1
 ```
 
-The script performs the same lockfile install and source gate, creates the x64 NSIS installer, and verifies the installer plus unpacked Windows `node-pty`, ConPTY, and console-list modules. Its expected artifact is a versioned `FORGE-<version>-x64.exe` under `dist_electron/`.
+Windows native packaging requires:
 
-The configured high-resolution FORGE PNG is converted to the Windows icon format by the installed Electron Builder during packaging; no hand-made ICO conversion is used. Windows packaging and runtime acceptance have not yet been executed.
+- Node.js 22 (the repository `.nvmrc` major) and npm
+- Python 3 for `node-gyp`
+- Visual Studio 2022 or Visual Studio 2022 Build Tools with **Desktop development with C++**
+- a Windows 10/11 SDK containing the Desktop C++ libraries
+- the **x64/x86 Spectre-mitigated libraries matching the installed MSVC toolset**; with current VS 2022 tooling this is normally the latest v143 x64/x86 Spectre component in Visual Studio Installer
+
+The packaging script checks those native prerequisites before running the source gate so an incomplete Visual Studio installation fails immediately with an actionable message instead of reaching Electron's `node-pty` rebuild and failing with `MSB8040`. It then performs the clean lockfile install, typecheck, lint, tests, creates the x64 NSIS installer, and verifies the installer plus unpacked Windows `node-pty`, ConPTY, and console-list modules. Every external command is checked for a non-zero exit code so Windows PowerShell and PowerShell 7 fail consistently.
+
+The expected artifact is a versioned `FORGE-<version>-x64.exe` under `dist_electron/`. The configured high-resolution FORGE PNG is converted to the Windows icon format by Electron Builder during packaging; no hand-made ICO conversion is used.
+
+Packaging success is not installation or runtime acceptance. After the installer is produced, install and launch that exact artifact on Windows and complete the release acceptance checks before marking Windows support verified.
 
 ## 🧾 Acceptance boundary
 
