@@ -108,7 +108,7 @@ describe('agent tool runtime', () => {
     const pending = await router.request({ id: 'patch-1', name: 'file.patch', provider: 'test', arguments: { path: 'note.txt', expected: 'before', replacement: 'after', reason: 'Update the fixture.' } }, context);
     expect(pending.result).toBeUndefined(); expect(pending.request.state).toBe('pending'); expect(pending.request.diff).toContain('-before');
     const result = await router.approve(pending.request.id, context, 'run-once');
-    expect(result.success).toBe(true); expect(result.rollback?.backupPath).toContain('.forge/backups/');
+    expect(result.success).toBe(true); expect(result.rollback?.backupPath).toContain(path.join('.forge', 'backups'));
     expect(await readFile(path.join(root, 'note.txt'), 'utf8')).toBe('after\n'); expect(records.at(-1)?.approvalDecision).toBe('run-once');
     expect(records.at(-1)?.id).toBe('patch-1');
   });
