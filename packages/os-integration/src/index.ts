@@ -39,6 +39,10 @@ function applicationDirectories(environment: NodeJS.ProcessEnv): string[] {
   const dataHome = environment.XDG_DATA_HOME || path.join(homedir(), '.local/share');
   return [dataHome, ...(environment.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':').filter(Boolean)].map((directory) => path.join(directory, 'applications'));
 }
+function trustedInternalApplication(application: DesktopApplication): boolean {
+  if (!application.id.startsWith('forge-internal-') || application.desktopFile !== path.join('/usr/share/applications', application.id)) return false;
+  return ['/usr/local/bin/forge-system-surface', '/usr/local/bin/forge-session-control'].includes(application.executable);
+}
 export class ForgeOsService {
   private applications = new Map<string, DesktopApplication>();
   constructor(private readonly environment: NodeJS.ProcessEnv = process.env, private readonly operatingSystem: () => string = platform) {}
@@ -58,12 +62,27 @@ export class ForgeOsService {
   }
   async launchApplication(id: string): Promise<void> {
     if (!this.context().shellMode) throw new Error('Application launch is available only in FORGE-OS shell mode.'); if (!this.applications.size) await this.discoverApplications();
-    const application = this.applications.get(id); if (!application || application.hidden || application.noDisplay) throw new Error('Application is not available.');
+    const application = this.applications.get(id);
+    if (!application) throw new Error('Application is not available.');
+    const trustedInternal = trustedInternalApplication(application);
+    if ((application.hidden || application.noDisplay) && !trustedInternal) throw new Error('Application is not available.');
     const child = spawn(application.executable, application.arguments, { detached: true, stdio: 'ignore', shell: false, env: this.environment }); child.once('error', () => undefined); child.unref();
   }
   async overview(forgeVersion: string): Promise<SystemOverview> {
     const osRelease = await readFile('/etc/os-release', 'utf8').catch(() => ''); const pretty = /^PRETTY_NAME=(?:"([^"]+)"|(.*))$/m.exec(osRelease); const cpu = (await readFile('/proc/cpuinfo', 'utf8').catch(() => '')).match(/^model name\s*:\s*(.+)$/m)?.[1] ?? 'Unknown'; const disk = await statfs(homedir());
     return { hostname: hostname(), os: pretty?.[1] || pretty?.[2] || platform(), kernel: release(), cpu, memoryBytes: totalmem(), storage: { totalBytes: disk.blocks * disk.bsize, freeBytes: disk.bavail * disk.bsize }, forgeVersion, forgeOsVersion: this.environment.FORGE_OS_VERSION || '0.x development', sessionType: this.environment.XDG_SESSION_TYPE || 'unknown' };
   }
-  async sessionAction(action: 'lock' | 'logout' | 'restart' | 'shutdown'): Promise<void> { if (!this.context().shellMode) throw new Error('Session actions are available only in FORGE-OS shell mode.'); if (action === 'logout') return; const argumentsByAction = { lock: ['lock-session'], restart: ['reboot'], shutdown: ['poweroff'] } as const; await execFileAsync('loginctl', [...argumentsByAction[action]], { timeout: 10_000 }); }
+  async sessionAction(action: 'lock' | 'logout' | 'restart' | 'shutdown'): Promise<void> {
+    if (!this.context().shellMode) throw new Error('Session actions are available only in FORGE-OS shell mode.');
+    const sessionId = this.environment.XDG_SESSION_ID;
+    if (action === 'lock') { await execFileAsync('loginctl', sessionId ? ['lock-session', sessionId] : ['lock-session'], { timeout: 10_000 }); return; }
+    if (action === 'logout') {
+      if (sessionId) await execFileAsync('loginctl', ['terminate-session', sessionId], { timeout: 10_000 });
+      else await execFileAsync('systemctl', ['--user', 'exit'], { timeout: 10_000 });
+      return;
+    }
+    const systemAction = action === 'restart' ? 'reboot' : 'poweroff';
+    try { await execFileAsync('systemctl', [systemAction, '--no-block'], { timeout: 10_000 }); }
+    catch { await execFileAsync('pkexec', ['/usr/bin/systemctl', systemAction, '--no-block'], { timeout: 10_000 }); }
+  }
 }
