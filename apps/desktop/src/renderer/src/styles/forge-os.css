@@ -1,0 +1,157 @@
+/* FORGE-OS shell-only layout. Imported after global.css so the normal macOS,
+   Windows, and ordinary Linux application layout is untouched. */
+body.forge-os-shell-active .app-shell {
+  height: calc(100vh - 50px);
+  margin-top: 50px;
+}
+
+body.forge-os-shell-active .workspace-grid {
+  height: calc(100vh - 102px);
+}
+
+body.forge-os-shell-active .welcome {
+  min-height: calc(100vh - 102px);
+}
+
+.forge-os-bar {
+  left: 8px;
+  right: 8px;
+  top: 6px;
+  transform: none;
+  width: auto;
+  max-width: none;
+  height: 40px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  overflow: hidden;
+}
+
+.forge-os-primary-actions,
+.forge-os-status-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.forge-os-quick-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+
+.forge-os-quick-actions::-webkit-scrollbar { height: 3px; }
+
+.forge-os-bar button {
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 4px 7px;
+  font-size: clamp(9px, .72vw, 11px);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.forge-os-primary-actions button {
+  font-weight: 700;
+}
+
+.forge-os-bar time {
+  max-width: 185px;
+  overflow: hidden;
+  font-size: clamp(9px, .68vw, 10px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forge-os-popover {
+  top: 50px;
+  max-height: calc(100vh - 62px);
+}
+
+.forge-os-applications {
+  left: 8px;
+  width: min(360px, calc(100vw - 16px));
+}
+
+.forge-os-system {
+  left: 118px;
+  right: auto;
+  width: min(470px, calc(100vw - 126px));
+}
+
+.forge-os-system footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.forge-os-system footer button {
+  padding: 5px 7px;
+  background: #1b2922;
+  font-size: 10px;
+}
+
+.forge-os-session {
+  right: 8px;
+}
+
+.forge-os-error {
+  top: 52px;
+  max-width: min(720px, calc(100vw - 24px));
+  overflow-wrap: anywhere;
+}
+
+.forge-live-recovery {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 32px);
+  overflow: auto;
+  background: rgba(5, 8, 10, .97);
+  color: #f2f7f5;
+}
+
+.forge-live-recovery-card {
+  width: min(860px, 94vw);
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid rgba(70, 255, 150, .45);
+  border-radius: 16px;
+  background: rgba(12, 18, 20, .96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+}
+
+.forge-live-recovery-card header { margin-bottom: 24px; }
+.forge-live-recovery-card header small { color: #74f5a7; letter-spacing: .18em; }
+.forge-live-recovery-card h1 { margin: 8px 0 10px; font-size: clamp(30px, 5vw, 54px); line-height: 1; letter-spacing: -.045em; }
+.forge-live-recovery-card p { margin: 0; opacity: .82; line-height: 1.5; }
+.forge-live-recovery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.forge-live-recovery-grid button { min-height: 92px; padding: 16px; text-align: left; }
+.forge-live-recovery-grid strong, .forge-live-recovery-grid small { display: block; }
+.forge-live-recovery-grid small { margin-top: 7px; line-height: 1.4; }
+.forge-live-recovery-card footer { margin-top: 22px; opacity: .68; font-size: 12px; line-height: 1.5; }
+.forge-live-recovery-error { margin-bottom: 18px; padding: 12px; border: 1px solid #b85858; border-radius: 8px; }
+
+@media (max-width: 1040px) {
+  .forge-os-bar { gap: 4px; }
+  .forge-os-bar button { padding-inline: 6px; }
+  .forge-os-bar time { max-width: 120px; }
+}
+
+@media (max-width: 780px) {
+  .forge-os-bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .forge-os-bar time { display: none; }
+  .forge-os-primary-actions button,
+  .forge-os-status-actions button { font-size: 9px; }
+  .forge-os-system { left: 8px; width: calc(100vw - 16px); }
+}
