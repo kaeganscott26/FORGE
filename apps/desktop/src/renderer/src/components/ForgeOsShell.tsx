@@ -35,17 +35,19 @@ export default function ForgeOsShell(): JSX.Element | null {
   if (context.liveRecoveryMode) {
     const rootShellReady = applications.some((application) => application.id === 'forge-live-root-shell.desktop');
     const installerReady = applications.some((application) => application.id === 'forge-live-installer.desktop');
+    const cleanInstallReady = applications.some((application) => application.id === 'forge-live-clean-install.desktop');
     return <section className="forge-live-recovery">
       <div className="forge-live-recovery-card">
         <header><small>FORGE-OS · LIVE ENVIRONMENT</small><h1>FORGE Live Recovery</h1><p>This is the ephemeral recovery and provisioning workspace. The installed system is not modified until you explicitly run a privileged command or installer.</p></header>
         {error && <div className="forge-live-recovery-error">{error} <button onClick={() => setError('')}>Dismiss</button></div>}
         <div className="forge-live-recovery-grid">
           <button disabled={!rootShellReady} onClick={() => void launchApplication('forge-live-root-shell.desktop')}><strong>Open sudo root shell</strong><small>Launch Konsole directly into an explicitly privileged live shell.</small></button>
-          <button disabled={!installerReady} onClick={() => void launchApplication('forge-live-installer.desktop')}><strong>Load / install ISO or ZIP</strong><small>Select a local installer bundle and confirm before execution.</small></button>
+          <button disabled={!cleanInstallReady} onClick={() => void launchApplication('forge-live-clean-install.desktop')}><strong>Install FORGE-OS to mounted disk</strong><small>After you partition, format, and mount the target, run the guarded clean installer. It never partitions or formats for you.</small></button>
+          <button disabled={!installerReady} onClick={() => void launchApplication('forge-live-installer.desktop')}><strong>Load / install ISO or ZIP</strong><small>Select a separate local installer bundle and confirm before execution.</small></button>
           <button onClick={() => sessionAction('restart')}><strong>Restart machine</strong><small>Leave the recovery environment and reboot.</small></button>
           <button onClick={() => sessionAction('shutdown')}><strong>Shut down</strong><small>Power off without changing the installed system.</small></button>
         </div>
-        <footer>Live sudo is passwordless only for the ephemeral <code>forge</code> account. Unrecognized installer bundles are never executed automatically.</footer>
+        <footer>Live sudo is passwordless only for the ephemeral <code>forge</code> account. The clean installer refuses to partition or format disks and requires the target to be mounted explicitly first.</footer>
       </div>
     </section>;
   }
