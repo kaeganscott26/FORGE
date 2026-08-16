@@ -65,9 +65,13 @@ node scripts/verify-installed-mac-runtime.mjs "$installed_app"
 # bundle (including a future signed Electron update) leaves this entrypoint in
 # place and it dispatches only to the canonical system application location.
 launcher_temporary="/usr/local/bin/.forge-session.new.$$"
-sudo install -d -o root -g wheel -m 0755 /usr/local/bin
-sudo install -o root -g wheel -m 0755 "$session_launcher" "$launcher_temporary"
-sudo mv -f "$launcher_temporary" "$installed_launcher"
+if [[ ! -x "$installed_launcher" ]] || ! cmp -s "$session_launcher" "$installed_launcher"; then
+  sudo install -d -o root -g wheel -m 0755 /usr/local/bin
+  sudo install -o root -g wheel -m 0755 "$session_launcher" "$launcher_temporary"
+  sudo mv -f "$launcher_temporary" "$installed_launcher"
+else
+  echo "The stable session launcher is already current."
+fi
 launcher_temporary=""
 
 "$installed_launcher" --runtime-info
