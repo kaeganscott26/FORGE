@@ -31,7 +31,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Release Channels](RELEASE_CHANNELS.md) — forward-only Stable/Beta selection.
 - [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md) — manifest-led artifact selection and cleanup.
 - [Releasing FORGE](../RELEASING.md) — exact source, tag, workflow, package, and public-hash procedure.
-- [Native packaging](PACKAGING.md) — repeatable macOS, Linux, and Windows package procedures and artifact expectations.
+- [Native packaging](PACKAGING.md) — repeatable macOS, Linux, and Windows package procedures, runtime-identity parity, and artifact expectations.
 - [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE v2.3 Beta changes.
 - [FORGE 2.3 beta verification](V2.3.0_BETA1_VERIFICATION.md) — tag, workflow, and published-asset evidence for `v2.3.0-beta.1`.
 

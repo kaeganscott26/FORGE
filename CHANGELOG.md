@@ -2,6 +2,11 @@
 
 > This file preserves dated implementation and release history. For the supported product, start with the [documentation index](docs/README.md), [project status](docs/PROJECT_STATUS.md), and [current release notes](RELEASE_NOTES.md).
 
+## Unreleased
+
+- macOS local installation now stages and verifies the replacement universal bundle before activation, validates installed executable and `app.asar` hashes against the build manifest, and restores the Trash backup if activation fails. The stable `/usr/local/bin/forge-session` path continues to report the canonical bundle's version and source commit across upgrades.
+- Documentation now distinguishes shared-source runtime parity from platform-native artifact hashes and records the corresponding FORGE-OS runtime identity contract.
+
 ## ✨ 2026-08-09 — FORGE 2.3.0-beta.1 release record and runtime hardening
 
 ### Release and implementation

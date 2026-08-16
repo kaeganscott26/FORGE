@@ -12,10 +12,10 @@ Git history preserves source development. GitHub Releases contain only currently
 - byte sizes and SHA-256 hashes;
 - packaged executable and `app.asar` hashes.
 
-`npm run install:mac` and the serial release uploader read this manifest. They do not use wildcard-first-match selection. The verifier rejects a missing, malformed, stale, path-escaping, size-mismatched, or hash-mismatched record.
+`npm run install:mac` and the serial release uploader read this manifest. They do not use wildcard-first-match selection. The verifier rejects a missing, malformed, stale, path-escaping, size-mismatched, or hash-mismatched record. The macOS installer verifies both the packaged source bundle and its `/Applications` staging copy before it activates the canonical app, then verifies the activated bundle again.
 
 The installer treats system and user Applications directories as distinct installation locations while respecting the default case-insensitive macOS filesystem. A capitalization alias of `/Applications/FORGE.app` is not misclassified as a second bundle.
 
-Old local packages are moved to a timestamped location outside the repository or to Trash only after their metadata and hashes have been archived. Do not index generated binaries, updater caches, `.forge/`, `.obsidian/`, local databases, or packaging output as workspace memory.
+Old local packages are moved to a timestamped Trash location only after a replacement staging copy has passed manifest validation; a failed activation restores that prior system bundle. Do not index generated binaries, updater caches, `.forge/`, `.obsidian/`, local databases, or packaging output as workspace memory.
 
 Deleting a GitHub Release and release tag removes convenient public access to that historical binary. The underlying source commits remain in Git history. Such cleanup is allowed only after a newer release has passed local and public artifact acceptance, and only for exact audited obsolete release tags.

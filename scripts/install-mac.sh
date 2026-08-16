@@ -20,6 +20,22 @@ built_app="$(node -e 'const fs=require("fs"); const m=JSON.parse(fs.readFileSync
 built_app="$project_root/$built_app"
 installed_app="/Applications/FORGE.app"
 installed_launcher="/usr/local/bin/forge-session"
+staged_app="/Applications/.FORGE.app.install-$(date -u +%Y%m%dT%H%M%SZ).$$"
+backup=""
+replacement_started=false
+launcher_temporary=""
+
+cleanup_install() {
+  status=$?
+  if [[ $status -ne 0 && "$replacement_started" == true && -n "$backup" && -d "$backup" ]]; then
+    rm -rf "$installed_app"
+    mv "$backup" "$installed_app" || echo "Could not restore the previous FORGE installation from $backup" >&2
+  fi
+  rm -rf "$staged_app"
+  if [[ -n "$launcher_temporary" ]]; then sudo rm -f "$launcher_temporary"; fi
+  exit "$status"
+}
+trap cleanup_install EXIT
 
 if [[ -d "$HOME/Applications/FORGE.app" ]]; then
   echo "A stale alternate FORGE installation exists. Move it to Trash before installing." >&2
@@ -33,26 +49,29 @@ if pgrep -fl '/FORGE.app/Contents/MacOS/FORGE' >/dev/null; then
   pgrep -fl '/FORGE.app/Contents/MacOS/FORGE' >&2
   exit 1
 fi
+ditto "$built_app" "$staged_app"
+node scripts/verify-installed-mac-runtime.mjs "$staged_app"
+
 if [[ -d "$installed_app" ]]; then
   backup="$HOME/.Trash/FORGE.app.pre-install-$(date -u +%Y%m%dT%H%M%SZ)"
   mv "$installed_app" "$backup"
   echo "Moved the previous /Applications installation to $backup"
 fi
-ditto "$built_app" "$installed_app"
-touch "$installed_app"
+replacement_started=true
+mv "$staged_app" "$installed_app"
+node scripts/verify-installed-mac-runtime.mjs "$installed_app"
 
 # Keep a stable, version-independent session path. Replacing the application
 # bundle (including a future signed Electron update) leaves this entrypoint in
 # place and it dispatches only to the canonical system application location.
 launcher_temporary="/usr/local/bin/.forge-session.new.$$"
-cleanup_launcher() { sudo rm -f "$launcher_temporary"; }
-trap cleanup_launcher EXIT
 sudo install -d -o root -g wheel -m 0755 /usr/local/bin
 sudo install -o root -g wheel -m 0755 "$session_launcher" "$launcher_temporary"
 sudo mv -f "$launcher_temporary" "$installed_launcher"
-trap - EXIT
+launcher_temporary=""
 
 "$installed_launcher" --runtime-info
+trap - EXIT
 open "$installed_app"
 
 echo "Updated and opened $installed_app"

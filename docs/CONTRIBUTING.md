@@ -42,6 +42,8 @@ Run packaging only when the change affects build output, the main/preload proces
 ```sh
 npm run package:mac:universal
 node scripts/verify-build-manifest.mjs
+npm run install:mac
+forge-session --runtime-info
 ```
 
 Native packaging procedures are documented in [Native packaging](PACKAGING.md). Run the script for the target platform on that platform:

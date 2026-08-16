@@ -126,7 +126,9 @@ A missing ZIP, wrong blockmap, stale YAML, remote mismatch, or tag/source mismat
 
 Audit `/Applications`, `~/Applications`, the repository, mounted volumes, running executables, and reasonable indexed locations. Classify build artifacts separately from installed apps. Quit all FORGE processes and eject mounted FORGE DMGs before replacement.
 
-Move stale installed bundles to Trash; do not permanently delete them before acceptance. Install exactly `/Applications/FORGE.app`, launch that exact path, and verify the executable originates from `/Applications/FORGE.app/Contents/MacOS/FORGE`. Never keep a duplicate under `~/Applications`.
+Move stale installed bundles to Trash; do not permanently delete them before acceptance. For a local package, use `npm run install:mac`: it validates the manifest, stages and revalidates the universal bundle, activates exactly `/Applications/FORGE.app` with a rollback path, and refreshes `/usr/local/bin/forge-session`. Run `forge-session --runtime-info` and verify the executable originates from `/Applications/FORGE.app/Contents/MacOS/FORGE`. Never keep a duplicate under `~/Applications`.
+
+Cross-platform parity is the embedded FORGE source commit and matching UI/runtime behavior, not byte-identical executables. macOS, Linux, and Windows must each retain their own native executable and payload hashes; FORGE-OS records the shared source commit in `/opt/forge/current/.forge-runtime.env`.
 
 Diagnostics must report `FORGE v2.3.0-beta.1`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
 
