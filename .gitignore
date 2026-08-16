@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 dist_electron/
+build/forge-runtime.json
 out/
 apps/desktop/out/
 apps/desktop/dist/

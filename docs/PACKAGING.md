@@ -10,7 +10,9 @@ Run from macOS (Darwin):
 ./scripts/package-macos.sh
 ```
 
-The script performs a clean lockfile install, typecheck, lint, tests, and production build. It then runs the established universal macOS packaging target and verifies its build manifest, DMG, ZIP, and universal unpacked `node-pty` resources. Artifacts are written to `dist_electron/` as versioned `.dmg` and `.zip` files.
+The script performs a clean lockfile install, typecheck, lint, tests, and production build. It then stages runtime metadata, runs the established universal macOS packaging target, and verifies its build manifest, bundle version, embedded UI commit/build date, runtime metadata, DMG, ZIP, and universal unpacked `node-pty` resources. Artifacts are written to `dist_electron/` as versioned `.dmg` and `.zip` files.
+
+Install the verified package with `npm run install:mac`. It installs the canonical UI at `/Applications/FORGE.app` and an architecture-independent launcher at `/usr/local/bin/forge-session`. The launcher always targets that canonical application location, so it remains valid when a later packaged app replaces the bundle. `forge-session --runtime-info` reports the installed version and source commit without launching the UI.
 
 Signing and notarization remain controlled by the existing Electron Builder environment and release workflow. Set `CSC_IDENTITY_AUTO_DISCOVERY=false` when an unsigned development or beta package is intended.
 

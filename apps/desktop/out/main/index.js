@@ -8954,13 +8954,15 @@ function applicationDirectories(environment) {
   return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));
 }
 class ForgeOsService {
-  constructor(environment = process.env) {
+  constructor(environment = process.env, operatingSystem = platform) {
     this.environment = environment;
+    this.operatingSystem = operatingSystem;
   }
   applications = /* @__PURE__ */ new Map();
   context() {
-    const forgeOsSession = platform() === "linux" && (this.environment.FORGE_OS_SESSION === "1" || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === "FORGE");
-    return { platform: platform(), forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };
+    const currentPlatform = this.operatingSystem();
+    const forgeOsSession = currentPlatform === "linux" && (this.environment.FORGE_OS_SESSION === "1" || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === "FORGE");
+    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };
   }
   async discoverApplications() {
     const discovered = /* @__PURE__ */ new Map();
@@ -9037,8 +9039,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "cfb2ab9d82558dd7f3d48818ad6c944c0929c2f2",
-    buildDate: "2026-08-14T09:30:00.371Z",
+    commit: "cfb57caa23cf87a6e2f6d56352d01eb3081d6e05",
+    buildDate: "2026-08-15T20:52:50.936Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,

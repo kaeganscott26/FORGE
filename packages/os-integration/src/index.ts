@@ -41,8 +41,8 @@ function applicationDirectories(environment: NodeJS.ProcessEnv): string[] {
 }
 export class ForgeOsService {
   private applications = new Map<string, DesktopApplication>();
-  constructor(private readonly environment: NodeJS.ProcessEnv = process.env) {}
-  context(): ForgeOsContext { const forgeOsSession = platform() === 'linux' && (this.environment.FORGE_OS_SESSION === '1' || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === 'FORGE'); return { platform: platform(), forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== '0', sessionType: this.environment.XDG_SESSION_TYPE || 'unknown' }; }
+  constructor(private readonly environment: NodeJS.ProcessEnv = process.env, private readonly operatingSystem: () => string = platform) {}
+  context(): ForgeOsContext { const currentPlatform = this.operatingSystem(); const forgeOsSession = currentPlatform === 'linux' && (this.environment.FORGE_OS_SESSION === '1' || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === 'FORGE'); return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== '0', sessionType: this.environment.XDG_SESSION_TYPE || 'unknown' }; }
   async discoverApplications(): Promise<DesktopApplication[]> {
     const discovered = new Map<string, DesktopApplication>();
     for (const directory of applicationDirectories(this.environment)) for (const file of (await readdir(directory).catch(() => [] as string[])).filter((entry) => entry.endsWith('.desktop')).sort()) {

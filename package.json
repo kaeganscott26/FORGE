@@ -25,9 +25,10 @@
     "start-renderer": "vite apps/desktop/src/renderer",
     "build": "npm run typecheck && electron-vite build apps/desktop",
     "clean:dist": "rimraf dist_electron",
-    "package:mac": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && node scripts/write-build-manifest.mjs arm64",
-    "package:mac:universal": "npm run clean:dist && npm run build && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs universal",
-    "package:mac:all": "npm run clean:dist && npm run build && electron-builder --mac --arm64 --publish never && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs arm64,universal",
+    "stage:mac-runtime-metadata": "node scripts/stage-macos-runtime-metadata.mjs",
+    "package:mac": "npm run clean:dist && npm run build && npm run stage:mac-runtime-metadata && electron-builder --mac --arm64 --publish never && node scripts/write-build-manifest.mjs arm64",
+    "package:mac:universal": "npm run clean:dist && npm run build && npm run stage:mac-runtime-metadata && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs universal",
+    "package:mac:all": "npm run clean:dist && npm run build && npm run stage:mac-runtime-metadata && electron-builder --mac --arm64 --publish never && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs arm64,universal",
     "package:win": "npm run clean:dist && npm run build && electron-builder --win --x64 --publish never",
     "package:linux": "npm run clean:dist && npm run build && electron-builder --linux --x64 --publish never",
     "install:mac": "bash scripts/install-mac.sh",
@@ -57,6 +58,12 @@
     "generateUpdatesFilesForAllChannels": true,
     "asarUnpack": [
       "node_modules/node-pty/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/forge-runtime.json",
+        "to": "forge-runtime.json"
+      }
     ],
     "publish": [
       {
