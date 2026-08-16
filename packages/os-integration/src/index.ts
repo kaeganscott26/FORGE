@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const FIELD_CODE = /^%[fFuUdDnNickvm]$/;
 export interface DesktopApplication { id: string; name: string; description: string; icon?: string; executable: string; arguments: string[]; categories: string[]; desktopFile: string; terminal: boolean; hidden: boolean; noDisplay: boolean; }
-export interface ForgeOsContext { platform: string; forgeOsSession: boolean; shellMode: boolean; sessionType: string; }
+export interface ForgeOsContext { platform: string; forgeOsSession: boolean; shellMode: boolean; sessionType: string; recoveryMode: boolean; liveRecoveryMode: boolean; }
 export interface SystemOverview { hostname: string; os: string; kernel: string; cpu: string; memoryBytes: number; storage: { totalBytes: number; freeBytes: number }; forgeVersion: string; forgeOsVersion: string; sessionType: string; }
 function tokenizeExec(value: string): string[] {
   const tokens: string[] = []; let token = '', quote = '', escaped = false;
@@ -42,7 +42,13 @@ function applicationDirectories(environment: NodeJS.ProcessEnv): string[] {
 export class ForgeOsService {
   private applications = new Map<string, DesktopApplication>();
   constructor(private readonly environment: NodeJS.ProcessEnv = process.env, private readonly operatingSystem: () => string = platform) {}
-  context(): ForgeOsContext { const currentPlatform = this.operatingSystem(); const forgeOsSession = currentPlatform === 'linux' && (this.environment.FORGE_OS_SESSION === '1' || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === 'FORGE'); return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== '0', sessionType: this.environment.XDG_SESSION_TYPE || 'unknown' }; }
+  context(): ForgeOsContext {
+    const currentPlatform = this.operatingSystem();
+    const forgeOsSession = currentPlatform === 'linux' && (this.environment.FORGE_OS_SESSION === '1' || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === 'FORGE');
+    const recoveryMode = forgeOsSession && this.environment.FORGE_RECOVERY_MODE === '1';
+    const liveRecoveryMode = recoveryMode && this.environment.FORGE_LIVE_RECOVERY === '1';
+    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== '0', sessionType: this.environment.XDG_SESSION_TYPE || 'unknown', recoveryMode, liveRecoveryMode };
+  }
   async discoverApplications(): Promise<DesktopApplication[]> {
     const discovered = new Map<string, DesktopApplication>();
     for (const directory of applicationDirectories(this.environment)) for (const file of (await readdir(directory).catch(() => [] as string[])).filter((entry) => entry.endsWith('.desktop')).sort()) {
