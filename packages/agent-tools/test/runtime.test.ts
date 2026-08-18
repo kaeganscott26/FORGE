@@ -68,6 +68,14 @@ describe('agent tool runtime', () => {
     expect(second.result?.output).toMatchObject({ truncated: false, matches: [{ line: 3, text: 'needle three' }] });
   });
 
+  it('keeps file.list independent from malformed optional task context', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-list-context-')); await writeFile(path.join(root, 'note.txt'), 'content');
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+    const listing = await router.request({ id: 'list-invalid-context', name: 'file.list', provider: 'test', arguments: { taskContext: { taskId: 'not-a-uuid', stepId: 'inspect' } } }, context);
+    expect(listing.result?.output).toMatchObject({ success: true, entries: [{ path: 'note.txt' }] });
+  });
+
   it('paginates file listings and reads bounded file ranges with continuations', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-read-range-'));
     await writeFile(path.join(root, 'alpha.txt'), 'one\ntwo\nthree\nfour\n'); await writeFile(path.join(root, 'beta.txt'), 'other');
