@@ -1,0 +1,83 @@
+[1mdiff --git a/apps/desktop/out/main/index.js b/apps/desktop/out/main/index.js[m
+[1mindex b19ae59..184c85c 100644[m
+[1m--- a/apps/desktop/out/main/index.js[m
+[1m+++ b/apps/desktop/out/main/index.js[m
+[36m@@ -6403,7 +6403,7 @@[m [mfunction createToolRegistry() {[m
+   const registry = new ToolRegistry();[m
+   const base = { outputSchema: textOutput, cancellable: true };[m
+   const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };[m
+[31m-  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));[m
+[32m+[m[32m  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0) }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));[m
+   registry.register(definition({ ...base, name: "file.read", purpose: "Read a bounded range of a supported workspace text file. Use the returned continuation to inspect more without exhausting context.", inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(2e5).default(12e3), ...taskContext }).refine((input) => input.endLine === void 0 || input.startLine === void 0 || input.endLine >= input.startLine, "endLine must not precede startLine.").refine((input) => input.offset === void 0 || input.startLine === void 0 && input.endLine === void 0, "offset cannot be combined with line ranges."), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read bounded text without changing the workspace." }));[m
+   registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));[m
+   registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));[m
+[36m@@ -8953,6 +8953,10 @@[m [mfunction applicationDirectories(environment) {[m
+   const dataHome = environment.XDG_DATA_HOME || path__default.join(homedir(), ".local/share");[m
+   return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));[m
+ }[m
+[32m+[m[32mfunction trustedInternalApplication(application) {[m
+[32m+[m[32m  if (!application.id.startsWith("forge-internal-") || application.desktopFile !== path__default.join("/usr/share/applications", application.id)) return false;[m
+[32m+[m[32m  return ["/usr/local/bin/forge-system-surface", "/usr/local/bin/forge-session-control"].includes(application.executable);[m
+[32m+[m[32m}[m
+ class ForgeOsService {[m
+   constructor(environment = process.env, operatingSystem = platform) {[m
+     this.environment = environment;[m
+[36m@@ -8962,7 +8966,9 @@[m [mclass ForgeOsService {[m
+   context() {[m
+     const currentPlatform = this.operatingSystem();[m
+     const forgeOsSession = currentPlatform === "linux" && (this.environment.FORGE_OS_SESSION === "1" || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === "FORGE");[m
+[31m-    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };[m
+[32m+[m[32m    const recoveryMode = forgeOsSession && this.environment.FORGE_RECOVERY_MODE === "1";[m
+[32m+[m[32m    const liveRecoveryMode = recoveryMode && this.environment.FORGE_LIVE_RECOVERY === "1";[m
+[32m+[m[32m    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown", recoveryMode, liveRecoveryMode };[m
+   }[m
+   async discoverApplications() {[m
+     const discovered = /* @__PURE__ */ new Map();[m
+[36m@@ -8979,7 +8985,9 @@[m [mclass ForgeOsService {[m
+     if (!this.context().shellMode) throw new Error("Application launch is available only in FORGE-OS shell mode.");[m
+     if (!this.applications.size) await this.discoverApplications();[m
+     const application = this.applications.get(id2);[m
+[31m-    if (!application || application.hidden || application.noDisplay) throw new Error("Application is not available.");[m
+[32m+[m[32m    if (!application) throw new Error("Application is not available.");[m
+[32m+[m[32m    const trustedInternal = trustedInternalApplication(application);[m
+[32m+[m[32m    if ((application.hidden || application.noDisplay) && !trustedInternal) throw new Error("Application is not available.");[m
+     const child = spawn(application.executable, application.arguments, { detached: true, stdio: "ignore", shell: false, env: this.environment });[m
+     child.once("error", () => void 0);[m
+     child.unref();[m
+[36m@@ -8993,9 +9001,22 @@[m [mclass ForgeOsService {[m
+   }[m
+   async sessionAction(action) {[m
+     if (!this.context().shellMode) throw new Error("Session actions are available only in FORGE-OS shell mode.");[m
+[31m-    if (action === "logout") return;[m
+[31m-    const argumentsByAction = { lock: ["lock-session"], restart: ["reboot"], shutdown: ["poweroff"] };[m
+[31m-    await execFileAsync("loginctl", [...argumentsByAction[action]], { timeout: 1e4 });[m
+[32m+[m[32m    const sessionId = this.environment.XDG_SESSION_ID;[m
+[32m+[m[32m    if (action === "lock") {[m
+[32m+[m[32m      await execFileAsync("loginctl", sessionId ? ["lock-session", sessionId] : ["lock-session"], { timeout: 1e4 });[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    if (action === "logout") {[m
+[32m+[m[32m      if (sessionId) await execFileAsync("loginctl", ["terminate-session", sessionId], { timeout: 1e4 });[m
+[32m+[m[32m      else await execFileAsync("systemctl", ["--user", "exit"], { timeout: 1e4 });[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    const systemAction = action === "restart" ? "reboot" : "poweroff";[m
+[32m+[m[32m    try {[m
+[32m+[m[32m      await execFileAsync("systemctl", [systemAction, "--no-block"], { timeout: 1e4 });[m
+[32m+[m[32m    } catch {[m
+[32m+[m[32m      await execFileAsync("pkexec", ["/usr/bin/systemctl", systemAction, "--no-block"], { timeout: 1e4 });[m
+[32m+[m[32m    }[m
+   }[m
+ }[m
+ const workspace = new WorkspaceService();[m
+[36m@@ -9039,8 +9060,8 @@[m [mfunction detachBrowserView() {[m
+ function appBuildInfo() {[m
+   return {[m
+     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),[m
+[31m-    commit: "44ab6d7e47a20d6dc75618116ed5bd90e5ba7e40",[m
+[31m-    buildDate: "2026-08-16T05:26:57.487Z",[m
+[32m+[m[32m    commit: "19fb3ad1222557a3ea2d7b3763338e116680c60f",[m
+[32m+[m[32m    buildDate: "2026-08-18T12:48:10.532Z",[m
+     runtime: app.isPackaged ? "packaged" : "development",[m
+     rendererSource,[m
+     platform: process.platform,[m
