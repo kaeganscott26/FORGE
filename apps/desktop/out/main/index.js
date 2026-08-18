@@ -6403,7 +6403,7 @@ function createToolRegistry() {
   const registry = new ToolRegistry();
   const base = { outputSchema: textOutput, cancellable: true };
   const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };
-  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
+  registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0) }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
   registry.register(definition({ ...base, name: "file.read", purpose: "Read a bounded range of a supported workspace text file. Use the returned continuation to inspect more without exhausting context.", inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(2e5).default(12e3), ...taskContext }).refine((input) => input.endLine === void 0 || input.startLine === void 0 || input.endLine >= input.startLine, "endLine must not precede startLine.").refine((input) => input.offset === void 0 || input.startLine === void 0 && input.endLine === void 0, "offset cannot be combined with line ranges."), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read bounded text without changing the workspace." }));
   registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
   registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));
@@ -8953,6 +8953,10 @@ function applicationDirectories(environment) {
   const dataHome = environment.XDG_DATA_HOME || path__default.join(homedir(), ".local/share");
   return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));
 }
+function trustedInternalApplication(application) {
+  if (!application.id.startsWith("forge-internal-") || application.desktopFile !== path__default.join("/usr/share/applications", application.id)) return false;
+  return ["/usr/local/bin/forge-system-surface", "/usr/local/bin/forge-session-control"].includes(application.executable);
+}
 class ForgeOsService {
   constructor(environment = process.env, operatingSystem = platform) {
     this.environment = environment;
@@ -8962,7 +8966,9 @@ class ForgeOsService {
   context() {
     const currentPlatform = this.operatingSystem();
     const forgeOsSession = currentPlatform === "linux" && (this.environment.FORGE_OS_SESSION === "1" || this.environment.XDG_CURRENT_DESKTOP?.toUpperCase() === "FORGE");
-    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown" };
+    const recoveryMode = forgeOsSession && this.environment.FORGE_RECOVERY_MODE === "1";
+    const liveRecoveryMode = recoveryMode && this.environment.FORGE_LIVE_RECOVERY === "1";
+    return { platform: currentPlatform, forgeOsSession, shellMode: forgeOsSession && this.environment.FORGE_SHELL_MODE !== "0", sessionType: this.environment.XDG_SESSION_TYPE || "unknown", recoveryMode, liveRecoveryMode };
   }
   async discoverApplications() {
     const discovered = /* @__PURE__ */ new Map();
@@ -8979,7 +8985,9 @@ class ForgeOsService {
     if (!this.context().shellMode) throw new Error("Application launch is available only in FORGE-OS shell mode.");
     if (!this.applications.size) await this.discoverApplications();
     const application = this.applications.get(id2);
-    if (!application || application.hidden || application.noDisplay) throw new Error("Application is not available.");
+    if (!application) throw new Error("Application is not available.");
+    const trustedInternal = trustedInternalApplication(application);
+    if ((application.hidden || application.noDisplay) && !trustedInternal) throw new Error("Application is not available.");
     const child = spawn(application.executable, application.arguments, { detached: true, stdio: "ignore", shell: false, env: this.environment });
     child.once("error", () => void 0);
     child.unref();
@@ -8993,9 +9001,22 @@ class ForgeOsService {
   }
   async sessionAction(action) {
     if (!this.context().shellMode) throw new Error("Session actions are available only in FORGE-OS shell mode.");
-    if (action === "logout") return;
-    const argumentsByAction = { lock: ["lock-session"], restart: ["reboot"], shutdown: ["poweroff"] };
-    await execFileAsync("loginctl", [...argumentsByAction[action]], { timeout: 1e4 });
+    const sessionId = this.environment.XDG_SESSION_ID;
+    if (action === "lock") {
+      await execFileAsync("loginctl", sessionId ? ["lock-session", sessionId] : ["lock-session"], { timeout: 1e4 });
+      return;
+    }
+    if (action === "logout") {
+      if (sessionId) await execFileAsync("loginctl", ["terminate-session", sessionId], { timeout: 1e4 });
+      else await execFileAsync("systemctl", ["--user", "exit"], { timeout: 1e4 });
+      return;
+    }
+    const systemAction = action === "restart" ? "reboot" : "poweroff";
+    try {
+      await execFileAsync("systemctl", [systemAction, "--no-block"], { timeout: 1e4 });
+    } catch {
+      await execFileAsync("pkexec", ["/usr/bin/systemctl", systemAction, "--no-block"], { timeout: 1e4 });
+    }
   }
 }
 const workspace = new WorkspaceService();
@@ -9039,8 +9060,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "44ab6d7e47a20d6dc75618116ed5bd90e5ba7e40",
-    buildDate: "2026-08-16T05:26:57.487Z",
+    commit: "19fb3ad1222557a3ea2d7b3763338e116680c60f",
+    buildDate: "2026-08-18T09:14:35.290Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
