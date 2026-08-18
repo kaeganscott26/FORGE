@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { buildReleaseIdentity, buildUpdatePolicy, formatAppBuildInfo, IPC_CHANNELS, isUpdateVersionEligible, normalizeUpdateChannel } from '../src';
 
@@ -6,6 +9,23 @@ describe('IPC contract', () => {
     expect(IPC_CHANNELS.agentAsk).toBe('agent.ask');
     expect(IPC_CHANNELS.agentExplainProject).toBe('agent.explainProject');
     expect(IPC_CHANNELS.agentReviewChanges).toBe('agent.reviewChanges');
+  });
+
+  it('keeps every canonical invoke channel unique, allowlisted in preload, and registered in the shared desktop main process', async () => {
+    const channels = Object.entries(IPC_CHANNELS);
+    expect(new Set(channels.map(([, value]) => value)).size).toBe(channels.length);
+
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+    const [mainSource, preloadSource] = await Promise.all([
+      readFile(path.join(repoRoot, 'apps/desktop/src/main/index.ts'), 'utf8'),
+      readFile(path.join(repoRoot, 'apps/desktop/src/preload/index.ts'), 'utf8')
+    ]);
+
+    expect(preloadSource).toContain('Object.values(IPC_CHANNELS)');
+    expect(preloadSource).toContain('ipcRenderer.invoke(channel, request)');
+    for (const [key, channel] of channels) {
+      expect(mainSource, `${channel} (${key}) is missing a main-process handler`).toMatch(new RegExp(`register\\(IPC_CHANNELS\\.${key}\\s*,`));
+    }
   });
 
   it('exposes non-secret build diagnostics and copy channels', () => {
