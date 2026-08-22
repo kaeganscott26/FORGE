@@ -18,9 +18,39 @@ function shouldIgnore(relativePath: string, showHidden = false): boolean {
   const normalized = relativePath.replaceAll('\\', '/');
   return normalized.split('/').some((part) => (part.startsWith('.') && !showHidden) || (IGNORED.has(part) && !(showHidden && part.startsWith('.')))) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized) && !showHidden);
 }
-const mimeByExtension: Record<string, string> = { txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', jsonc: 'application/json', yaml: 'application/yaml', yml: 'application/yaml', toml: 'application/toml', xml: 'application/xml', csv: 'text/csv', log: 'text/plain', ini: 'text/plain', conf: 'text/plain', env: 'text/plain', sh: 'text/x-shellscript', bash: 'text/x-shellscript', zsh: 'text/x-shellscript', ps1: 'text/x-powershell', bat: 'text/plain', cmd: 'text/plain', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime' };
-const textExtensions = new Set(Object.keys(mimeByExtension).filter((extension) => mimeByExtension[extension].startsWith('text/') || ['json', 'yaml', 'toml'].includes(extension)));
-function kindFor(extension: string, mimeType: string, executable: boolean): DetectedFileKind { if (executable) return 'executable'; if (mimeType.startsWith('image/')) return 'image'; if (mimeType.startsWith('audio/')) return 'audio'; if (mimeType.startsWith('video/')) return 'video'; if (mimeType.startsWith('text/') || textExtensions.has(extension)) return 'text'; return mimeType === 'application/octet-stream' ? 'binary' : 'unknown'; }
+const mimeByExtension: Record<string, string> = {
+  txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', log: 'text/plain', csv: 'text/csv', ini: 'text/plain', conf: 'text/plain', env: 'text/plain',
+  json: 'application/json', jsonc: 'application/json', yaml: 'application/yaml', yml: 'application/yaml', toml: 'application/toml', xml: 'application/xml',
+  sh: 'text/x-shellscript', bash: 'text/x-shellscript', zsh: 'text/x-shellscript', fish: 'text/x-shellscript', ps1: 'text/x-powershell', bat: 'text/plain', cmd: 'text/plain',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
+  mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime'
+};
+const textExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'md', 'markdown', 'txt', 'log', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'env', 'py', 'rb', 'php', 'java', 'kt', 'kts', 'c', 'h', 'cpp', 'hpp', 'cc', 'rs', 'go', 'swift', 'sql', 'graphql', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd']);
+const textNames = new Set(['.env', '.env.local', '.env.example', '.gitignore', '.gitattributes', '.editorconfig', '.npmrc', '.yarnrc', 'dockerfile', 'makefile', 'readme', 'license', 'changelog']);
+const CLASSIFICATION_SAMPLE_BYTES = 64 * 1024;
+const MAX_MEDIA_PREVIEW_BYTES = 100 * 1024 * 1024;
+type FileClassification = { kind: DetectedFileKind; text: boolean };
+function isKnownTextFile(name: string, extension: string): boolean { return textExtensions.has(extension) || textNames.has(name.toLowerCase()) || name.toLowerCase().startsWith('.env.'); }
+function isTextSample(sample: Buffer, knownText: boolean): boolean {
+  if (sample.length === 0 || sample.includes(0)) return false;
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(sample);
+    if (decoded.startsWith('#!') || knownText) return true;
+    let controls = 0;
+    for (const character of decoded) { const code = character.codePointAt(0)!; if ((code < 32 && ![9, 10, 13, 12].includes(code)) || (code >= 0x7f && code <= 0x9f)) controls += 1; }
+    return controls / Math.max(1, decoded.length) <= 0.02;
+  } catch { return false; }
+}
+export function classifyFile(input: { name?: string; extension: string; mimeType: string; sample: Buffer; executable: boolean }): FileClassification {
+  const extension = input.extension.toLowerCase(); const mimeType = input.mimeType.toLowerCase(); const knownText = isKnownTextFile(input.name ?? '', extension);
+  if (mimeType.startsWith('image/')) return { kind: 'image', text: false };
+  if (mimeType.startsWith('audio/')) return { kind: 'audio', text: false };
+  if (mimeType.startsWith('video/')) return { kind: 'video', text: false };
+  const text = input.sample.length === 0 ? knownText || mimeType.startsWith('text/') : isTextSample(input.sample, knownText || mimeType.startsWith('text/'));
+  if (text) return { kind: input.executable ? 'executable' : 'text', text: true };
+  return { kind: input.executable ? 'executable' : 'binary', text: false };
+}
 export function parseMarkdown(content: string): ParsedMarkdown {
   const frontmatter: Record<string, string | string[]> = {};
   const matched = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -68,16 +98,19 @@ export class WorkspaceService extends EventEmitter {
   }
   async metadata(relativePath: string): Promise<FileMetadata> {
     const absolute = await this.resolve(relativePath); const stat = await fs.stat(absolute); const extension = path.extname(absolute).slice(1).toLowerCase();
-    const bytes = stat.isFile() ? await fs.open(absolute, 'r').then(async (handle) => { const buffer = Buffer.alloc(16); await handle.read(buffer, 0, 16, 0); await handle.close(); return buffer; }) : Buffer.alloc(0);
-    const signature = bytes.length >= 4 ? bytes.subarray(0, 8).toString('hex').match(/.{2}/g)?.join(' ') : undefined;
+    const bytes = stat.isFile() ? await fs.open(absolute, 'r').then(async (handle) => { const buffer = Buffer.alloc(CLASSIFICATION_SAMPLE_BYTES); try { const result = await handle.read(buffer, 0, buffer.length, 0); return buffer.subarray(0, result.bytesRead); } finally { await handle.close(); } }) : Buffer.alloc(0);
+    const signatureBytes = Buffer.alloc(8); bytes.copy(signatureBytes);
+    const signature = bytes.length >= 4 ? signatureBytes.toString('hex').match(/.{2}/g)?.join(' ') : undefined;
     const executable = process.platform === 'win32' ? ['.exe', '.bat', '.cmd', '.ps1'].includes(path.extname(absolute).toLowerCase()) : Boolean(stat.mode & 0o111);
-    const mimeType = mimeByExtension[extension] ?? (bytes[0] === 0x7f && bytes[1] === 0x45 ? 'application/x-elf' : 'application/octet-stream');
-    return { path: relativePath, name: path.basename(absolute), extension: extension || undefined, size: stat.size, modifiedAt: stat.mtimeMs, createdAt: stat.birthtimeMs, mimeType, kind: kindFor(extension, mimeType, executable), executable, permissions: process.platform === 'win32' ? undefined : (stat.mode & 0o777).toString(8), signature };
+    const name = path.basename(absolute); const lowerName = name.toLowerCase(); const resolvedExtension = extension || (textNames.has(lowerName) || lowerName.startsWith('.env.') ? lowerName.slice(1) : '');
+    const mimeType = mimeByExtension[resolvedExtension] ?? (bytes[0] === 0x7f && bytes[1] === 0x45 ? 'application/x-elf' : 'application/octet-stream');
+    const classification = classifyFile({ name, extension: resolvedExtension, mimeType, sample: bytes, executable });
+    return { path: relativePath, name, extension: extension || undefined, size: stat.size, modifiedAt: stat.mtimeMs, createdAt: stat.birthtimeMs, mimeType, kind: classification.kind, text: classification.text, executable, permissions: process.platform === 'win32' ? undefined : (stat.mode & 0o777).toString(8), signature };
   }
   async preview(relativePath: string): Promise<{ path: string; mimeType: string; dataUrl: string }> {
     const metadata = await this.metadata(relativePath);
     if (!['image', 'audio', 'video'].includes(metadata.kind)) throw new Error('This file does not have a safe media preview.');
-    if (metadata.size > 25 * 1024 * 1024) throw new Error('Media preview is limited to 25 MB.');
+    if (metadata.size > MAX_MEDIA_PREVIEW_BYTES) throw new Error('Media preview is limited to 100 MB.');
     const bytes = await fs.readFile(await this.resolve(relativePath));
     return { path: relativePath, mimeType: metadata.mimeType, dataUrl: `data:${metadata.mimeType};base64,${bytes.toString('base64')}` };
   }

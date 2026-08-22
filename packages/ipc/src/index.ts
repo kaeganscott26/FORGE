@@ -13,7 +13,7 @@ export interface FileNode {
   children?: FileNode[];
 }
 export type DetectedFileKind = 'text' | 'image' | 'audio' | 'video' | 'executable' | 'binary' | 'unknown';
-export interface FileMetadata { path: string; name: string; extension?: string; size: number; modifiedAt: number; createdAt: number; mimeType: string; kind: DetectedFileKind; executable: boolean; permissions?: string; signature?: string; dimensions?: { width: number; height: number }; }
+export interface FileMetadata { path: string; name: string; extension?: string; size: number; modifiedAt: number; createdAt: number; mimeType: string; kind: DetectedFileKind; text: boolean; executable: boolean; permissions?: string; signature?: string; dimensions?: { width: number; height: number }; }
 export interface FilePreview { path: string; mimeType: string; dataUrl: string; }
 
 export interface WorkspaceInfo { rootPath: string; name: string; gitRoot: string | null; createdAt: number; }

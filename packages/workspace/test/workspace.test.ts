@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { WorkspaceService } from '../src';
+import { classifyFile, WorkspaceService } from '../src';
 
 describe('WorkspaceService state', () => {
   it('preserves opened Git and creation metadata in subsequent info reads', async () => {
@@ -94,6 +94,69 @@ describe('WorkspaceService state', () => {
       const service = new WorkspaceService(); await service.open(root);
       await expect(service.readFile('sample.bin')).resolves.toMatchObject({ content: 'AAEC/w==', encoding: 'base64', binary: true });
       await expect(service.metadata('sample.bin')).resolves.toMatchObject({ kind: 'binary', size: 4 });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('classifies source and configuration files as text even with an ambiguous MIME type', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-text-classification-'));
+    try {
+      const source = 'import { something } from "./something";\nexport const answer = 42;\n';
+      await fs.writeFile(join(root, 'agent.ts'), source);
+      await fs.writeFile(join(root, 'component.tsx'), 'export const View = () => <div>FORGE</div>;\n');
+      await fs.writeFile(join(root, 'module.js'), 'export default 1;\n');
+      await fs.writeFile(join(root, 'module.mjs'), 'export default 2;\n');
+      await fs.writeFile(join(root, 'module.cjs'), 'module.exports = 3;\n');
+      await fs.writeFile(join(root, 'notes.txt'), 'plain text\n');
+      await fs.writeFile(join(root, 'README.md'), '# FORGE\n');
+      await fs.writeFile(join(root, 'settings.json'), '{ "enabled": true }\n');
+      await fs.writeFile(join(root, 'pipeline.yaml'), 'steps:\n  - test\n');
+      await fs.writeFile(join(root, '.env'), 'FORGE_TEST=true\n');
+      const service = new WorkspaceService(); await service.open(root);
+      for (const name of ['agent.ts', 'component.tsx', 'module.js', 'module.mjs', 'module.cjs', 'notes.txt', 'README.md', 'settings.json', 'pipeline.yaml', '.env']) {
+        await expect(service.metadata(name)).resolves.toMatchObject({ kind: 'text', text: true });
+      }
+      await expect(service.readFile('agent.ts')).resolves.toMatchObject({ content: source });
+      expect(classifyFile({ extension: 'ts', mimeType: 'application/octet-stream', sample: Buffer.from(source), executable: false }).kind).toBe('text');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('keeps executable shell scripts executable while opening them as text', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-script-'));
+    try {
+      const script = '#!/usr/bin/env bash\necho "hello"\n';
+      await fs.writeFile(join(root, 'script.sh'), script);
+      if (process.platform !== 'win32') await fs.chmod(join(root, 'script.sh'), 0o755);
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.metadata('script.sh')).resolves.toMatchObject({ kind: process.platform === 'win32' ? 'text' : 'executable', executable: process.platform === 'win32' ? false : true, text: true });
+      await expect(service.readFile('script.sh')).resolves.toMatchObject({ content: script });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('classifies valid UTF-8 with an unknown extension as text', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-unknown-text-'));
+    try {
+      await fs.writeFile(join(root, 'notes.data'), 'こんにちは FORGE — textual data\n');
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.metadata('notes.data')).resolves.toMatchObject({ kind: 'text', text: true, mimeType: 'application/octet-stream' });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('keeps binary files binary when they contain NUL bytes', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-real-binary-'));
+    try {
+      await fs.writeFile(join(root, 'payload.data'), Buffer.from([0x7f, 0x00, 0xff, 0x10, 0x01]));
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.metadata('payload.data')).resolves.toMatchObject({ kind: 'binary', text: false });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('allows media previews larger than the legacy limit and preserves audio classification', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-audio-'));
+    try {
+      await fs.writeFile(join(root, 'track.mp3'), Buffer.alloc(26 * 1024 * 1024, 0));
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.metadata('track.mp3')).resolves.toMatchObject({ kind: 'audio', mimeType: 'audio/mpeg' });
+      await expect(service.preview('track.mp3')).resolves.toMatchObject({ mimeType: 'audio/mpeg', dataUrl: expect.stringContaining('data:audio/mpeg;base64,') });
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 });
