@@ -2320,7 +2320,7 @@ class WorkspaceService extends EventEmitter {
   }
   async nodeFor(absolute, relative = path.relative(this.rootPath, absolute)) {
     const stat = await promises.stat(absolute);
-    return { path: absolute, relativePath: relative, name: path.basename(absolute), type: stat.isDirectory() ? "directory" : "file", extension: stat.isFile() ? path.extname(absolute).slice(1) || void 0 : void 0, size: stat.isFile() ? stat.size : void 0, modifiedAt: stat.mtimeMs };
+    return { path: absolute, relativePath: relative.replaceAll("\\", "/"), name: path.basename(absolute), type: stat.isDirectory() ? "directory" : "file", extension: stat.isFile() ? path.extname(absolute).slice(1) || void 0 : void 0, size: stat.isFile() ? stat.size : void 0, modifiedAt: stat.mtimeMs };
   }
   async resolve(input, allowMissing = false) {
     if (!this.rootPath || !this.realRoot) throw new Error("No workspace is open.");
@@ -6883,7 +6883,7 @@ class ToolRouter {
       const backup = await backupPath(this.root(request), input.path);
       await promises.copyFile(absolute, backup);
       await atomicWrite(absolute, after, original.encoding, original.mode);
-      return ok({ path: input.path }, [input.path], { diff: unifiedDiff(input.path, original.content, after), rollback: { available: true, backupPath: path__default.relative(this.root(request), backup), instructions: `Restore the backup over ${input.path}.` } });
+      return ok({ path: input.path }, [input.path], { diff: unifiedDiff(input.path, original.content, after), rollback: { available: true, backupPath: path__default.relative(this.root(request), backup).replaceAll("\\", "/"), instructions: `Restore the backup over ${input.path}.` } });
     });
     for (const name of ["file.rename", "file.move"]) this.executors.set(name, async (input, request) => {
       this.assertNotDirty(input.from);
@@ -6911,7 +6911,7 @@ class ToolRouter {
       const backup = await backupPath(this.root(request), input.path);
       await promises.cp(absolute, backup, { recursive: true, errorOnExist: true });
       await promises.rm(absolute, { recursive: true, force: false });
-      return ok({}, [input.path], { rollback: { available: true, backupPath: path__default.relative(this.root(request), backup), instructions: `Restore the backup to ${input.path}.` } });
+      return ok({}, [input.path], { rollback: { available: true, backupPath: path__default.relative(this.root(request), backup).replaceAll("\\", "/"), instructions: `Restore the backup to ${input.path}.` } });
     });
     this.executors.set("terminal.read", async (input) => {
       if (!this.dependencies.terminal) throw new Error("Terminal evidence is unavailable.");
@@ -7091,7 +7091,17 @@ const SAFE_PARENT_ENV = [
   "FORGE_OS_SESSION",
   "FORGE_SHELL_MODE",
   "FORGE_OS_VERSION",
-  "BROWSER"
+  "BROWSER",
+  "SystemRoot",
+  "ComSpec",
+  "PATHEXT",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "TEMP",
+  "TMP",
+  "WINDIR"
 ];
 function validSessionVariable(name, value) {
   if (value.includes("\0") || value.includes("\n") || value.includes("\r")) return false;
@@ -7152,11 +7162,9 @@ function terminalEnvironment(shell2) {
   const username = os.userInfo().username;
   const inherited = filteredEnvironment();
   const pathEntries = [
-    `${home}/.local/bin`,
-    `${home}/.opencode/bin`,
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/bin",
+    path__default.join(home, ".local", "bin"),
+    path__default.join(home, ".opencode", "bin"),
+    ...process.platform === "win32" ? [] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"],
     ...(inherited.PATH ?? "").split(path__default.delimiter)
   ].filter(Boolean);
   return {
@@ -7176,6 +7184,9 @@ function defaultTerminalShell(environment = process.env) {
   if (configuredShell && path__default.isAbsolute(configuredShell)) return configuredShell;
   if (process.platform === "win32") return environment.COMSPEC || "cmd.exe";
   return "/bin/bash";
+}
+function terminalSpawnArguments() {
+  return process.platform === "win32" ? [] : ["-l"];
 }
 class ShellService {
   constructor(workspaceRoot, outputLimit = 1e6) {
@@ -7331,7 +7342,7 @@ class TerminalService {
     const id2 = requestedId ?? randomUUID();
     if (this.sessions.has(id2)) throw new Error("Terminal session already exists.");
     const shell2 = defaultTerminalShell();
-    const terminal = pty.spawn(shell2, ["-l"], { name: "xterm-256color", cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell2) });
+    const terminal = pty.spawn(shell2, terminalSpawnArguments(), { name: "xterm-256color", cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell2) });
     const info = { id: id2, cwd, pid: terminal.pid, state: "running", exitCode: null, createdAt: Date.now(), title: path__default.basename(cwd), recentOutput: "" };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id2, session);
@@ -9214,8 +9225,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "451f8fffaa70a82dd0bb610838bb50cf3b04ac8b",
-    buildDate: "2026-08-22T04:38:43.205Z",
+    commit: "a56c9f26f825a84474bf630e705fcbe93a2c3b88",
+    buildDate: "2026-08-22T08:07:22.837Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
