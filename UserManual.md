@@ -2,15 +2,17 @@
 
 ## 🚀 1. Install and open FORGE
 
-Download the current beta DMG from [FORGE v2.3 Beta](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder.
+Download the current published macOS beta DMG from [FORGE v2.3 Beta](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder, or **Home** to use your platform home directory as the workspace.
+
+Native source install/update entry points are `npm run update:mac` on macOS and `npm run update:win` from Windows PowerShell. Native Linux standalone packaging uses `./scripts/package-linux.sh`; FORGE-OS installs and updates the Linux runtime through the sibling repository's `./install.sh` and `./update.sh`.
 
 FORGE creates `<workspace>/.forge/metadata.sqlite` for app-specific metadata. It does not move or import the project files themselves.
 
 ## 🗂️ 2. Navigate a workspace
 
-The Explorer recursively lists project files and folders. Click a folder name or chevron to expand/collapse it; right-click an entry for file actions. **New file** and **New folder** create entries under the selected folder (or the active file's parent). Copy/paste uses **Command/Ctrl+C** and **Command/Ctrl+V**, with collision-safe copy names. **F2** renames the selected entry and **Delete/Backspace** deletes it after confirmation. Select a text file to open it. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo.
+The Explorer lists the workspace root and loads each folder on demand when you expand it, keeping home-sized workspaces responsive. Click a folder name or chevron to expand/collapse it; right-click an entry for file actions. **New file** and **New folder** open an in-app name dialog, then create entries under the selected folder (or the active file's parent) through typed IPC. A new file opens immediately in the editor. Copy/paste uses **Command/Ctrl+C** and **Command/Ctrl+V**, with collision-safe copy names. **F2** opens the same in-app rename flow and **Delete/Backspace** deletes after confirmation. Select a text file to open it. **Command/Ctrl+O** opens the workspace picker. Monaco supports **Command/Ctrl+Z** for undo and **Command+Shift+Z** or **Ctrl+Y** for redo.
 
-FORGE rejects absolute paths, path traversal, and resolved paths outside the opened workspace.
+FORGE rejects absolute tool paths, path traversal, and resolved paths outside the opened workspace. Opening **Home** makes the user's actual home directory the workspace on macOS, Windows, and Linux without granting access outside it. Unreadable, vanished, or container-backed subtrees are omitted from Explorer, bounded memory-index, and model file discovery instead of failing the entire home workspace; directly reading a protected file still returns the operating-system permission error.
 
 Drag the narrow dividers to resize Explorer, editor, workspace intelligence, AI chat, and Source Control. FORGE saves the dimensions in the current workspace and clamps them during window resizing so the editor and panels remain usable. On narrow windows, secondary panels collapse to preserve an editable editor surface.
 
@@ -24,11 +26,11 @@ Markdown files open in preview mode. Use **Edit** and **Preview** to switch view
 
 The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. FORGE does not reduce workspace intelligence or memory to a numeric context-health score.
 
-Goals and persistent tasks are stored only in the workspace's local FORGE database.
+Use the `+` beside Goals or Tasks to open an in-app title dialog. Both are stored only in the workspace's local FORGE database; the task also appears in the persistent Tasks panel.
 
 ## 🌿 5. Use source control
 
-The Source Control panel shows the active branch and changed files. Select a change to stage it and inspect the parsed diff. Enter a commit message and choose **Commit**. **Pull** and **Push** use the Git remote and credentials already configured on the Mac.
+The Source Control panel shows the active branch and changed files. Select a change to stage it and inspect the parsed diff. Enter a commit message and choose **Commit**. **Pull** and **Push** use the Git remote and credentials already configured on the host operating system.
 
 Always confirm the file list and diff before a commit, pull, or push. FORGE operates on the real repository.
 
@@ -78,15 +80,17 @@ When Workspace AI requests a tool, open **Agent Actions** in the bottom panel. T
 
 - Tier 0 reads may complete automatically and return bounded evidence to the conversation.
 - Tier 1 changes offer **Run once**, an exact-scope session permission, or **Reject**. Session permissions expire and reset when the workspace changes.
-- Tier 2 actions offer only a one-time approval or rejection. Shell, delete, commit, pull, push, and web requests are always Tier 2.
+- Tier 2 actions offer only a one-time approval or rejection. Shell, delete, commit, pull, push, browser page disclosure, and remote mutations remain Tier 2. Enabled public `web.search` and `web.fetch` are bounded read-only network tools and never send workspace content automatically.
 
 Running operations can be cancelled. Completed requests retain their state; local structured results can be inspected and copied. The persistent action log can be filtered by tool, risk, and outcome. Tool logs and conversations are stored in the active workspace database, so another workspace cannot see them.
 
-Web research is disabled by default. Enable it in Settings only if you want requests to external services. The approval card names the exact query/URL and any project data declared for transfer.
+Web research is disabled by default. Enable it in Settings only if you want requests to external services. Audit history records the exact query/URL. Any request that declares private project-data transfer requires explicit disclosure and approval.
 
 ## ✅ 9. Use persistent tasks
 
 Choose **TASKS** in the bottom panel. Tasks remain in the opened workspace even when you switch conversations, providers, or models, reload the renderer, or restart FORGE.
+
+Choose **New task** to open the in-app task-title dialog. **Release workflow** and **Pause** use the same routed dialog rather than a browser-native prompt.
 
 - Select a task to inspect its structured steps, dependencies, progress, verification criteria, approvals, events, Git/release references, and active PID/output path.
 - **Resume** audits current Git and known local processes before selecting unfinished work.
@@ -117,7 +121,9 @@ Stable is the default update channel and excludes every prerelease. Beta must be
 
 Existing settings that contain the former Preview preference migrate to Beta. This supports the alpha.3-to-Beta transition but does not permit future alpha builds on the Beta channel.
 
-For a local source build, first run `npm run package:mac:universal`, then `npm run install:mac`. Installation verifies `build-manifest.json`, stages the replacement beside `/Applications`, verifies the staged executable and `app.asar` hashes, universal architecture, bundle version, packaged UI provenance, and runtime metadata, then activates `/Applications/FORGE.app` with rollback to the Trash copy if activation fails. It atomically refreshes `/usr/local/bin/forge-session`. Use `forge-session --runtime-info` to confirm the installed UI/runtime version and source commit, or run `forge-session --workspace "$PWD"` to launch the canonical application for a specific workspace.
+For a clean trusted source checkout on macOS, run `npm run update:mac`. It fast-forwards `main`, preserves `.obsidian`, packages and verifies the universal bundle, installs `/Applications/FORGE.app`, and opens it. `npm run package:mac:universal` plus `npm run install:mac` remains the manual two-step packaging path. Use `forge-session --runtime-info` to confirm the installed UI/runtime version and source commit, or run `forge-session --workspace "$PWD"` for a specific workspace.
+
+On Windows, close FORGE and run `npm run update:win` in PowerShell. It fast-forwards the trusted checkout, preserves `.obsidian`, runs native NSIS packaging, installs silently, and verifies that the installed `app.asar` matches the package. On Linux, use `./scripts/package-linux.sh` for standalone AppImage/DEB artifacts. FORGE-OS users run `cd ~/FORGE-OS && ./update.sh`; that transaction updates both trusted sibling repositories, checkpoints the OS integration, preserves `.obsidian`, installs the pinned Linux runtime, and restores both source checkouts if installation fails.
 
 The session path is deliberately stable across upgrades: macOS bundle replacements target `/Applications/FORGE.app`, while `/usr/local/bin/forge-session` continues to dispatch to that single location. Future automatic Electron updates still require a properly signed and notarized macOS release; unsigned builds must be installed through this verified local flow.
 
@@ -141,7 +147,7 @@ node node_modules/electron/install.js
 
 ### The AI key is missing
 
-Open **Settings** and save an API key. If macOS Keychain is unavailable, FORGE refuses to save the secret rather than writing it in plaintext.
+Open **Settings** and save an API key. If Electron cannot reach secure operating-system credential storage, FORGE refuses to save the secret rather than writing it in plaintext.
 
 ### The chosen model is unavailable
 

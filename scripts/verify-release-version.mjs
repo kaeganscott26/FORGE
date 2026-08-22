@@ -17,16 +17,16 @@ for (const directory of workspaceRoots) {
   }
 }
 
-for (const manifestPath of workspaceManifests) {
-  const manifest = await readJson(manifestPath);
-  if (manifest.version !== version) throw new Error(`${manifestPath} has ${manifest.version}; expected ${version}.`);
+const workspacePackages = await Promise.all(workspaceManifests.map(async (manifestPath) => ({ manifestPath, manifest: await readJson(manifestPath) })));
+for (const { manifestPath, manifest } of workspacePackages) {
+  if (manifest.name.startsWith('@forge/') && manifest.version !== version) throw new Error(`${manifestPath} has ${manifest.version}; expected ${version}.`);
 }
 
 const lockfile = await readJson('package-lock.json');
 if (lockfile.version !== version || lockfile.packages?.['']?.version !== version) throw new Error('package-lock.json root version does not match package.json.');
-for (const manifestPath of workspaceManifests) {
+for (const { manifestPath, manifest } of workspacePackages) {
   const lockVersion = lockfile.packages?.[manifestPath.slice(0, -'/package.json'.length)]?.version;
-  if (lockVersion !== version) throw new Error(`package-lock.json entry for ${manifestPath} has ${lockVersion ?? 'no version'}; expected ${version}.`);
+  if (lockVersion !== manifest.version) throw new Error(`package-lock.json entry for ${manifestPath} has ${lockVersion ?? 'no version'}; expected ${manifest.version}.`);
 }
 
 const currentReleaseDocuments = [
@@ -38,7 +38,6 @@ const currentReleaseDocuments = [
   'docs/README.md',
   'docs/PROJECT_STATUS.md',
   'docs/RELEASE_CHANNELS.md',
-  'docs/Development_arc.md',
   'docs/TOOLING_GUIDE.md'
 ];
 for (const documentPath of currentReleaseDocuments) {

@@ -1,6 +1,7 @@
 import { app, shell, safeStorage, BrowserWindow, dialog, BrowserView, ipcMain, clipboard } from "electron";
 import { randomUUID, createHash } from "node:crypto";
 import { promises, watch, existsSync } from "node:fs";
+import os, { platform, homedir, totalmem, release, hostname } from "node:os";
 import * as path from "node:path";
 import path__default, { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,7 +13,6 @@ import { fetch as fetch$1, Agent as Agent$1 } from "undici";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { spawn, execFile } from "node:child_process";
-import os, { platform, homedir, totalmem, release, hostname } from "node:os";
 import * as pty from "node-pty";
 import { lookup as lookup$1 } from "node:dns/promises";
 import { lookup } from "node:dns";
@@ -2063,6 +2063,7 @@ const DEFAULT_WORKSPACE_LAYOUT = {
 };
 const IPC_CHANNELS = {
   workspaceOpen: "workspace.open",
+  workspaceOpenHome: "workspace.open.home",
   workspaceInfo: "workspace.info",
   workspaceLayoutGet: "workspace.layout.get",
   workspaceLayoutSave: "workspace.layout.save",
@@ -2155,6 +2156,20 @@ const IPC_CHANNELS = {
   forgeOsSessionAction: "forge-os.session.action"
 };
 const IGNORED = /* @__PURE__ */ new Set([".git", "node_modules", "dist", "out", "build", ".next", ".forge", "coverage", "__pycache__"]);
+const IGNORED_PATH_PATTERNS = [
+  /(?:^|[/])\.local[/]share[/]containers(?:[/]|$)/i,
+  /(?:^|[/])\.cache(?:[/]|$)/i,
+  /(?:^|[/])\.npm(?:[/]|$)/i,
+  /(?:^|[/])\.cargo[/]registry(?:[/]|$)/i,
+  /(?:^|[/])\.rustup(?:[/]|$)/i
+];
+function isSkippableFileSystemError(error) {
+  return error instanceof Error && "code" in error && ["EACCES", "EPERM", "ENOENT"].includes(String(error.code));
+}
+function shouldIgnore(relativePath2) {
+  const normalized = relativePath2.replaceAll("\\", "/");
+  return normalized.split("/").some((part) => IGNORED.has(part)) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 function parseMarkdown(content) {
   const frontmatter = {};
   const matched = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -2201,8 +2216,9 @@ class WorkspaceService extends EventEmitter {
     this.realRoot = null;
     this.workspaceInfo = null;
   }
-  async list(relativePath2 = "") {
-    return this.listDirectory(await this.resolve(relativePath2), relativePath2);
+  async list(relativePath2 = "", options = {}) {
+    const budget = { count: 0, maximum: Math.max(1, options.maxEntries ?? 5e3) };
+    return this.listDirectory(await this.resolve(relativePath2), relativePath2, options.recursive !== false, budget);
   }
   async readFile(relativePath2) {
     const absolute = await this.resolve(relativePath2);
@@ -2265,20 +2281,40 @@ class WorkspaceService extends EventEmitter {
   watch() {
     if (!this.rootPath) throw new Error("No workspace is open.");
     this.watcher?.close();
-    this.watcher = watch(this.rootPath, { recursive: true }, (_event, filename) => {
-      if (filename && !filename.toString().split(path.sep).some((part) => IGNORED.has(part))) this.emit("changed", filename.toString());
-    });
+    try {
+      this.watcher = watch(this.rootPath, { recursive: true }, (_event, filename) => {
+        if (filename && !shouldIgnore(filename.toString())) this.emit("changed", filename.toString());
+      });
+      this.watcher.on("error", (error) => {
+        this.watcher?.close();
+        if (!isSkippableFileSystemError(error)) this.emit("watch-error", error);
+      });
+    } catch (error) {
+      if (!isSkippableFileSystemError(error)) throw error;
+    }
   }
-  async listDirectory(absolute, relative) {
-    const entries = await promises.readdir(absolute, { withFileTypes: true });
+  async listDirectory(absolute, relative, recursive, budget) {
+    let entries;
+    try {
+      entries = await promises.readdir(absolute, { withFileTypes: true });
+    } catch (error) {
+      if (isSkippableFileSystemError(error)) return [];
+      throw error;
+    }
     const nodes = [];
     for (const entry of entries) {
-      if (IGNORED.has(entry.name) || entry.isSymbolicLink()) continue;
+      if (budget.count >= budget.maximum) break;
       const childRelative = relative ? path.join(relative, entry.name) : entry.name;
+      if (shouldIgnore(childRelative) || entry.isSymbolicLink()) continue;
       const childAbsolute = path.join(absolute, entry.name);
-      const node = await this.nodeFor(childAbsolute, childRelative);
-      if (entry.isDirectory()) node.children = await this.listDirectory(childAbsolute, childRelative);
-      nodes.push(node);
+      try {
+        const node = await this.nodeFor(childAbsolute, childRelative);
+        budget.count += 1;
+        if (entry.isDirectory() && recursive) node.children = await this.listDirectory(childAbsolute, childRelative, recursive, budget);
+        nodes.push(node);
+      } catch (error) {
+        if (!isSkippableFileSystemError(error)) throw error;
+      }
     }
     return nodes.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1);
   }
@@ -6226,7 +6262,7 @@ class SettingsService {
       githubUsername: this.data.githubUsername ?? "",
       githubTokenConfigured: Boolean(this.data.githubToken),
       secureStorageAvailable: this.encryptionAvailable,
-      webResearchEnabled: this.data.webResearchEnabled !== false,
+      webResearchEnabled: this.data.webResearchEnabled === true,
       updateChannel: normalizeUpdateChannel(this.data.updateChannel)
     };
   }
@@ -6274,7 +6310,7 @@ class SettingsService {
     return { login: profile.login };
   }
   webResearchEnabled() {
-    return this.data.webResearchEnabled !== false;
+    return this.data.webResearchEnabled === true;
   }
   updateChannel() {
     return normalizeUpdateChannel(this.data.updateChannel);
@@ -6361,10 +6397,17 @@ const MAX_TEXT_BYTES = 2e6;
 const MAX_RANGED_TEXT_BYTES = 64e6;
 const MAX_SEARCH_RESULTS = 200;
 const MAX_LIST_ENTRIES = 1e3;
+const SKIPPED_WORKSPACE_NAMES = /* @__PURE__ */ new Set([".git", ".forge", ".obsidian", "node_modules", "dist_electron", "out"]);
+const SKIPPED_WORKSPACE_PATHS = [/(?:^|[/])\.local[/]share[/]containers(?:[/]|$)/i, /(?:^|[/])\.cache(?:[/]|$)/i];
 const textOutput = z.object({ success: z.boolean() }).passthrough();
 const relativePath = z.string().min(1).max(4096).refine((value) => !path__default.isAbsolute(value) && !value.split(/[\\/]/).includes(".."), "Path must be workspace-relative and may not traverse upward.");
 const reason = z.string().min(3).max(2e3);
 const inside = (root, candidate) => candidate === root || candidate.startsWith(`${root}${path__default.sep}`);
+const skippableFileSystemError = (error) => error instanceof Error && "code" in error && ["EACCES", "EPERM", "ENOENT"].includes(String(error.code));
+const skippedWorkspacePath = (root, candidate) => {
+  const relative = path__default.relative(root, candidate).replaceAll("\\", "/");
+  return relative.split("/").some((part) => SKIPPED_WORKSPACE_NAMES.has(part)) || SKIPPED_WORKSPACE_PATHS.some((pattern) => pattern.test(relative));
+};
 async function resolveContainedPath(rootValue, relative, allowMissing = false) {
   if (!relative || path__default.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) throw new Error("Path must be workspace-relative and may not traverse upward.");
   const root = await promises.realpath(rootValue);
@@ -6693,14 +6736,24 @@ class ToolRouter {
       if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), entries: [], truncated: false });
       const entries = [];
       const visit = async (current, depth) => {
-        const directory = await promises.readdir(current, { withFileTypes: true });
+        let directory;
+        try {
+          directory = await promises.readdir(current, { withFileTypes: true });
+        } catch (error) {
+          if (skippableFileSystemError(error)) return;
+          throw error;
+        }
         directory.sort((left, right) => left.name.localeCompare(right.name));
         for (const entry of directory) {
-          if ([".git", ".forge", "node_modules", "dist_electron", "out"].includes(entry.name)) continue;
           const child = path__default.join(current, entry.name);
-          const stat = await promises.lstat(child);
-          entries.push({ path: path__default.relative(root, child), type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file", size: stat.size });
-          if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1);
+          if (skippedWorkspacePath(root, child)) continue;
+          try {
+            const stat = await promises.lstat(child);
+            entries.push({ path: path__default.relative(root, child), type: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file", size: stat.size });
+            if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1);
+          } catch (error) {
+            if (!skippableFileSystemError(error)) throw error;
+          }
         }
       };
       await visit(absolute, 0);
@@ -6737,17 +6790,25 @@ class ToolRouter {
     });
     this.executors.set("file.search", async (input, request, signal) => {
       const requestedPath = input.path === "." ? "." : input.path;
-      const absolute = await resolveContainedPath(this.root(request), requestedPath, true);
+      const root = await promises.realpath(this.root(request));
+      const absolute = await resolveContainedPath(root, requestedPath, true);
       if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), matches: [], truncated: false });
       const matches = [];
       let matchOffset = 0;
       const query = input.caseSensitive ? input.query : input.query.toLowerCase();
       const visit = async (current) => {
         if (signal.aborted || matches.length >= input.maxResults) return;
-        for (const entry of await promises.readdir(current, { withFileTypes: true })) {
+        let directory;
+        try {
+          directory = await promises.readdir(current, { withFileTypes: true });
+        } catch (error) {
+          if (skippableFileSystemError(error)) return;
+          throw error;
+        }
+        for (const entry of directory) {
           if (signal.aborted || matches.length >= input.maxResults) return;
-          if ([".git", ".forge", ".obsidian", "node_modules", "dist_electron", "out"].includes(entry.name)) continue;
           const child = path__default.join(current, entry.name);
+          if (skippedWorkspacePath(root, child)) continue;
           if (entry.isDirectory()) await visit(child);
           else if (entry.isFile()) {
             try {
@@ -6755,7 +6816,7 @@ class ToolRouter {
               for (const [index, line] of data.content.split(/\r?\n/).entries()) {
                 const haystack = input.caseSensitive ? line : line.toLowerCase();
                 if (haystack.includes(query)) {
-                  if (matchOffset >= input.offset) matches.push({ path: path__default.relative(this.root(request), child), line: index + 1, text: line.slice(0, 2e3) });
+                  if (matchOffset >= input.offset) matches.push({ path: path__default.relative(root, child), line: index + 1, text: line.slice(0, 2e3) });
                   matchOffset += 1;
                 }
                 if (matches.length >= input.maxResults) break;
@@ -9129,8 +9190,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "10f78c5f42648a762dbc0a89b4b53cc1a36b804d",
-    buildDate: "2026-08-22T02:41:26.302Z",
+    commit: "4a54d324ef2dfcabdebca4f939a9d09845880b77",
+    buildDate: "2026-08-22T03:33:00.616Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9160,7 +9221,7 @@ function eventForChannel(channel) {
   if (channel.startsWith("tasks.")) return "task.changed";
   if (channel.startsWith("agent.memories")) return "memory.changed";
   if (channel.startsWith("terminal.")) return "terminal.changed";
-  if (channel === IPC_CHANNELS.workspaceOpen) return "workspace.changed";
+  if (channel === IPC_CHANNELS.workspaceOpen || channel === IPC_CHANNELS.workspaceOpenHome) return "workspace.changed";
   return null;
 }
 function register(channel, action) {
@@ -9396,10 +9457,11 @@ function registerHandlers() {
     if (selection.canceled || !selection.filePaths[0]) throw new Error("Workspace selection was cancelled.");
     return openWorkspaceAt(selection.filePaths[0]);
   });
+  register(IPC_CHANNELS.workspaceOpenHome, async () => openWorkspaceAt(homedir()));
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
-  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path));
+  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive }));
   register(IPC_CHANNELS.fileRead, async (request) => workspace.readFile(request.path));
   register(IPC_CHANNELS.fileWrite, async (request) => workspace.writeFile(request.path, request.content));
   register(IPC_CHANNELS.fileCreate, async (request) => workspace.create(request.path, request.type, request.content));

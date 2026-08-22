@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -66,6 +66,29 @@ describe('agent tool runtime', () => {
     expect(first.result?.output).toMatchObject({ truncated: true, continuation: { offset: 2 } });
     const second = await router.request({ id: 'search-page-2', name: 'file.search', provider: 'test', arguments: { query: 'needle', maxResults: 2, offset: 2 } }, context);
     expect(second.result?.output).toMatchObject({ truncated: false, matches: [{ line: 3, text: 'needle three' }] });
+  });
+
+  it('skips protected home paths during recursive model listing and search', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-home-tools-'));
+    const protectedDirectory = path.join(root, 'protected');
+    await writeFile(path.join(root, 'visible.txt'), 'needle');
+    await mkdir(path.join(root, '.local', 'share', 'containers', 'storage', 'overlay'), { recursive: true });
+    await writeFile(path.join(root, '.local', 'share', 'containers', 'storage', 'overlay', 'private.txt'), 'needle');
+    await mkdir(protectedDirectory);
+    if (process.platform !== 'win32') await chmod(protectedDirectory, 0o000);
+    try {
+      const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+      const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+      const listing = await router.request({ id: 'home-list', name: 'file.list', provider: 'test', arguments: { recursive: true, maxDepth: 8 } }, context);
+      expect(listing.result?.success).toBe(true);
+      expect(listing.result?.output).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ path: 'visible.txt' })]) });
+      expect(JSON.stringify(listing.result?.output)).not.toContain('private.txt');
+      const search = await router.request({ id: 'home-search', name: 'file.search', provider: 'test', arguments: { query: 'needle' } }, context);
+      expect(search.result?.success).toBe(true);
+      expect(search.result?.output).toMatchObject({ matches: [{ path: 'visible.txt' }] });
+    } finally {
+      if (process.platform !== 'win32') await chmod(protectedDirectory, 0o700).catch(() => undefined);
+    }
   });
 
   it('keeps file.list independent from malformed optional task context', async () => {

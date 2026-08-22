@@ -1,6 +1,7 @@
 import { app, BrowserView, BrowserWindow, clipboard, dialog, ipcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { is } from '@electron-toolkit/utils';
@@ -98,7 +99,7 @@ function eventForChannel(channel: IPCChannel): RuntimeEventType | null {
   if (channel.startsWith('tasks.')) return 'task.changed';
   if (channel.startsWith('agent.memories')) return 'memory.changed';
   if (channel.startsWith('terminal.')) return 'terminal.changed';
-  if (channel === IPC_CHANNELS.workspaceOpen) return 'workspace.changed';
+  if (channel === IPC_CHANNELS.workspaceOpen || channel === IPC_CHANNELS.workspaceOpenHome) return 'workspace.changed';
   return null;
 }
 
@@ -299,10 +300,11 @@ function registerHandlers(): void {
     if (selection.canceled || !selection.filePaths[0]) throw new Error('Workspace selection was cancelled.');
     return openWorkspaceAt(selection.filePaths[0]);
   });
+  register(IPC_CHANNELS.workspaceOpenHome, async () => openWorkspaceAt(homedir()));
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
-  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path));
+  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive }));
   register(IPC_CHANNELS.fileRead, async (request) => workspace.readFile(request.path));
   register(IPC_CHANNELS.fileWrite, async (request) => workspace.writeFile(request.path, request.content));
   register(IPC_CHANNELS.fileCreate, async (request) => workspace.create(request.path, request.type, request.content));

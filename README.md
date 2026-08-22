@@ -79,7 +79,7 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 ## ⚡ Start with FORGE
 
-### Install the current beta
+### Install the published macOS beta
 
 1. Open the [`FORGE v2.3 Beta` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1).
 2. Download `FORGE-2.3.0-beta.1-universal.dmg`.
@@ -88,11 +88,35 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 The current beta is unsigned and not notarized. macOS may require Control-click → **Open** or approval in **System Settings → Privacy & Security**.
 
+### Install or update from source
+
+FORGE packages native dependencies on the target operating system. Use the command for the machine that will run it:
+
+```sh
+# macOS: fast-forward main, package, verify, install, and open /Applications/FORGE.app
+cd ~/FORGE
+npm run update:mac
+```
+
+```powershell
+# Windows PowerShell: fast-forward main, package, install, and verify app.asar
+cd $HOME\FORGE
+npm run update:win
+```
+
+```sh
+# Native Linux standalone package build (AppImage and DEB)
+cd ~/FORGE
+./scripts/package-linux.sh
+```
+
+The macOS and Windows update commands require a trusted `origin`, branch `main`, and no source changes outside `.obsidian`; they preserve local `.obsidian` UI state and refuse divergent history. Windows must be run on Windows with FORGE closed. Linux packaging must be run on Linux. For the integrated Arch environment, clone the sibling [FORGE-OS repository](https://github.com/kaeganscott26/FORGE-OS) and use its `./install.sh` or `./update.sh` entry point.
+
 ### Open a project
 
-FORGE opens the project folder in place. It does not import, clone, or relocate your source. Workspace-owned state is stored under `<workspace>/.forge/metadata.sqlite`; project files and Git history remain where they already are.
+FORGE opens the project folder in place. It does not import, clone, or relocate your source. Choose **Home** to use your platform home directory (`~`) as the workspace, or **Open workspace** for a narrower project root. Workspace-owned state is stored under `<workspace>/.forge/metadata.sqlite`; project files and Git history remain where they already are. Explorer folders load on demand, and protected or transient subtrees that the operating system refuses to enumerate are skipped instead of making the whole workspace fail.
 
-Use the Explorer to browse and edit files, Source Control to inspect Git state, Tasks for persistent work, and Terminal when a CLI agent or normal shell command is the best executor. The built-in **Browser** opens public HTTP(S) research in tabs; bookmarks and history remain in the active workspace database, while an agent may read page text only through the explicit browser tool approval flow.
+Use the Explorer to browse and edit files. **New file**, the Explorer `+`, and goal/task `+` controls open an in-app creation dialog and route through typed IPC. Source Control inspects Git state, Tasks keeps persistent work, and Terminal is available when a CLI agent or normal shell command is the best executor. The built-in **Browser** opens public HTTP(S) research in tabs; bookmarks and history remain in the active workspace database, while an agent may read page text only through the explicit browser tool approval flow.
 
 ## 🏗️ Architecture at a glance
 
@@ -130,7 +154,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the full system map.
 
 ### Requirements
 
-- macOS 12+ for the packaged desktop app
+- A supported target OS: macOS 12+, Windows x64, or native x64 Linux
 - Node.js 22 LTS (see `.nvmrc`)
 - npm and Git
 

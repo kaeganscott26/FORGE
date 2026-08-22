@@ -47,7 +47,7 @@ export class SettingsService {
       githubUsername: this.data.githubUsername ?? '',
       githubTokenConfigured: Boolean(this.data.githubToken),
       secureStorageAvailable: this.encryptionAvailable
-      , webResearchEnabled: this.data.webResearchEnabled !== false
+      , webResearchEnabled: this.data.webResearchEnabled === true
       , updateChannel: normalizeUpdateChannel(this.data.updateChannel)
     };
   }
@@ -101,7 +101,7 @@ export class SettingsService {
     return { login: profile.login };
   }
 
- webResearchEnabled(): boolean { return this.data.webResearchEnabled !== false; }
+ webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
   updateChannel(): 'stable' | 'beta' { return normalizeUpdateChannel(this.data.updateChannel); }
 
   private validateUrl(value: string): string {

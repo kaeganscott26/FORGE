@@ -41,6 +41,9 @@ Historical evidence remains available for auditability, but it does not describe
 
 - [Historical archive](archive/README.md)
 - [Changelog](../CHANGELOG.md)
+- [Development arc](Development_arc.md) — historical narrative, not a current implementation contract.
+- [Beta product review](FORGE_REVIEW.md) — point-in-time critique and recommendations; current status supersedes its measurements.
+- [Platform and market thesis](FORGE_PLATFORM_MARKET_THESIS.md) — product-positioning hypothesis, not runtime evidence.
 
 ## ✍️ Documentation contract
 

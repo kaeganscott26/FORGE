@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- Replaced browser-native text prompts with routed in-app dialogs for file/folder creation, rename, goals, metadata tasks, persistent tasks, release workflows, task pause, and conversation rename. New files activate the editor immediately.
+- Added an allowlisted `workspace.open.home` route and Home controls on every desktop platform. Explorer now loads folders on demand; bounded memory discovery and model `file.list`/`file.search` skip unreadable, vanished, cache, and container-storage subtrees rather than failing the entire home workspace.
+- Added a renderer routing contract test that rejects buttons without click or form-submit behavior.
+- Made external web research opt-in by default, preserving automatic bounded public reads only after the user enables the capability.
+- Consolidated active install/update and workspace guidance across README, User Manual, User Configuration, and Project Status.
+- Removed the stray tracked `tatus` ANSI diff artifact in commit `4a54d32`; its forensic history remains in [the tooling runtime audit](docs/TOOLING_RUNTIME_AUDIT_2026-08-21.md).
+- Ollama now receives every currently available `ToolRouter.providerDefinitions()` capability, safe legacy aliases resolve, and invalid model-invented task UUID metadata is discarded while valid workspace task links remain.
+- Removed the numeric context-health score while preserving README presence, file counts, goals, tasks, memory, retrieval rank, and per-source relevance.
+- Platform-specific updater metadata supports macOS, Windows, and Linux; source update entry points are `npm run update:mac`, `npm run update:win`, and FORGE-OS `./update.sh`.
 - macOS local installation now stages and verifies the replacement universal bundle before activation, validates installed executable and `app.asar` hashes against the build manifest, and restores the Trash backup if activation fails. The stable `/usr/local/bin/forge-session` path continues to report the canonical bundle's version and source commit across upgrades without requesting administrator authentication when the launcher is unchanged.
 - Documentation now distinguishes shared-source runtime parity from platform-native artifact hashes and records the corresponding FORGE-OS runtime identity contract.
 

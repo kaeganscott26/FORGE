@@ -36,4 +36,43 @@ describe('WorkspaceService state', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('keeps a home-sized workspace usable when protected and container-backed paths are present', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-home-'));
+    const protectedDirectory = join(root, 'protected');
+    try {
+      await fs.writeFile(join(root, 'visible.txt'), 'visible');
+      await fs.mkdir(join(root, '.local', 'share', 'containers', 'storage', 'overlay'), { recursive: true });
+      await fs.writeFile(join(root, '.local', 'share', 'containers', 'storage', 'overlay', 'container.txt'), 'skip');
+      await fs.mkdir(protectedDirectory);
+      if (process.platform !== 'win32') await fs.chmod(protectedDirectory, 0o000);
+      const service = new WorkspaceService();
+      await service.open(root);
+      const tree = await service.list();
+      expect(tree.some((entry) => entry.name === 'visible.txt')).toBe(true);
+      expect(JSON.stringify(tree)).not.toContain('container.txt');
+      if (process.platform !== 'win32') expect(tree.find((entry) => entry.name === 'protected')?.children).toEqual([]);
+    } finally {
+      if (process.platform !== 'win32') await fs.chmod(protectedDirectory, 0o700).catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('supports bounded shallow listing for a lazy home explorer', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-lazy-'));
+    try {
+      await fs.mkdir(join(root, 'parent', 'child'), { recursive: true });
+      await fs.writeFile(join(root, 'parent', 'child', 'deep.txt'), 'deep');
+      const service = new WorkspaceService();
+      await service.open(root);
+      const rootEntries = await service.list('', { recursive: false });
+      expect(rootEntries.find((entry) => entry.name === 'parent')?.children).toBeUndefined();
+      const parentEntries = await service.list('parent', { recursive: false });
+      expect(parentEntries.map((entry) => entry.name)).toEqual(['child']);
+      const bounded = await service.list('', { maxEntries: 1 });
+      expect(JSON.stringify(bounded)).not.toContain('deep.txt');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

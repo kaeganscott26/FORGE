@@ -237,7 +237,7 @@ export interface AgentResponse {
 }
 
 export const IPC_CHANNELS = {
-  workspaceOpen: 'workspace.open', workspaceInfo: 'workspace.info', workspaceLayoutGet: 'workspace.layout.get', workspaceLayoutSave: 'workspace.layout.save',
+  workspaceOpen: 'workspace.open', workspaceOpenHome: 'workspace.open.home', workspaceInfo: 'workspace.info', workspaceLayoutGet: 'workspace.layout.get', workspaceLayoutSave: 'workspace.layout.save',
   fileList: 'file.list', fileRead: 'file.read', fileWrite: 'file.write', fileCreate: 'file.create', fileDelete: 'file.delete', fileRename: 'file.rename', fileCopy: 'file.copy',
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
   metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaTaskCreate: 'meta.task.create',
@@ -256,8 +256,8 @@ export const IPC_CHANNELS = {
 } as const;
 
 export interface IPCRequestMap {
-  'workspace.open': undefined; 'workspace.info': undefined; 'workspace.layout.get': undefined; 'workspace.layout.save': WorkspaceLayout;
-  'file.list': { path?: string }; 'file.read': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string }; 'file.copy': FileCopyRequest;
+  'workspace.open': undefined; 'workspace.open.home': undefined; 'workspace.info': undefined; 'workspace.layout.get': undefined; 'workspace.layout.save': WorkspaceLayout;
+  'file.list': { path?: string; recursive?: boolean }; 'file.read': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string }; 'file.copy': FileCopyRequest;
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
   'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
   'app.update.status': undefined; 'app.update.check': undefined; 'app.update.install': undefined; 'app.release.open': undefined; 'app.build.info': undefined; 'app.build.info.copy': undefined;
@@ -276,7 +276,7 @@ export interface IPCRequestMap {
 }
 
 export interface IPCResponseMap {
-  'workspace.open': WorkspaceInfo; 'workspace.info': WorkspaceInfo | null; 'workspace.layout.get': WorkspaceLayout; 'workspace.layout.save': WorkspaceLayout;
+  'workspace.open': WorkspaceInfo; 'workspace.open.home': WorkspaceInfo; 'workspace.info': WorkspaceInfo | null; 'workspace.layout.get': WorkspaceLayout; 'workspace.layout.save': WorkspaceLayout;
   'file.list': FileNode[]; 'file.read': FileContent; 'file.write': FileContent; 'file.create': FileNode; 'file.delete': void; 'file.rename': FileNode; 'file.copy': FileNode;
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
   'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.task.create': Task;

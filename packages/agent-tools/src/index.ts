@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Dirent } from 'node:fs';
 import path from 'node:path';
 import type { GitHubService, GitService } from '@forge/git';
 import type { ShellService, ShellRunInput } from '@forge/shell';
@@ -13,6 +13,8 @@ const MAX_TEXT_BYTES = 2_000_000;
 const MAX_RANGED_TEXT_BYTES = 64_000_000;
 const MAX_SEARCH_RESULTS = 200;
 const MAX_LIST_ENTRIES = 1_000;
+const SKIPPED_WORKSPACE_NAMES = new Set(['.git', '.forge', '.obsidian', 'node_modules', 'dist_electron', 'out']);
+const SKIPPED_WORKSPACE_PATHS = [/(?:^|[/])\.local[/]share[/]containers(?:[/]|$)/i, /(?:^|[/])\.cache(?:[/]|$)/i];
 const textOutput = z.object({ success: z.boolean() }).passthrough();
 const relativePath = z.string().min(1).max(4_096).refine((value) => !path.isAbsolute(value) && !value.split(/[\\/]/).includes('..'), 'Path must be workspace-relative and may not traverse upward.');
 const reason = z.string().min(3).max(2_000);
@@ -62,6 +64,11 @@ export interface ToolRequestOutcome { request: ToolRequest; result?: ToolResult;
 type ToolExecutor = (input: any, request: ToolRequest, signal: AbortSignal) => Promise<Omit<ToolResult, 'requestId' | 'toolName' | 'durationMs'>>;
 
 const inside = (root: string, candidate: string): boolean => candidate === root || candidate.startsWith(`${root}${path.sep}`);
+const skippableFileSystemError = (error: unknown): boolean => error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'ENOENT'].includes(String(error.code));
+const skippedWorkspacePath = (root: string, candidate: string): boolean => {
+  const relative = path.relative(root, candidate).replaceAll('\\', '/');
+  return relative.split('/').some((part) => SKIPPED_WORKSPACE_NAMES.has(part)) || SKIPPED_WORKSPACE_PATHS.some((pattern) => pattern.test(relative));
+};
 
 export async function resolveContainedPath(rootValue: string, relative: string, allowMissing = false): Promise<string> {
   if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) throw new Error('Path must be workspace-relative and may not traverse upward.');
@@ -324,7 +331,28 @@ export class ToolRouter {
   private installExecutors(): void {
     const ok = (output: unknown, affectedPaths: string[] = [], extra: Partial<ToolResult> = {}): any => ({ success: true, output: { success: true, ...output as object }, affectedPaths, warnings: [], ...extra });
     const missing = (requestedPath: string): Record<string, unknown> => ({ missing: true, requestedPath, recovery: { action: 'restart-at-workspace-root', path: '.', nearestRequestedParent: path.dirname(requestedPath) || '.', instruction: 'List the workspace root, discover the real layout, and retry only with an observed path.' } });
-    this.executors.set('file.list', async (input, request) => { const requestedPath = input.path === '.' ? '.' : input.path; const root = await fs.realpath(this.root(request)); const absolute = await resolveContainedPath(root, requestedPath, true); if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), entries: [], truncated: false }); const entries: Array<{ path: string; type: string; size: number }> = []; const visit = async (current: string, depth: number): Promise<void> => { const directory = await fs.readdir(current, { withFileTypes: true }); directory.sort((left, right) => left.name.localeCompare(right.name)); for (const entry of directory) { if (['.git', '.forge', 'node_modules', 'dist_electron', 'out'].includes(entry.name)) continue; const child = path.join(current, entry.name); const stat = await fs.lstat(child); entries.push({ path: path.relative(root, child), type: entry.isDirectory() ? 'directory' : entry.isSymbolicLink() ? 'symlink' : 'file', size: stat.size }); if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1); } }; await visit(absolute, 0); const page = entries.slice(input.offset, input.offset + input.maxEntries); const nextOffset = input.offset + page.length; const truncated = nextOffset < entries.length; return ok({ entries: page, totalEntries: entries.length, truncated, continuation: truncated ? { offset: nextOffset, instruction: 'Call file.list again with the same path, recursion, and depth plus this offset.' } : undefined }); });
+    this.executors.set('file.list', async (input, request) => {
+      const requestedPath = input.path === '.' ? '.' : input.path; const root = await fs.realpath(this.root(request)); const absolute = await resolveContainedPath(root, requestedPath, true);
+      if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), entries: [], truncated: false });
+      const entries: Array<{ path: string; type: string; size: number }> = [];
+      const visit = async (current: string, depth: number): Promise<void> => {
+        let directory: Dirent[];
+        try { directory = await fs.readdir(current, { withFileTypes: true }); }
+        catch (error) { if (skippableFileSystemError(error)) return; throw error; }
+        directory.sort((left, right) => left.name.localeCompare(right.name));
+        for (const entry of directory) {
+          const child = path.join(current, entry.name);
+          if (skippedWorkspacePath(root, child)) continue;
+          try {
+            const stat = await fs.lstat(child);
+            entries.push({ path: path.relative(root, child), type: entry.isDirectory() ? 'directory' : entry.isSymbolicLink() ? 'symlink' : 'file', size: stat.size });
+            if (input.recursive && entry.isDirectory() && depth < input.maxDepth) await visit(child, depth + 1);
+          } catch (error) { if (!skippableFileSystemError(error)) throw error; }
+        }
+      };
+      await visit(absolute, 0); const page = entries.slice(input.offset, input.offset + input.maxEntries); const nextOffset = input.offset + page.length; const truncated = nextOffset < entries.length;
+      return ok({ entries: page, totalEntries: entries.length, truncated, continuation: truncated ? { offset: nextOffset, instruction: 'Call file.list again with the same path, recursion, and depth plus this offset.' } : undefined });
+    });
     this.executors.set('file.read', async (input, request) => {
       const absolute = await resolveContainedPath(this.root(request), input.path, true); if (!await pathExists(absolute)) return ok(missing(input.path));
       const stat = await fs.stat(absolute);
@@ -338,7 +366,35 @@ export class ToolRouter {
       const truncated = maxEnd < endOffset;
       return ok({ path: input.path, content: returned, encoding: data.encoding, totalCharacters: content.length, totalLines, returnedRange: { offset: startOffset, length: returned.length, startLine: lineAt(startOffset), endLine: lineAt(Math.max(startOffset, maxEnd - 1)) }, truncated, continuation: truncated ? { offset: maxEnd, instruction: 'Call file.read again with this offset and the same maxCharacters.' } : undefined });
     });
-    this.executors.set('file.search', async (input, request, signal) => { const requestedPath = input.path === '.' ? '.' : input.path; const absolute = await resolveContainedPath(this.root(request), requestedPath, true); if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), matches: [], truncated: false }); const matches: Array<{ path: string; line: number; text: string }> = []; let matchOffset = 0; const query = input.caseSensitive ? input.query : input.query.toLowerCase(); const visit = async (current: string): Promise<void> => { if (signal.aborted || matches.length >= input.maxResults) return; for (const entry of await fs.readdir(current, { withFileTypes: true })) { if (signal.aborted || matches.length >= input.maxResults) return; if (['.git', '.forge', '.obsidian', 'node_modules', 'dist_electron', 'out'].includes(entry.name)) continue; const child = path.join(current, entry.name); if (entry.isDirectory()) await visit(child); else if (entry.isFile()) { try { const data = await readText(child); for (const [index, line] of data.content.split(/\r?\n/).entries()) { const haystack = input.caseSensitive ? line : line.toLowerCase(); if (haystack.includes(query)) { if (matchOffset >= input.offset) matches.push({ path: path.relative(this.root(request), child), line: index + 1, text: line.slice(0, 2_000) }); matchOffset += 1; } if (matches.length >= input.maxResults) break; } } catch { /* skip unsupported files */ } } } }; await visit(absolute); const truncated = matches.length >= input.maxResults; return ok({ matches, truncated, totalOrMore: input.offset + matches.length + (truncated ? 1 : 0), continuation: truncated ? { offset: input.offset + matches.length, instruction: 'Call file.search again with the same query/path and this offset.' } : undefined }); });
+    this.executors.set('file.search', async (input, request, signal) => {
+      const requestedPath = input.path === '.' ? '.' : input.path; const root = await fs.realpath(this.root(request)); const absolute = await resolveContainedPath(root, requestedPath, true);
+      if (!await pathExists(absolute)) return ok({ ...missing(requestedPath), matches: [], truncated: false });
+      const matches: Array<{ path: string; line: number; text: string }> = []; let matchOffset = 0; const query = input.caseSensitive ? input.query : input.query.toLowerCase();
+      const visit = async (current: string): Promise<void> => {
+        if (signal.aborted || matches.length >= input.maxResults) return;
+        let directory: Dirent[];
+        try { directory = await fs.readdir(current, { withFileTypes: true }); }
+        catch (error) { if (skippableFileSystemError(error)) return; throw error; }
+        for (const entry of directory) {
+          if (signal.aborted || matches.length >= input.maxResults) return;
+          const child = path.join(current, entry.name);
+          if (skippedWorkspacePath(root, child)) continue;
+          if (entry.isDirectory()) await visit(child);
+          else if (entry.isFile()) {
+            try {
+              const data = await readText(child);
+              for (const [index, line] of data.content.split(/\r?\n/).entries()) {
+                const haystack = input.caseSensitive ? line : line.toLowerCase();
+                if (haystack.includes(query)) { if (matchOffset >= input.offset) matches.push({ path: path.relative(root, child), line: index + 1, text: line.slice(0, 2_000) }); matchOffset += 1; }
+                if (matches.length >= input.maxResults) break;
+              }
+            } catch { /* skip unsupported or unreadable files */ }
+          }
+        }
+      };
+      await visit(absolute); const truncated = matches.length >= input.maxResults;
+      return ok({ matches, truncated, totalOrMore: input.offset + matches.length + (truncated ? 1 : 0), continuation: truncated ? { offset: input.offset + matches.length, instruction: 'Call file.search again with the same query/path and this offset.' } : undefined });
+    });
     this.executors.set('file.create', async (input, request) => { this.assertNotDirty(input.path); const absolute = await resolveContainedPath(this.root(request), input.path, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); await fs.writeFile(absolute, input.content, { flag: 'wx' }); return ok({ path: input.path }, [input.path], { diff: request.diff, rollback: { available: true, instructions: `Delete ${input.path} to undo this creation.` } }); });
     for (const name of ['file.write', 'file.patch']) this.executors.set(name, async (input, request) => { this.assertNotDirty(input.path); const absolute = await resolveContainedPath(this.root(request), input.path); const original = await readText(absolute); const after = name === 'file.write' ? input.content : applyReplacement(original.content, input.expected, input.replacement, input.replaceAll); const backup = await backupPath(this.root(request), input.path); await fs.copyFile(absolute, backup); await atomicWrite(absolute, after, original.encoding, original.mode); return ok({ path: input.path }, [input.path], { diff: unifiedDiff(input.path, original.content, after), rollback: { available: true, backupPath: path.relative(this.root(request), backup), instructions: `Restore the backup over ${input.path}.` } }); });
     for (const name of ['file.rename', 'file.move']) this.executors.set(name, async (input, request) => { this.assertNotDirty(input.from); this.assertNotDirty(input.to); const source = await resolveContainedPath(this.root(request), input.from); const destination = await resolveContainedPath(this.root(request), input.to, true); await fs.access(destination).then(() => { throw new Error('Destination already exists.'); }).catch((error) => { if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return; throw error; }); await fs.mkdir(path.dirname(destination), { recursive: true }); await fs.rename(source, destination); return ok({}, [input.from, input.to], { rollback: { available: true, instructions: `Move ${input.to} back to ${input.from}.` } }); });

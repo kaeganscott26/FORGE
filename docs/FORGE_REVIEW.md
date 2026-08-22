@@ -1,4 +1,8 @@
-Overall: where FORGE actually is
+# FORGE beta product review
+
+> Point-in-time review and recommendation record. Scores, file limits, feature gaps, and comparisons below reflect the repository when the review was written and may be superseded. Use [Project Status](PROJECT_STATUS.md), [Architecture](ARCHITECTURE.md), and [Tools in Plain English](TOOLING_GUIDE.md) for current behavior.
+
+## Overall: where FORGE was at review time
 
 If I were reviewing FORGE as an early-stage software product rather than grading the ambition:
 

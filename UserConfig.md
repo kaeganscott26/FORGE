@@ -1,12 +1,12 @@
 # ⚙️ FORGE User Configuration
 
-This guide covers Git integration, AI API integration, and macOS release credentials. Do not put real secrets in the repository.
+This guide covers Git integration, AI API integration, platform updates, and release credentials. Do not put real secrets in the repository.
 
 ## 🌿 Git integration
 
 FORGE uses the system `git` executable and the repository's existing configuration. Open **GitHub** in the app to save a username and fine-grained personal access token. Grant only the selected repositories and the minimum Contents read/write permission needed for pull and push.
 
-The token is encrypted with Electron `safeStorage` and macOS Keychain. During an HTTPS GitHub pull or push, FORGE provides it to Git through a temporary ask-pass environment. It is not placed in the remote URL, project files, or `.forge/metadata.sqlite`.
+The token is encrypted with Electron `safeStorage` using the secure credential service available on macOS, Windows, or Linux. If secure OS encryption is unavailable, FORGE refuses to save the secret. During an HTTPS GitHub pull or push, FORGE provides it to Git through a private ask-pass environment. It is not placed in the remote URL, project files, or `.forge/metadata.sqlite`.
 
 Set your commit identity once:
 
@@ -21,7 +21,7 @@ Confirm the workspace remote:
 git remote -v
 ```
 
-For GitHub HTTPS authentication, use Git Credential Manager or authenticate GitHub CLI and allow Git to use the resulting credentials. For SSH, add an SSH remote and load the matching key into the macOS keychain. FORGE never stores a GitHub password or token in `.forge/metadata.sqlite`.
+For GitHub HTTPS authentication, use Git Credential Manager or authenticate GitHub CLI and allow Git to use the resulting credentials. For SSH, add an SSH remote and load the matching key into the platform SSH agent or credential service. FORGE never stores a GitHub password or token in `.forge/metadata.sqlite`.
 
 Use **Test saved GitHub connection** in the app. You can also test system-managed credentials before using Pull or Push:
 
@@ -32,7 +32,7 @@ git push --dry-run origin HEAD
 
 ## 🤖 AI API integration
 
-Open **Settings** in FORGE to save the API key, base URL, and model. The API key is encrypted with macOS Keychain-backed storage and is never returned to the renderer after saving.
+Open **Settings** in FORGE to save the API key, base URL, and model. The API key is encrypted with Electron's platform secure storage and is never returned to the renderer after saving.
 
 For development and automation, the OpenAI-compatible provider also supports these environment fallbacks:
 
@@ -52,7 +52,7 @@ npm run dev
 
 Do not paste the key into documentation, source, shell history, or Git. Prefer a local secret manager.
 
-The in-app settings are recommended for packaged builds. macOS apps opened from Finder do not normally inherit shell startup variables. If you deliberately prefer session variables, use:
+The in-app settings are recommended for packaged builds. Desktop apps do not reliably inherit interactive-shell startup variables. On macOS, if you deliberately prefer session variables, use:
 
 ```sh
 launchctl setenv OPENAI_API_KEY "your-key"
@@ -90,13 +90,26 @@ The Settings build diagnostic is intentionally separate from user configuration.
 
 ## 🛡️ Tool and update configuration
 
-External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabling web research does not approve a request: each `web.search`, `web.fetch`, or `web.open` remains Tier 2 and shows its exact query/URL and declared project-data transfer.
+External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabled public `web.search` and `web.fetch` requests may run as bounded read-only network tools without sending workspace content; Browser page disclosure to a model, remote writes, and any declared project-data transfer retain explicit approval. Every request is still validated, bounded, and audited.
 
 The update channel defaults to **Stable**, including settings with no recognized channel. Choose **Beta** to allow newer beta, release-candidate, or stable versions. A legacy stored `preview` value migrates to `beta`. Bounded GitHub Release discovery filters drafts, malformed versions, incompatible prereleases, unsafe metadata, and non-forward versions before selecting an exact feed. Stable accepts only normal semantic versions. The selected feed resets downgrade permission, and the returned version is checked again before download. This preference contains no secret.
 
 Beta does not accept future alpha versions. The legacy preference migration moves an installed alpha.3 forward to the Beta channel under the corrected discovery policy.
 
 Tool session permissions are not stored in settings. They are exact workspace/tool/scope grants held only in memory, expire within one hour, and are cleared when the workspace changes. A persistent task or saved approval record never revives an expired permission. The persistent per-workspace action log and linked task events are stored in `.forge/metadata.sqlite`; sensitive inputs are redacted before insertion.
+
+The **Home** control opens the current operating-system home directory as the active workspace. This changes the workspace boundary; it does not grant global filesystem access. Explorer folders load on demand, bounded intelligence scans stop after their evidence budget, and protected operating-system or container-storage subtrees are skipped. All normal file, terminal, Git, memory, and model tools remain confined to the selected workspace.
+
+### Platform source updates
+
+| Platform | Command | Result |
+| --- | --- | --- |
+| macOS | `npm run update:mac` | Trusted fast-forward, universal package verification, `/Applications/FORGE.app` install, launch |
+| Windows PowerShell | `npm run update:win` | Trusted fast-forward, x64 NSIS package/install, installed `app.asar` verification |
+| Linux standalone | `./scripts/package-linux.sh` | Native AppImage and DEB build/verification; does not install |
+| FORGE-OS | `cd ~/FORGE-OS && ./update.sh` | Updates pinned sibling sources, checkpoints integration, installs runtime, preserves `.obsidian` |
+
+The macOS and Windows update scripts require `main`, the trusted GitHub origin, and no source changes outside `.obsidian`. They refuse divergent history. Run native packaging on its target OS; macOS inspection does not prove a Windows or Linux package.
 
 ## 📦 GitHub Release integration
 

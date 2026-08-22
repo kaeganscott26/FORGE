@@ -25,11 +25,18 @@ small, .muted { color: #7d8997; font-weight: 400; letter-spacing: 0; }
 .danger { color: #ff9a9a; }
 .notice { position: absolute; top: 62px; left: 50%; transform: translateX(-50%); z-index: 5; background: #4b2028; border: 1px solid #a84d57; padding: 10px 12px; border-radius: 6px; display: flex; gap: 18px; }
 .notice button { padding: 0 5px; background: transparent; }
+.text-input-dialog-backdrop { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(2,5,7,.72); }
+.text-input-dialog { width: min(440px, 100%); padding: 18px; border: 1px solid #42525e; border-radius: 9px; background: #111920; box-shadow: 0 22px 70px rgba(0,0,0,.7); }
+.text-input-dialog h2 { margin: 0 0 15px; color: #e2eaf0; font-size: 17px; }
+.text-input-dialog label { display: grid; gap: 7px; color: #91a0ac; font-size: 11px; }
+.text-input-dialog input { width: 100%; padding: 9px 10px; border: 1px solid #3a4853; border-radius: 5px; background: #090d11; color: #e1e8ed; }
+.text-input-dialog footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 16px; }
 .welcome { display: grid; min-height: calc(100vh - 52px); place-items: center; }
 .welcome > div { width: min(720px, 90vw); text-align: center; }
 .eyebrow { color: #b8ff4d; font-size: 12px; letter-spacing: .19em; font-weight: bold; }
 h1 { font-size: clamp(48px, 7vw, 86px); line-height: .93; letter-spacing: -.07em; margin: 18px 0; }
 .welcome p:not(.eyebrow) { color: #9aa8b7; max-width: 540px; margin: 0 auto 26px; line-height: 1.6; }
+.welcome-actions { display: flex; justify-content: center; gap: 8px; }
 .primary, .accent { background: #b8ff4d; color: #15200b; font-weight: 700; }
 .primary { padding: 12px 18px; }
 .workspace-grid { position: relative; height: calc(100vh - 52px); min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(180px, var(--explorer-width)) 5px minmax(300px, 1fr) 5px minmax(260px, var(--intelligence-width)); grid-template-rows: minmax(260px, 1fr) 5px minmax(160px, var(--bottom-height)); }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import type { AgentResponse, ConversationState } from '@forge/ipc';
 import { forgeInvoke } from '../forge';
+import TextInputDialog from './TextInputDialog';
 
 const data = async <T,>(promise: ReturnType<typeof forgeInvoke>): Promise<T> => {
   const result = await promise;
@@ -14,6 +15,7 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextSources, setContextSources] = useState<AgentResponse['contextSources']>([]);
+  const [renaming, setRenaming] = useState(false);
 
   const loadState = useCallback(async (conversationId?: string): Promise<void> => {
     setError(null);
@@ -40,12 +42,9 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };
 
-  const renameConversation = async (): Promise<void> => {
+  const renameConversation = async (title: string): Promise<void> => {
     if (!conversation) return;
-    const current = conversation.threads.find((thread) => thread.id === conversation.activeConversationId);
-    const title = window.prompt('Conversation title:', current?.title ?? '');
-    if (!title?.trim()) return;
-    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.rename', { conversationId: conversation.activeConversationId, title }))); }
+    try { setConversation(await data<ConversationState>(forgeInvoke('agent.conversation.rename', { conversationId: conversation.activeConversationId, title }))); setRenaming(false); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };
 
@@ -85,7 +84,7 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
   return <section className="chat-panel" aria-label="Workspace conversations">
     <div className="chat-header">
       <div><strong>Workspace AI</strong><small>{activeThread?.title ?? 'Loading conversation…'}</small></div>
-      <div><button onClick={renameConversation} disabled={!conversation}>Rename</button><button onClick={clearConversation} disabled={!conversation?.messages.length}>Clear</button><button className="accent" onClick={createConversation}>New chat</button></div>
+      <div><button onClick={() => setRenaming(true)} disabled={!conversation}>Rename</button><button onClick={clearConversation} disabled={!conversation?.messages.length}>Clear</button><button className="accent" onClick={createConversation}>New chat</button></div>
     </div>
     <label className="conversation-picker">Conversation
       <select value={conversation?.activeConversationId ?? ''} onChange={(event) => void selectConversation(event.target.value)} disabled={!conversation}>
@@ -99,5 +98,6 @@ export default function ChatPanel({ workspaceKey }: { workspaceKey: string }): J
     {contextSources?.length ? <details className="context-sources"><summary>Relevant context ({contextSources.length})</summary>{sourceGroups.map((group) => <section key={group.kind}><strong>{group.kind}</strong>{group.sources.map((source) => <span key={source.id}><b>{source.title}</b>{source.relevance ? <em>{source.relevance}% relevance</em> : null}{source.reason ? <small>{source.reason}</small> : null}</span>)}</section>)}</details> : null}
     {error && <div className="chat-error">{error}</div>}
     <div className="chat-input"><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about this workspace…" rows={2} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); } }} /><button disabled={loading || !input.trim() || !conversation} onClick={() => void send()}>{loading ? 'Thinking…' : 'Send'}</button></div>
+    {renaming && conversation && <TextInputDialog title="Rename conversation" label="Conversation title" confirmLabel="Rename" initialValue={activeThread?.title ?? ''} onCancel={() => setRenaming(false)} onSubmit={renameConversation} />}
   </section>;
 }
