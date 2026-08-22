@@ -43,6 +43,7 @@ foreach ($Resource in $RequiredPtyResources) {
     }
 }
 
-Write-Host "Windows packaging succeeded for FORGE $Version:"
+Write-Host "Windows packaging succeeded for FORGE ${Version}:"
 $InstallerArtifacts | ForEach-Object { Write-Host "  $($_.FullName)" }
 Write-Host "  Verified Windows node-pty resources in $PtyRoot"
+
