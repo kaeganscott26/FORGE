@@ -1,6 +1,6 @@
 # FORGE cross-platform tooling runtime audit — 2026-08-21
 
-Status: approved for implementation on 2026-08-21. The shared runtime repair, context-score removal, and native update entry points described below have been implemented and are undergoing final publication/runtime verification.
+Status: approved, implemented, and published. FORGE commit `78b355d` contains the shared runtime repair, context-score removal, and macOS/Windows update entry points; FORGE-OS commit `ae9186d` contains the update-transaction repair.
 
 Scope:
 
@@ -102,3 +102,19 @@ The per-source relevance percentage shown after an agent turn is a separate disc
 - The installed FORGE-OS runtime on an Arch target was not available in this macOS checkout, and this FORGE-OS repository has no local `build/latest.env`/Linux packaged runtime to inspect.
 - No native Windows package or Windows runtime was executed.
 - No executable source, generated bundle, package, installed application, Git index, commit, remote, release, or workspace database was changed by this audit. The only audit-created workspace change is this findings document.
+
+## Follow-up finding: tracked `tatus` file
+
+- `tatus` is a 9,936-byte, 83-line ASCII text file containing ANSI terminal color escape sequences. It is not a script, executable, runtime database, IPC route, tool definition, or configuration file.
+- Git history shows it was created as the only file in commit `717af08` (`Forge-recovery_patch`). Its content is a captured colored `git diff` of the generated `apps/desktop/out/main/index.js`, including the historical `file.list` task-context workaround and FORGE-OS application-discovery changes. The filename is consistent with an accidental status/diff command redirection, although the exact shell command cannot be proven from repository history.
+- No source, test, documentation, package script, workflow, or runtime file references `tatus`. Electron Builder packages only `apps/desktop/out/**/*`, `node_modules/**/*`, and `package.json`, so `tatus` is not inside the macOS, Windows, or Linux desktop application.
+- FORGE-OS `git archive` does carry the file into its temporary source staging directory, but `runtime-source-hash.sh` does not hash it and Electron Builder does not package it. The workspace-memory classifier ignores it because it is extensionless and does not match a recognized documentation/configuration/source name.
+- The practical effect is limited to repository/archive clutter and an extra root entry visible to `file.list`; a model could waste time inspecting this stale historical snapshot. Removal is reasonable cleanup because Git history already preserves it, but the file was not removed in this task because the requested scope was identification and logging.
+
+## Implementation verification after approval
+
+- Full FORGE source gate passed: 28 test files, 127 tests passed, 1 skipped; lint, typecheck, production build, and `git diff --check` passed.
+- A live local Ollama `llama3.2:3b` request was offered file, Git, terminal, and browser descriptors together and returned the requested `forge_1_git_status` native call. No workspace content was sent and no model-requested tool was executed during this protocol smoke test.
+- `npm run update:mac` fast-forwarded from the trusted origin, preserved/restored local `.obsidian` state, rebuilt the exact pushed commit `78b355d`, produced and verified a universal DMG/ZIP and universal `node-pty`, installed the verified app at `/Applications/FORGE.app`, moved the previous app to a timestamped Trash location, and opened the replacement.
+- The FORGE-OS transaction test passed after the remote `121ac25` recovery change was reconciled: unsafe source state is rejected, local `.obsidian` state survives both success and rollback, both repositories return to their original commits after an installer failure, and a clean fast-forward invokes installation.
+- The Windows update script and platform-specific updater metadata selection passed source tests, lint, typecheck, and production build. Native Windows packaging, silent NSIS installation, and installed `app.asar` comparison still require execution on Windows.
