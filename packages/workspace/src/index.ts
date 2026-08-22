@@ -14,7 +14,7 @@ const IGNORED_PATH_PATTERNS = [
 function isSkippableFileSystemError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'ENOENT'].includes(String(error.code));
 }
-function shouldIgnore(relativePath: string, showHidden = false): boolean {
+function shouldIgnore(relativePath: string, showHidden = true): boolean {
   const normalized = relativePath.replaceAll('\\', '/');
   return normalized.split('/').some((part) => (part.startsWith('.') && !showHidden) || (IGNORED.has(part) && !(showHidden && part.startsWith('.')))) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized) && !showHidden);
 }
@@ -143,7 +143,7 @@ export class WorkspaceService extends EventEmitter {
     }
   }
 
-  private async listDirectory(absolute: string, relative: string, recursive: boolean, budget: { count: number; maximum: number }, showHidden = false): Promise<FileNode[]> {
+  private async listDirectory(absolute: string, relative: string, recursive: boolean, budget: { count: number; maximum: number }, showHidden = true): Promise<FileNode[]> {
     let entries: Dirent[];
     try { entries = await fs.readdir(absolute, { withFileTypes: true }); }
     catch (error) { if (isSkippableFileSystemError(error)) return []; throw error; }
