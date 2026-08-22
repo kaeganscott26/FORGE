@@ -11,6 +11,9 @@ const data = async <T,>(request: ReturnType<typeof forgeInvoke>): Promise<T> => 
 const emptyState: BrowserStateView = { url: '', title: '', canGoBack: false, canGoForward: false, loading: false, showingHome: true, tabs: [], bookmarks: [], history: [] };
 const normalizedUrl = (value: string): string => /^[a-z][a-z0-9+.-]*:/i.test(value.trim()) ? value.trim() : `https://${value.trim()}`;
 const shortTitle = (value: string): string => value.length > 26 ? `${value.slice(0, 23)}…` : value;
+const TabIcon = ({ type }: { type: 'add' | 'close' }): JSX.Element => type === 'add'
+  ? <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+  : <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
 
 export default function BrowserPanel(): JSX.Element {
   const surface = useRef<HTMLDivElement | null>(null);
@@ -51,8 +54,8 @@ export default function BrowserPanel(): JSX.Element {
   return <div className="browser-panel">
     <div className="browser-tab-strip">
       <button className={state.showingHome ? 'active' : ''} onClick={() => void invoke('browser.home')} title="FORGE Browser home">⌂ Home</button>
-      {state.tabs.map((tab) => <span key={tab.id} className={`browser-tab ${state.activeTabId === tab.id ? 'active' : ''}`}><button onClick={() => void invoke('browser.tab.select', { tabId: tab.id })} title={tab.title}>{tab.loading ? '◌ ' : ''}{shortTitle(tab.title)}</button><button className="browser-tab-close" onClick={() => void invoke('browser.tab.close', { tabId: tab.id })} aria-label={`Close ${tab.title}`}>×</button></span>)}
-      <button onClick={() => void invoke('browser.home')} aria-label="Open a new browser tab">＋</button>
+      {state.tabs.map((tab) => <span key={tab.id} className={`browser-tab ${state.activeTabId === tab.id ? 'active' : ''}`}><button onClick={() => void invoke('browser.tab.select', { tabId: tab.id })} title={tab.title}>{tab.loading ? '◌ ' : ''}{shortTitle(tab.title)}</button><button className="browser-tab-close" onClick={() => void invoke('browser.tab.close', { tabId: tab.id })} aria-label={`Close ${tab.title}`}><TabIcon type="close" /></button></span>)}
+      <button className="browser-tab-add" onClick={() => void invoke('browser.tab.new')} aria-label="Open a new browser tab"><TabIcon type="add" /></button>
     </div>
     <div className="browser-toolbar"><button disabled={!state.canGoBack} onClick={() => void invoke('browser.back')} aria-label="Back">←</button><button disabled={!state.canGoForward} onClick={() => void invoke('browser.forward')} aria-label="Forward">→</button><button disabled={state.showingHome} onClick={() => void invoke('browser.reload')} aria-label="Reload">↻</button><form onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Enter a public website" aria-label="Browser address" /><button className="accent" type="submit">Go</button></form><button className={panel === 'bookmarks' ? 'active' : ''} disabled={state.showingHome} onClick={() => void invoke('browser.bookmark.add')} title="Bookmark current page">★</button><button className={panel === 'bookmarks' ? 'active' : ''} onClick={() => togglePanel('bookmarks')}>Bookmarks</button><button className={panel === 'history' ? 'active' : ''} onClick={() => togglePanel('history')}>History</button></div>
     {(error || state.error) && <div className="terminal-error">{error || state.error}</div>}

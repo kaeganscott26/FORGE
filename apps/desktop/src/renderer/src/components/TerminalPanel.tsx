@@ -35,10 +35,15 @@ export default function TerminalPanel({ workspaceKey }: { workspaceKey: string }
       },
       scrollback: 5_000
     });
-    const addon = new FitAddon(); instance.loadAddon(addon); instance.open(host.current); addon.fit(); terminal.current = instance; fit.current = addon;
+    const addon = new FitAddon(); instance.loadAddon(addon); instance.open(host.current); terminal.current = instance; fit.current = addon;
     const report = async (promise: ReturnType<typeof forgeInvoke>): Promise<void> => { const result = await promise; if (!result.success) setError(result.error.message); };
+    const fitTerminal = (): void => {
+      if (!host.current || host.current.clientWidth < 20 || host.current.clientHeight < 20) return;
+      addon.fit(); const sessionId = activeIdRef.current;
+      if (sessionId) void report(forgeInvoke('terminal.resize', { sessionId, columns: instance.cols, rows: instance.rows }));
+    };
     const input = instance.onData((value) => { const sessionId = activeIdRef.current; if (sessionId) void report(forgeInvoke('terminal.input', { sessionId, data: value })); });
-    const resize = new ResizeObserver(() => { addon.fit(); const sessionId = activeIdRef.current; if (sessionId) void report(forgeInvoke('terminal.resize', { sessionId, columns: instance.cols, rows: instance.rows })); }); resize.observe(host.current);
+    const resize = new ResizeObserver(() => window.requestAnimationFrame(fitTerminal)); resize.observe(host.current); window.requestAnimationFrame(fitTerminal);
     return () => { input.dispose(); resize.disconnect(); instance.dispose(); terminal.current = undefined; };
   }, []);
   useEffect(() => {

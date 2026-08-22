@@ -30,21 +30,20 @@ export interface GitDiff { files: GitDiffFile[]; }
 export interface Goal { id: string; title: string; description?: string; status: 'active' | 'completed' | 'archived'; createdAt: number; updatedAt: number; }
 export type TaskStatus = 'draft' | 'ready' | 'running' | 'waiting' | 'blocked' | 'paused' | 'failed' | 'cancelled' | 'completed';
 export type TaskStepStatus = 'pending' | 'running' | 'waiting' | 'blocked' | 'failed' | 'skipped' | 'completed';
-export type TaskResumabilityState = 'resumable' | 'reconcile-required' | 'approval-required' | 'not-resumable' | 'complete';
+export type TaskResumabilityState = 'resumable' | 'reconcile-required' | 'not-resumable' | 'complete';
 export type TaskEventType = 'task.created' | 'task.started' | 'step.started' | 'step.waiting' | 'step.completed' | 'step.failed' | 'step.retried' | 'task.paused' | 'task.resumed' | 'task.blocked' | 'task.completed' | 'task.cancelled' | 'state.reconciled' | 'external.process.detected' | 'external.asset.verified' | 'handoff.generated';
 export interface TaskRetryPolicy { maxAttempts: number; backoffMs: number; retryableErrorCodes: string[]; }
 export interface TaskStep {
   id: string; taskId: string; position: number; name: string; purpose: string; status: TaskStepStatus; riskTier: 0 | 1 | 2;
   requiredTool?: string; expectedInput?: unknown; expectedOutput?: unknown; startedAt?: number; completedAt?: number; attempts: number;
   lastError?: { message: string; code?: string; exitCode?: number | null; stdout?: string; stderr?: string; retryable: boolean; suggestedNextAction?: string };
-  retryPolicy: TaskRetryPolicy; timeoutMs: number; approvalState: 'not-required' | 'required' | 'pending' | 'approved' | 'expired' | 'rejected' | 'consumed';
+  retryPolicy: TaskRetryPolicy; timeoutMs: number;
   externalProcessId?: number; outputPath?: string; artifactPaths: string[]; verificationCriteria: string[]; rollbackInstructions?: string;
   auditReferences: string[]; dependencies: string[];
 }
 export interface TaskCheckpoint { id: string; taskId: string; stepId?: string; name: string; summary: string; verified: boolean; evidence: unknown; auditReferences: string[]; createdAt: number; }
 export interface TaskArtifact { id: string; taskId: string; stepId?: string; kind: string; path?: string; uri?: string; sha256?: string; size?: number; verifiedAt?: number; metadata?: unknown; createdAt: number; }
 export interface TaskExternalReference { id: string; taskId: string; stepId?: string; type: 'pull-request' | 'release' | 'workflow-run' | 'asset' | 'process' | 'url' | 'other'; provider?: string; externalId: string; url?: string; state?: string; metadata?: unknown; verifiedAt?: number; createdAt: number; updatedAt: number; }
-export interface TaskApproval { id: string; taskId: string; stepId: string; toolRequestId?: string; decision: 'pending' | 'run-once' | 'session' | 'rejected' | 'expired' | 'consumed'; scope: string; requestedAt: number; decidedAt?: number; expiresAt?: number; auditReference?: string; }
 export interface TaskEvent { id: string; taskId: string; stepId?: string; type: TaskEventType; summary: string; details?: unknown; auditReference?: string; createdAt: number; }
 export interface Task {
   id: string; workspaceId: string; title: string; description?: string; taskType: string; status: TaskStatus; priority: 'low' | 'medium' | 'high';
@@ -52,8 +51,7 @@ export interface Task {
   lastActiveConversationId?: string; assignedProvider?: string; assignedModel?: string; progressSummary: string; retryMetadata?: unknown;
   interruptionReason?: string; resumabilityState: TaskResumabilityState; resumeInstructions: string; associatedBranch?: string; associatedCommitSha?: string;
   associatedPullRequest?: string; associatedReleaseTag?: string; associatedWorkflowRun?: string; processIds: number[]; externalResourceIds: string[];
-  steps: TaskStep[]; taskDependencies: string[]; checkpoints: TaskCheckpoint[]; artifacts: TaskArtifact[]; externalReferences: TaskExternalReference[];
-  approvals: TaskApproval[]; events: TaskEvent[];
+  steps: TaskStep[]; taskDependencies: string[]; checkpoints: TaskCheckpoint[]; artifacts: TaskArtifact[]; externalReferences: TaskExternalReference[]; events: TaskEvent[];
 }
 export interface TaskStepDraft { id?: string; name: string; purpose: string; riskTier: 0 | 1 | 2; requiredTool?: string; expectedInput?: unknown; expectedOutput?: unknown; retryPolicy?: Partial<TaskRetryPolicy>; timeoutMs?: number; artifactPaths?: string[]; verificationCriteria: string[]; rollbackInstructions?: string; dependencies?: string[]; }
 export interface TaskDraft { title: string; description?: string; taskType: string; priority?: Task['priority']; originatingConversationId?: string; assignedProvider?: string; assignedModel?: string; progressSummary?: string; resumeInstructions: string; associatedBranch?: string; associatedCommitSha?: string; associatedPullRequest?: string; associatedReleaseTag?: string; associatedWorkflowRun?: string; taskDependencies?: string[]; steps: TaskStepDraft[]; }
@@ -124,6 +122,9 @@ export interface UserSettings {
   secureStorageAvailable: boolean;
   webResearchEnabled: boolean;
   updateChannel: 'stable' | 'beta';
+  agentRuntime: 'native' | 'hermes';
+  hermesCommand: string;
+  hermesEndpoint: string;
 }
 
 export interface SettingsSaveRequest {
@@ -136,18 +137,20 @@ export interface SettingsSaveRequest {
   clearGithubToken?: boolean;
   webResearchEnabled: boolean;
   updateChannel: 'stable' | 'beta';
+  agentRuntime?: 'native' | 'hermes';
+  hermesCommand?: string;
+  hermesEndpoint?: string;
 }
 
 export interface ToolRequestView {
   id: string; workspaceId: string; conversationId: string; modelId: string; toolName: string; input: unknown;
   reason: string; target: string; workingDirectory?: string; expectedEffect: string;
   predictedAffectedPaths: string[]; networkAccess: boolean; externalDataDescription?: string; diff?: string;
-  approvalRequired: boolean; sessionApprovalAvailable: boolean;
-  state: 'pending' | 'approved' | 'running' | 'succeeded' | 'failed' | 'rejected' | 'cancelled';
+  state: 'requested' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   requestedAt: number; updatedAt: number;
 }
 export interface ToolResultView { requestId: string; toolName: string; success: boolean; output?: unknown; affectedPaths: string[]; diff?: string; warnings: string[]; error?: { code: string; message: string; details?: string }; rollback?: { available: boolean; instructions?: string; backupPath?: string }; exitCode?: number | null; durationMs: number; truncated?: boolean; cancelled?: boolean; }
-export interface ActionLogView { id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string; sanitizedInputs: unknown; approvalDecision: string; executionDurationMs: number; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null; rollback?: ToolResultView['rollback']; }
+export interface ActionLogView { id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string; sanitizedInputs: unknown; executionState: string; executionDurationMs: number; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null; rollback?: ToolResultView['rollback']; }
 export interface TerminalSessionView { id: string; cwd: string; pid: number; state: 'running' | 'exited'; exitCode: number | null; createdAt: number; title: string; recentOutput: string; }
 export interface TerminalEventView { sessionId: string; type: 'output' | 'exit'; data?: string; exitCode?: number; }
 export interface BrowserTabView { id: string; url: string; title: string; canGoBack: boolean; canGoForward: boolean; loading: boolean; error?: string; }
@@ -162,6 +165,12 @@ export type RuntimeEventType = 'workspace.changed' | 'file.changed' | 'git.chang
 export interface RuntimeEvent { type: RuntimeEventType; workspaceId: string; occurredAt: number; payload?: Record<string, unknown>; }
 
 export interface ProviderModel { id: string; ownedBy?: string; }
+export interface AgentRuntimeStatusView {
+  kind: 'hermes'; availability: 'available' | 'unavailable' | 'degraded'; command: string; version?: string;
+  endpoint?: string; endpointReachable: boolean | null; installDirectory?: string; skillRoots: string[]; message: string;
+  requested: 'native' | 'hermes'; active: 'native' | 'hermes';
+}
+export interface SkillDescriptor { id: string; name: string; description: string; version?: string; platforms: string[]; path: string; scope: 'workspace' | 'repository' | 'global' | 'forge-os'; }
 export interface ModelLookupRequest { apiBaseUrl: string; apiKey?: string; }
 export interface ModelValidationRequest extends ModelLookupRequest { apiModel: string; }
 export interface ModelValidationResult { model: string; exists: boolean; availableCount: number; }
@@ -245,16 +254,16 @@ export const IPC_CHANNELS = {
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
   metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaGoalUpdate: 'meta.goal.update', metaGoalDelete: 'meta.goal.delete', metaTaskCreate: 'meta.task.create',
   appUpdateStatus: 'app.update.status', appUpdateCheck: 'app.update.check', appUpdateInstall: 'app.update.install', appReleaseOpen: 'app.release.open', appBuildInfo: 'app.build.info', appBuildInfoCopy: 'app.build.info.copy',
-  settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate',
+  settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate', settingsRuntimeStatus: 'settings.runtime.status', agentSkillsList: 'agent.skills.list',
   agentAsk: 'agent.ask', agentExplainProject: 'agent.explainProject', agentReviewChanges: 'agent.reviewChanges',
   agentConversationsState: 'agent.conversations.state', agentConversationsList: 'agent.conversations.list', agentConversationsAppend: 'agent.conversations.append',
   agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear', agentConversationDelete: 'agent.conversation.delete', agentConversationsClearAll: 'agent.conversations.clearAll',
   agentMemoriesList: 'agent.memories.list', agentMemoriesStats: 'agent.memories.stats', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesClear: 'agent.memories.clear', agentMemoriesReindex: 'agent.memories.reindex'
-  , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
+  , toolRequestsList: 'tool.requests.list', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
   terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove',
   tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksUpdate: 'tasks.update', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksDelete: 'tasks.delete', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
   browserNavigate: 'browser.navigate', browserLayout: 'browser.layout', browserBack: 'browser.back', browserForward: 'browser.forward', browserReload: 'browser.reload',
-  browserHome: 'browser.home', browserTabClose: 'browser.tab.close', browserTabSelect: 'browser.tab.select', browserBookmarkAdd: 'browser.bookmark.add', browserBookmarkRemove: 'browser.bookmark.remove',
+  browserHome: 'browser.home', browserTabNew: 'browser.tab.new', browserTabClose: 'browser.tab.close', browserTabSelect: 'browser.tab.select', browserBookmarkAdd: 'browser.bookmark.add', browserBookmarkRemove: 'browser.bookmark.remove',
   forgeOsContext: 'forge-os.context', forgeOsApplications: 'forge-os.applications', forgeOsApplicationLaunch: 'forge-os.application.launch', forgeOsOverview: 'forge-os.overview', forgeOsSessionAction: 'forge-os.session.action'
 } as const;
 
@@ -264,15 +273,15 @@ export interface IPCRequestMap {
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
   'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.goal.update': { goalId: string; title: string; description?: string; status?: Goal['status'] }; 'meta.goal.delete': { goalId: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
   'app.update.status': undefined; 'app.update.check': undefined; 'app.update.install': undefined; 'app.release.open': undefined; 'app.build.info': undefined; 'app.build.info.copy': undefined;
-  'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest;
+  'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest; 'settings.runtime.status': undefined; 'agent.skills.list': undefined;
   'agent.ask': AgentAskRequest; 'agent.explainProject': { conversationId?: string } | undefined; 'agent.reviewChanges': { conversationId?: string } | undefined;
   'agent.conversations.state': { conversationId?: string } | undefined; 'agent.conversations.list': { conversationId?: string } | undefined; 'agent.conversations.append': { conversationId?: string; entries: Array<{ role: ConversationEntry['role']; content: string }> };
   'agent.conversation.create': { title?: string }; 'agent.conversation.select': { conversationId: string }; 'agent.conversation.rename': { conversationId: string; title: string }; 'agent.conversation.clear': { conversationId: string }; 'agent.conversation.delete': { conversationId: string }; 'agent.conversations.clearAll': undefined;
   'agent.memories.list': undefined; 'agent.memories.stats': undefined; 'agent.memories.delete': { id: string }; 'agent.memories.clear': undefined; 'agent.memories.reindex': undefined;
-  'tool.requests.list': undefined; 'tool.request.approve': { requestId: string; choice: 'run-once' | 'session' }; 'tool.request.reject': { requestId: string }; 'tool.request.cancel': { requestId: string };
+  'tool.requests.list': undefined; 'tool.request.cancel': { requestId: string };
   'tool.actions.list': { conversationId?: string; toolName?: string; success?: boolean; from?: number; to?: number } | undefined; 'editor.dirty.update': { paths: string[] };
   'browser.navigate': { url: string }; 'browser.layout': BrowserLayoutRequest; 'browser.back': undefined; 'browser.forward': undefined; 'browser.reload': undefined;
-  'browser.home': undefined; 'browser.tab.close': { tabId: string }; 'browser.tab.select': { tabId: string }; 'browser.bookmark.add': undefined; 'browser.bookmark.remove': { bookmarkId: string };
+  'browser.home': undefined; 'browser.tab.new': undefined; 'browser.tab.close': { tabId: string }; 'browser.tab.select': { tabId: string }; 'browser.bookmark.add': undefined; 'browser.bookmark.remove': { bookmarkId: string };
   'forge-os.context': undefined; 'forge-os.applications': undefined; 'forge-os.application.launch': { id: string }; 'forge-os.overview': undefined; 'forge-os.session.action': { action: 'lock' | 'logout' | 'restart' | 'shutdown' };
   'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
   'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.update': { taskId: string; draft: TaskDraft }; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.delete': { taskId: string }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
@@ -284,14 +293,14 @@ export interface IPCResponseMap {
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
   'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.goal.update': Goal; 'meta.goal.delete': void; 'meta.task.create': Task;
   'app.update.status': AppUpdateStatus; 'app.update.check': AppUpdateStatus; 'app.update.install': void; 'app.release.open': void; 'app.build.info': AppBuildInfo; 'app.build.info.copy': AppBuildInfo;
-  'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult;
+  'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult; 'settings.runtime.status': AgentRuntimeStatusView; 'agent.skills.list': SkillDescriptor[];
   'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;
   'agent.conversations.state': ConversationState; 'agent.conversations.list': ConversationEntry[]; 'agent.conversations.append': void;
   'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState; 'agent.conversation.delete': ConversationState; 'agent.conversations.clearAll': ConversationState;
   'agent.memories.list': WorkspaceKnowledgeRecord[]; 'agent.memories.stats': WorkspaceMemoryStats; 'agent.memories.delete': void; 'agent.memories.clear': { deleted: number }; 'agent.memories.reindex': void;
-  'tool.requests.list': ToolRequestView[]; 'tool.request.approve': ToolResultView; 'tool.request.reject': void; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
+  'tool.requests.list': ToolRequestView[]; 'tool.request.cancel': boolean; 'tool.actions.list': ActionLogView[]; 'editor.dirty.update': void;
   'browser.navigate': BrowserStateView; 'browser.layout': BrowserStateView; 'browser.back': BrowserStateView; 'browser.forward': BrowserStateView; 'browser.reload': BrowserStateView;
-  'browser.home': BrowserStateView; 'browser.tab.close': BrowserStateView; 'browser.tab.select': BrowserStateView; 'browser.bookmark.add': BrowserStateView; 'browser.bookmark.remove': BrowserStateView;
+  'browser.home': BrowserStateView; 'browser.tab.new': BrowserStateView; 'browser.tab.close': BrowserStateView; 'browser.tab.select': BrowserStateView; 'browser.bookmark.add': BrowserStateView; 'browser.bookmark.remove': BrowserStateView;
   'forge-os.context': ForgeOsContext; 'forge-os.applications': DesktopApplication[]; 'forge-os.application.launch': undefined; 'forge-os.overview': SystemOverview; 'forge-os.session.action': undefined;
   'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
   'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.update': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.delete': void; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;

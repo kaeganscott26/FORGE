@@ -4,8 +4,8 @@ FORGE exposes logical user channels. Provider metadata names are an internal imp
 
 | Channel | Current identity | Eligible newer versions | Purpose |
 | --- | --- | --- | --- |
-| Development | `2.3.0-beta.1-dev` | none | Source and renderer development |
-| Beta | `2.3.0-beta.1` | `beta`, `rc`, or normal SemVer | Public evaluation before stable |
+| Development | `2.3.0-beta.2-dev` | none | Source and renderer development |
+| Beta | `2.3.0-beta.2` | `beta`, `rc`, or normal SemVer | Public evaluation before stable |
 | Stable | normal SemVer | normal SemVer only | Supported production releases |
 
 All channels are forward-only. Equal versions, downgrades, malformed versions, drafts, unpublished releases, incompatible prerelease flags, unsupported identifiers, unsafe asset URLs, and missing metadata are rejected before Electron Updater receives a feed.
@@ -27,7 +27,7 @@ FORGE retrieves a bounded set of published Releases from the fixed repository an
 5. supplies only that selected `latest-mac.yml` or `beta-mac.yml` feed to Electron Updater;
 6. resets downgrade permission and verifies the updater-returned version again before download.
 
-The current beta target is `2.3.0-beta.1`. Stable ignores every prerelease.
+The current source beta target is `2.3.0-beta.2`. Stable ignores every prerelease.
 
 ## 🚀 Publication
 

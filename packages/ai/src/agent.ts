@@ -15,7 +15,6 @@ export interface AgentToolDescriptor {
   description: string;
   parameters: Record<string, unknown>;
   sideEffects?: string;
-  approval?: string;
   networkAccess?: boolean;
   cancellation?: boolean;
   resultSemantics?: string;

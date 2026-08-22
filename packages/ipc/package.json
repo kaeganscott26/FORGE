@@ -1,1 +1,1 @@
-{"name":"@forge/ipc","version":"2.3.0-beta.1","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"semver":"^7.8.5"}}
+{"name":"@forge/ipc","version":"2.3.0-beta.2","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"semver":"^7.8.5"}}

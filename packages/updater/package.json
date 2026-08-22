@@ -1,1 +1,1 @@
-{"name":"@forge/updater","version":"2.3.0-beta.1","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"semver":"^7.8.5","undici":"^7.29.0","zod":"^3.25.76"}}
+{"name":"@forge/updater","version":"2.3.0-beta.2","private":true,"type":"module","exports":"./src/index.ts","dependencies":{"semver":"^7.8.5","undici":"^7.29.0","zod":"^3.25.76"}}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { formatAppBuildInfo, type AppBuildInfo, type ModelValidationResult, type ProviderModel, type UserSettings } from '@forge/ipc';
+import { formatAppBuildInfo, type AgentRuntimeStatusView, type AppBuildInfo, type ModelValidationResult, type ProviderModel, type SkillDescriptor, type UserSettings } from '@forge/ipc';
 import { forgeInvoke } from '../forge';
 import WorkspaceDataPanel from './WorkspaceDataPanel';
 import './settings.css';
@@ -27,6 +27,11 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const [clearGithubToken, setClearGithubToken] = useState(false);
   const [webResearchEnabled, setWebResearchEnabled] = useState(false);
   const [updateChannel, setUpdateChannel] = useState<'stable' | 'beta'>('stable');
+  const [agentRuntime, setAgentRuntime] = useState<'native' | 'hermes'>('native');
+  const [hermesCommand, setHermesCommand] = useState('');
+  const [hermesEndpoint, setHermesEndpoint] = useState('');
+  const [runtimeStatus, setRuntimeStatus] = useState<AgentRuntimeStatusView | null>(null);
+  const [skills, setSkills] = useState<SkillDescriptor[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +44,11 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
 
   useEffect(() => {
     getData<UserSettings>('settings.get').then((value) => {
-      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername); setWebResearchEnabled(value.webResearchEnabled); setUpdateChannel(value.updateChannel);
+      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername); setWebResearchEnabled(value.webResearchEnabled); setUpdateChannel(value.updateChannel); setAgentRuntime(value.agentRuntime); setHermesCommand(value.hermesCommand); setHermesEndpoint(value.hermesEndpoint);
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     getData<AppBuildInfo>('app.build.info').then(setBuildInfo).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    getData<AgentRuntimeStatusView>('settings.runtime.status').then(setRuntimeStatus).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    getData<SkillDescriptor[]>('agent.skills.list').then(setSkills).catch(() => setSkills([]));
   }, []);
 
   useEffect(() => {
@@ -74,8 +81,10 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const save = async (): Promise<void> => {
     setBusy(true); setError(null); setMessage(null);
     try {
-      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken, webResearchEnabled, updateChannel });
+      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken, webResearchEnabled, updateChannel, agentRuntime, hermesCommand, hermesEndpoint });
       setSettings(saved); setApiKey(''); setGithubToken(''); setClearApiKey(false); setClearGithubToken(false); setMessage('Settings saved securely.');
+      setRuntimeStatus(await getData<AgentRuntimeStatusView>('settings.runtime.status'));
+      setSkills(await getData<SkillDescriptor[]>('agent.skills.list').catch(() => []));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
@@ -138,6 +147,16 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
           <label>API key (optional for loopback providers)<input type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings.apiKeyConfigured ? 'Saved — enter a new key to replace it' : keylessLocalProvider ? 'Not required for this local provider' : 'Enter API key'} /></label>
           {settings.apiKeyConfigured && <button className="settings-link danger" onClick={() => { setClearApiKey(true); setApiKey(''); }}>Remove saved API key</button>}
           <button onClick={testApi} disabled={busy || (!settings.apiKeyConfigured && !keylessLocalProvider)}>Test saved model and API connection</button>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-title"><div><span>AGENT RUNTIME</span><h3>Native FORGE or Hermes</h3></div><em className={runtimeStatus?.availability === 'available' ? 'configured' : ''}>{runtimeStatus?.active === 'hermes' ? 'Hermes active' : 'Native active'}</em></div>
+          <label>Runtime<select value={agentRuntime} onChange={(event) => setAgentRuntime(event.target.value as 'native' | 'hermes')}><option value="native">Native FORGE runtime</option><option value="hermes">Hermes when its headless bridge is available</option></select></label>
+          <p className="settings-help">FORGE remains the owner of workspace memory, tasks, tools, execution context, and audit history. Hermes discovery is optional and never prevents native FORGE operation.</p>
+          <label>Hermes command (optional)<input value={hermesCommand} onChange={(event) => setHermesCommand(event.target.value)} placeholder="hermes" /></label>
+          <label>Hermes endpoint (optional)<input value={hermesEndpoint} onChange={(event) => setHermesEndpoint(event.target.value)} placeholder="https://…" /></label>
+          {runtimeStatus && <p className={`settings-help ${runtimeStatus.availability === 'unavailable' ? '' : 'configured'}`}>{runtimeStatus.message}{runtimeStatus.version ? ` (${runtimeStatus.version})` : ''}</p>}
+          <p className="settings-help">Discovered skill packages: {skills.length ? skills.map((skill) => skill.name).join(', ') : 'none in the active workspace or configured Hermes roots'}.</p>
         </section>
 
         <section className="settings-section" ref={githubSection}>

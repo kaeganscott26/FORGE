@@ -20,6 +20,7 @@ import { validateExternalUrl, WebService } from '@forge/web';
 import { TaskRuntime } from '@forge/tasks';
 import { createNativeAgentRuntime } from './native-agent-runtime';
 import { ForgeOsService } from '@forge/os-integration';
+import { HermesRuntimeDetector, discoverSkills, resolveAgentRuntime, skillRootsForWorkspace } from '@forge/agent-runtime';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -258,6 +259,14 @@ function setBrowserLayout(request: { visible: boolean; bounds?: { x: number; y: 
 
 function showBrowserHome(): BrowserStateView { activeBrowserTabId = null; setBrowserLayout(browserLayout); sendBrowserState(); return browserState(); }
 
+function openBlankBrowserTab(): BrowserStateView {
+  const tab = createBrowserTab();
+  activeBrowserTabId = tab.id;
+  tab.view.webContents.loadURL('about:blank').catch((error) => reportBrowserError(tab, error));
+  setBrowserLayout(browserLayout); sendBrowserState();
+  return browserState();
+}
+
 function selectBrowserTab(tabId: string): BrowserStateView {
   if (!browserTabs.has(tabId)) throw new Error('The browser tab is no longer available.');
   activeBrowserTabId = tabId; setBrowserLayout(browserLayout); sendBrowserState(); return browserState();
@@ -345,6 +354,17 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.settingsModelsList, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl })).listModels());
   register(IPC_CHANNELS.settingsModelValidate, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel })).validateModel(request.apiModel));
   register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
+  register(IPC_CHANNELS.settingsRuntimeStatus, async () => {
+    const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+    const profile = resolveAgentRuntime(settings.publicSettings().agentRuntime, status);
+    return { ...status, requested: profile.requested, active: profile.active };
+  });
+  register(IPC_CHANNELS.agentSkillsList, async () => {
+    const info = workspace.info();
+    if (!info) throw new Error('Open a workspace before listing skills.');
+    const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+    return discoverSkills(skillRootsForWorkspace(info.rootPath, { hermesRoots: status.skillRoots }));
+  });
 
   const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent });
   register(IPC_CHANNELS.agentAsk, async (request) => { if (!request.prompt.trim()) throw new Error('A prompt is required.'); return nativeAgent.runAgentTurn(request.conversationId, request.prompt.trim()); });
@@ -370,16 +390,6 @@ function registerHandlers(): void {
     return { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: conversation.activeConversationId, modelId: settings.publicSettings().apiModel };
   };
   register(IPC_CHANNELS.toolRequestsList, async () => { const project = await storage.dashboard(); return project ? toolRouter.listRequests(project.id) : []; });
-  register(IPC_CHANNELS.toolRequestApprove, async (request) => {
-    const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
-    const approved = toolRouter.requestById(request.requestId);
-    if (approved) {
-      await nativeAgent.recordTaskApproval(approved, request.choice);
-      void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent('agent.blocked', { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
-    }
-    return result;
-  });
-  register(IPC_CHANNELS.toolRequestReject, async (request) => { const rejected = toolRouter.requestById(request.requestId); await toolRouter.reject(request.requestId, await toolContext()); if (rejected) await nativeAgent.recordTaskApproval(rejected, 'rejected'); return undefined; });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
   register(IPC_CHANNELS.toolActionsList, async (request) => storage.listActions(request));
   register(IPC_CHANNELS.editorDirtyUpdate, async (request) => { dirtyEditorPaths.clear(); for (const value of request.paths) if (value && !value.split(/[\\/]/).includes('..')) dirtyEditorPaths.add(value); return undefined; });
@@ -407,6 +417,7 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.browserForward, async () => { const tab = activeBrowserTab(); if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward(); return browserState(); });
   register(IPC_CHANNELS.browserReload, async () => { const tab = activeBrowserTab(); if (tab) tab.view.webContents.reload(); return browserState(); });
   register(IPC_CHANNELS.browserHome, async () => showBrowserHome());
+  register(IPC_CHANNELS.browserTabNew, async () => openBlankBrowserTab());
   register(IPC_CHANNELS.browserTabClose, async (request) => closeBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());

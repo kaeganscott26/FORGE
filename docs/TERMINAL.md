@@ -28,7 +28,7 @@ The terminal is a **user-controlled PTY**, not an agent permission bypass.
 - **Restart** creates a fresh shell in the same validated workspace directory.
 - Exit codes and running/exited state remain visible in the terminal header.
 
-FORGE keeps user terminal input separate from a model-requested `shell.run` action. A model cannot type into your terminal. Agent shell requests appear in **Agent Actions**, disclose their executable, arguments, working directory, and effect, and always require one-time approval.
+FORGE keeps user terminal input separate from a model-requested `shell.run` action. A model cannot type into your terminal. Agent shell requests appear in **Agent Actions** with their executable, arguments, working directory, effect, audit history, and cancellation state; valid requests execute directly through the shared tool runtime.
 
 ## 🧠 What stays with the project
 

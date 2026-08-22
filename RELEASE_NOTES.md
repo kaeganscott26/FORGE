@@ -1,6 +1,13 @@
 # ✨ FORGE v2.3 Beta
 
-FORGE v2.3 Beta (`v2.3.0-beta.1`) turns the review's agent-runtime and workspace-data recommendations into concrete beta behavior: more precise tool capability disclosure, bounded evidence retrieval, explicit execution policy, and lifecycle-safe workspace data controls.
+## 2.3.0-beta.2 — Hermes-ready autonomous runtime
+
+- Adds cross-platform Hermes runtime detection, progressive skill discovery, and a safe Native FORGE fallback.
+- Removes the FORGE tool-policy and approval gate from the execution path. Valid, available semantic tool calls execute through the shared router with centrally injected context, auditing, cancellation, rollback, validation, and loop protection intact.
+- Replaces approval-state audit records with execution-state records and creates new workspace databases without approval tables or columns.
+- Repairs shared browser-tab controls and terminal sizing behavior while preserving platform adapters.
+
+The earlier `v2.3.0-beta.1` release remains the currently published beta until `v2.3.0-beta.2` is tagged and released.
 
 ## 🧭 Predictable agent execution
 

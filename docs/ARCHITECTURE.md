@@ -71,7 +71,7 @@ FORGE's UI and workspace runtime are shared source, while packaged executables r
 | `@forge/ai` | Current provider/client compatibility layer; no longer the intended owner of workspace intelligence |
 | `@forge/ipc` | Shared renderer/main request and response contracts |
 | `@forge/agent-tools` | Tool definitions, normalization, execution adapters, audit redaction, and structured results |
-| `@forge/tool-policy` | Existing approval/policy implementation pending simplification into user-controlled capability permissions |
+| `@forge/tool-runtime` | Shared registry, schema validation, execution-context, and request/result contracts |
 | `@forge/shell` | Process execution, cancellation, environment filtering, and PTY sessions |
 | `@forge/web` | External HTTP research controls |
 | `@forge/updater` | Release discovery and update lifecycle |
@@ -107,22 +107,9 @@ The agent owns reasoning and task execution. FORGE owns the project evidence and
 
 This makes local-vs-hosted a model-quality decision rather than a workspace-capability decision. A local model may be weaker, but it should not receive a weaker filesystem/Git/task interface merely because it is local.
 
-## 🛠️ Tool architecture direction
+## 🛠️ Tool orchestration
 
-The current tool runtime includes useful protections but mixes authorization with orchestration. The intended direction is to separate them.
-
-### Authorization
-
-The user controls capability authority through a simple model such as:
-
-- Allow once
-- Allow for this session
-- Always allow
-- Deny
-
-Risk-tier classification is not the intended long-term control plane. Tool authority should be explicit user preference attached to capabilities/workspaces, not an internal severity taxonomy that prevents legitimate agent workflows.
-
-### Orchestration
+Registered, available tools with valid semantic arguments execute directly through the shared router. FORGE preserves schema validation, runtime-context injection, cancellation, audit logging, rollback/atomic-write protections, redaction, and loop protection without an approval/policy stage.
 
 Agent execution should not be limited by arbitrary tool-count or continuation-round ceilings. Independent operations may execute in parallel; dependent mutations remain ordered by their data dependencies.
 

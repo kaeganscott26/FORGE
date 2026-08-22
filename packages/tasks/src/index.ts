@@ -8,7 +8,7 @@ import type { BackgroundShellRunOutput, ShellRunInput } from '@forge/shell';
 
 type TaskStore = Pick<StorageService,
   'workspaceId' | 'createPersistentTask' | 'updatePersistentTask' | 'listPersistentTasks' | 'getPersistentTask' | 'setPersistentTaskState' | 'setTaskStepState' |
-  'appendTaskCheckpoint' | 'appendTaskArtifact' | 'upsertTaskExternalReference' | 'appendTaskEvent' | 'updateTaskReality' | 'linkTaskStepAudit' | 'recordTaskApproval'>;
+  'appendTaskCheckpoint' | 'appendTaskArtifact' | 'upsertTaskExternalReference' | 'appendTaskEvent' | 'updateTaskReality' | 'linkTaskStepAudit'>;
 
 export interface TaskRuntimeDependencies {
   storage: TaskStore;
@@ -127,7 +127,7 @@ export class TaskRuntime {
   async cancel(taskId: string, reason: string, trackingOnly: boolean): Promise<Task> {
     if (!reason.trim() || reason.length > 4_000) throw new Error('A bounded cancellation reason is required.');
     const task = await this.get(taskId); const activePids = [...new Set([...task.processIds, ...task.steps.filter((step) => step.status === 'running' && step.externalProcessId).map((step) => step.externalProcessId!)])];
-    if (activePids.length && !trackingOnly) throw new Error(`Task cancellation will not silently kill active process IDs: ${activePids.join(', ')}. Cancel tracking only or terminate the exact process through an approved tool.`);
+    if (activePids.length && !trackingOnly) throw new Error(`Task cancellation will not silently kill active process IDs: ${activePids.join(', ')}. Cancel tracking only or terminate the exact process through a tool.`);
     const summary = activePids.length ? `FORGE tracking cancelled; external process IDs may still be active: ${activePids.join(', ')}.` : `Task cancelled: ${reason}`;
     return this.dependencies.storage.setPersistentTaskState(taskId, 'cancelled', { summary, eventType: 'task.cancelled', interruptionReason: reason, currentStepId: task.currentStepId, resumabilityState: 'not-resumable', details: { trackingOnly, activePids } });
   }
@@ -138,7 +138,7 @@ export class TaskRuntime {
     if (!['failed', 'blocked'].includes(step.status)) throw new Error('Only failed or blocked steps can be retried.');
     if (step.attempts >= step.retryPolicy.maxAttempts) throw new Error('The task step retry limit has been reached.');
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)!))) throw new Error('Task step dependencies are not complete.');
-    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'pending', { summary: `Retry queued for ${step.name}.`, approvalState: 'not-required', eventType: 'step.retried' });
+    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'pending', { summary: `Retry queued for ${step.name}.`, eventType: 'step.retried' });
     return this.dependencies.storage.setPersistentTaskState(taskId, 'ready', { summary: `Ready to retry ${step.name}.`, eventType: 'state.reconciled', currentStepId: step.id, resumabilityState: 'resumable' });
   }
 
@@ -159,7 +159,6 @@ export class TaskRuntime {
     const task = await this.get(taskId); const step = task.steps.find((candidate) => candidate.id === stepId); if (!step) throw new Error('Unknown task step.');
     if (step.requiredTool && step.requiredTool !== result.toolName) throw new Error('Tool result does not match the task step contract.');
     await this.dependencies.storage.linkTaskStepAudit(taskId, stepId, toolRequestId);
-    await this.dependencies.storage.recordTaskApproval(taskId, stepId, { toolRequestId, decision: 'consumed', scope: `${taskId}:${stepId}:${result.toolName}`, decidedAt: this.now(), auditReference: toolRequestId });
     const succeeded = result.success && (result.exitCode === undefined || result.exitCode === null || result.exitCode === 0);
     if (succeeded) {
       const processStarted = result.toolName === 'task.process.start';
@@ -172,31 +171,20 @@ export class TaskRuntime {
     return this.reconcile(taskId, await this.realitySnapshot(taskId));
   }
 
-  async recordApproval(taskId: string, stepId: string, toolRequestId: string, toolName: string, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void> {
-    await this.dependencies.storage.recordTaskApproval(taskId, stepId, {
-      toolRequestId,
-      decision,
-      scope: `${taskId}:${stepId}:${toolName}`,
-      decidedAt: decision === 'pending' ? undefined : this.now(),
-      expiresAt: decision === 'session' ? this.now() + 30 * 60_000 : undefined,
-      auditReference: decision === 'pending' ? undefined : toolRequestId
-    });
-  }
-
   async startBackground(taskId: string, stepId: string, input: ShellRunInput, toolRequestId: string): Promise<{ task: Task; process: BackgroundShellRunOutput }> {
     if (!this.dependencies.shell) throw new Error('Background shell runtime is unavailable.');
     const task = await this.get(taskId); const step = task.steps.find((candidate) => candidate.id === stepId); if (!step) throw new Error('Unknown task step.');
     if (!['shell.run', 'task.process.start'].includes(step.requiredTool ?? '')) throw new Error('Task step is not configured for a background shell process.');
     if (!step.dependencies.every((dependencyId) => completed(task.steps.find((candidate) => candidate.id === dependencyId)!))) throw new Error('Task step dependencies are not complete.');
     const outputPath = path.join('.forge', 'task-output', taskId, `${slug(step.name)}.log`);
-    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'running', { summary: `${step.name} is starting as a workspace-owned background process.`, incrementAttempts: true, approvalState: 'consumed', auditReference: toolRequestId, eventType: 'step.started' });
+    await this.dependencies.storage.setTaskStepState(taskId, stepId, 'running', { summary: `${step.name} is starting as a workspace-owned background process.`, incrementAttempts: true, auditReference: toolRequestId, eventType: 'step.started' });
     try {
       const process = await this.dependencies.shell.startBackground(input, outputPath, toolRequestId);
-      await this.dependencies.storage.setTaskStepState(taskId, stepId, 'running', { summary: `${step.name} is running as process ${process.pid}.`, externalProcessId: process.pid, outputPath, approvalState: 'consumed', auditReference: toolRequestId, eventType: 'external.process.detected' });
+      await this.dependencies.storage.setTaskStepState(taskId, stepId, 'running', { summary: `${step.name} is running as process ${process.pid}.`, externalProcessId: process.pid, outputPath, auditReference: toolRequestId, eventType: 'external.process.detected' });
       await this.dependencies.storage.updateTaskReality(taskId, { processIds: [...new Set([...task.processIds, process.pid])] });
       return { task: await this.get(taskId), process };
     } catch (error) {
-      await this.dependencies.storage.setTaskStepState(taskId, stepId, 'failed', { summary: `${step.name} could not start.`, error: { message: error instanceof Error ? error.message : String(error), retryable: true, suggestedNextAction: 'Inspect the exact command, working directory, and output path before retrying.' }, approvalState: 'consumed', auditReference: toolRequestId, eventType: 'step.failed' });
+      await this.dependencies.storage.setTaskStepState(taskId, stepId, 'failed', { summary: `${step.name} could not start.`, error: { message: error instanceof Error ? error.message : String(error), retryable: true, suggestedNextAction: 'Inspect the exact command, working directory, and output path before retrying.' }, auditReference: toolRequestId, eventType: 'step.failed' });
       throw error;
     }
   }
@@ -252,7 +240,7 @@ export function releaseTaskTemplate(version: string, originatingConversationId?:
       expectedInput: 
       requiredTool === 'task.process.start' 
       ? { 
-          command: 'defined at approval time', 
+          command: 'defined when the task step is executed',
           args: [] 
       } 
   :   undefined, 

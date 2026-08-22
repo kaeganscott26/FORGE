@@ -17,6 +17,18 @@ async function storage(): Promise<StorageService> {
 }
 
 describe('workspace-owned conversation storage', () => {
+  it('creates autonomous-execution storage without new approval tables or columns', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-autonomous-schema-')); temporaryDirectories.push(directory);
+    const service = new StorageService(); await service.init(directory); await service.close();
+    const SQL = await initSqlJs(); const database = new SQL.Database(await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')));
+    const taskStepColumns = database.exec('PRAGMA table_info(task_steps)')[0].values.map((row) => row[1]);
+    const actionColumns = database.exec('PRAGMA table_info(action_log)')[0].values.map((row) => row[1]);
+    expect(taskStepColumns).not.toContain('approval_state');
+    expect(actionColumns).toContain('execution_state'); expect(actionColumns).not.toContain('approval_decision');
+    expect(database.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_approvals'")).toEqual([]);
+    database.close();
+  });
+
   it('updates a draft task definition and replaces its editable steps in SQLite', async () => {
     const service = await storage();
     const task = await service.createPersistentTask({ title: 'Draft', taskType: 'custom', resumeInstructions: 'Reconcile before continuing.', steps: [{ id: 'inspect', name: 'Inspect', purpose: 'Inspect inputs.', riskTier: 0, verificationCriteria: ['Inputs identified'] }] });
@@ -134,12 +146,12 @@ describe('workspace-owned conversation storage', () => {
 
   it('persists action logs per workspace and filters without exposing other workspaces', async () => {
     const first = await storage(); const second = await storage(); const firstId = await first.workspaceId(); const secondId = await second.workspaceId();
-    await first.appendAction({ id: 'action-1', timestamp: 10, workspaceId: firstId, conversationId: 'conversation-a', modelId: 'model', toolName: 'file.read', taskId: 'task-a', stepId: 'inspect', sanitizedInputs: { path: 'README.md' }, approvalDecision: 'automatic', executionDurationMs: 2, success: true, result: { success: true }, resultSummary: 'ok', affectedPaths: [] });
-    await second.appendAction({ id: 'action-2', timestamp: 20, workspaceId: secondId, conversationId: 'conversation-b', modelId: 'model', toolName: 'shell.run', sanitizedInputs: { command: 'pwd' }, approvalDecision: 'automatic', executionDurationMs: 3, success: false, result: { success: false }, resultSummary: 'failed', affectedPaths: [] });
+    await first.appendAction({ id: 'action-1', timestamp: 10, workspaceId: firstId, conversationId: 'conversation-a', modelId: 'model', toolName: 'file.read', taskId: 'task-a', stepId: 'inspect', sanitizedInputs: { path: 'README.md' }, executionState: 'succeeded', executionDurationMs: 2, success: true, result: { success: true }, resultSummary: 'ok', affectedPaths: [] });
+    await second.appendAction({ id: 'action-2', timestamp: 20, workspaceId: secondId, conversationId: 'conversation-b', modelId: 'model', toolName: 'shell.run', sanitizedInputs: { command: 'pwd' }, executionState: 'succeeded', executionDurationMs: 3, success: false, result: { success: false }, resultSummary: 'failed', affectedPaths: [] });
     expect((await first.listActions()).map((entry) => entry.id)).toEqual(['action-1']);
     expect(await first.listActions()).toMatchObject([{ taskId: 'task-a', stepId: 'inspect' }]);
     expect(await first.listActions({ toolName: 'shell.run' })).toEqual([]);
-    await expect(first.appendAction({ id: 'wrong', timestamp: 30, workspaceId: secondId, conversationId: 'x', modelId: 'm', toolName: 'file.read', sanitizedInputs: {}, approvalDecision: 'automatic', executionDurationMs: 0, success: true, result: { success: true }, resultSummary: 'x', affectedPaths: [] })).rejects.toThrow(/another workspace/);
+    await expect(first.appendAction({ id: 'wrong', timestamp: 30, workspaceId: secondId, conversationId: 'x', modelId: 'm', toolName: 'file.read', sanitizedInputs: {}, executionState: 'succeeded', executionDurationMs: 0, success: true, result: { success: true }, resultSummary: 'x', affectedPaths: [] })).rejects.toThrow(/another workspace/);
     await first.close(); await second.close();
   });
 
@@ -151,7 +163,7 @@ describe('workspace-owned conversation storage', () => {
     legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['v3-project', 'forge-v3', directory, now, now]); legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'v3-project', 'Legacy task', null, 'in-progress', 'high', now, now]); legacy.run('PRAGMA user_version = 3');
     await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
     const service = new StorageService(); await service.init(directory); const migrated = await service.getPersistentTask('legacy-task'); expect(migrated.status).toBe('running'); expect(migrated.taskType).toBe('general'); expect(migrated.events).toEqual([]); await service.close();
-    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(8); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
+    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(9); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
   });
 
   it('persists scoped project observations used to invalidate cached context', async () => {
@@ -167,11 +179,10 @@ describe('workspace-owned conversation storage', () => {
     await expect(second.getPersistentTask(task.id)).rejects.toThrow(/active workspace/); const loaded = await first.getPersistentTask(task.id); expect(loaded.steps[0].expectedInput).toEqual({ apiKey: '[REDACTED]', note: '[REDACTED]' }); expect(loaded.assignedModel).toBe('model-a'); await first.close(); await second.close();
   });
 
-  it('rejects cyclic step dependencies and projects expired approvals without authorizing work', async () => {
+  it('rejects cyclic step dependencies and preserves audit-backed checkpoints', async () => {
     const service = await storage();
     await expect(service.createPersistentTask({ title: 'Cycle', taskType: 'test', resumeInstructions: 'Do not run.', steps: [{ id: 'a', name: 'A', purpose: 'A', riskTier: 0, verificationCriteria: ['A'], dependencies: ['b'] }, { id: 'b', name: 'B', purpose: 'B', riskTier: 0, verificationCriteria: ['B'], dependencies: ['a'] }] })).rejects.toThrow(/cycle/);
-    const task = await service.createPersistentTask({ title: 'Approval', taskType: 'test', resumeInstructions: 'Request a fresh approval.', steps: [{ id: 'execute', name: 'Execute', purpose: 'Run.', riskTier: 2, requiredTool: 'shell.run', verificationCriteria: ['Exit zero'] }] });
-    await service.recordTaskApproval(task.id, 'execute', { decision: 'session', scope: `${task.id}:execute:shell.run`, expiresAt: 1 }); const expired = await service.getPersistentTask(task.id); expect(expired.approvals[0].decision).toBe('expired'); expect(expired.steps[0].approvalState).toBe('expired');
+    const task = await service.createPersistentTask({ title: 'Execution', taskType: 'test', resumeInstructions: 'Run the first ready step.', steps: [{ id: 'execute', name: 'Execute', purpose: 'Run.', riskTier: 2, requiredTool: 'shell.run', verificationCriteria: ['Exit zero'] }] });
     await expect(service.appendTaskCheckpoint(task.id, { stepId: 'execute', name: 'Invalid evidence', summary: 'No active-workspace audit exists.', verified: true, auditReferences: ['missing-audit'] })).rejects.toThrow(/audit reference does not exist/); await service.close();
   });
 });

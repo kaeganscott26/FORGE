@@ -1,0 +1,6 @@
+{
+  "name": "@forge/agent-runtime",
+  "version": "2.3.0-beta.2",
+  "private": true,
+  "type": "module"
+}

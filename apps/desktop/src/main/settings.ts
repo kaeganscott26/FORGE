@@ -12,6 +12,9 @@ interface StoredSettings {
   githubToken?: string;
   webResearchEnabled?: boolean;
   updateChannel?: 'stable' | 'beta' | 'preview';
+  agentRuntime?: 'native' | 'hermes';
+  hermesCommand?: string;
+  hermesEndpoint?: string;
 }
 
 export interface GitHubCredentials {
@@ -49,6 +52,9 @@ export class SettingsService {
       secureStorageAvailable: this.encryptionAvailable
       , webResearchEnabled: this.data.webResearchEnabled === true
       , updateChannel: normalizeUpdateChannel(this.data.updateChannel)
+      , agentRuntime: this.data.agentRuntime === 'hermes' ? 'hermes' : 'native'
+      , hermesCommand: this.data.hermesCommand ?? ''
+      , hermesEndpoint: this.data.hermesEndpoint ?? ''
     };
   }
 
@@ -58,6 +64,11 @@ export class SettingsService {
     this.data.githubUsername = request.githubUsername.trim();
     this.data.webResearchEnabled = request.webResearchEnabled === true;
     this.data.updateChannel = normalizeUpdateChannel(request.updateChannel);
+    this.data.agentRuntime = request.agentRuntime === 'hermes' ? 'hermes' : 'native';
+    const hermesCommand = request.hermesCommand?.trim();
+    if (hermesCommand) this.data.hermesCommand = this.validateCommand(hermesCommand); else delete this.data.hermesCommand;
+    const hermesEndpoint = request.hermesEndpoint?.trim();
+    if (hermesEndpoint) this.data.hermesEndpoint = this.validateUrl(hermesEndpoint); else delete this.data.hermesEndpoint;
 
     if (request.clearApiKey) delete this.data.apiKey;
     else if (request.apiKey?.trim()) this.data.apiKey = await this.encrypt(request.apiKey.trim());
@@ -103,6 +114,7 @@ export class SettingsService {
 
  webResearchEnabled(): boolean { return this.data.webResearchEnabled === true; }
   updateChannel(): 'stable' | 'beta' { return normalizeUpdateChannel(this.data.updateChannel); }
+  hermesConfiguration(): { command?: string; endpoint?: string } { return { command: this.data.hermesCommand, endpoint: this.data.hermesEndpoint }; }
 
   private validateUrl(value: string): string {
     const parsed = new URL(value.trim());
@@ -111,6 +123,11 @@ export class SettingsService {
     const loopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
     if (parsed.protocol === 'http:' && !loopback) throw new Error('Remote API base URLs must use HTTPS. HTTP is allowed only for loopback providers.');
     return parsed.toString().replace(/\/$/, '');
+  }
+
+  private validateCommand(value: string): string {
+    if (value.length > 1_024 || /[\0\r\n]/.test(value)) throw new Error('Hermes command must be a bounded executable path or command name.');
+    return value;
   }
 
   private async encrypt(value: string): Promise<string> {

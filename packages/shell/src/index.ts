@@ -32,7 +32,7 @@ export interface ShellRunInput {
   timeoutMs: number;
   environment?: Record<string, string>;
   environmentAllowlist?: string[];
-  /** Declares the intended network capability for approval and audit. */
+  /** Declares the intended network capability for audit and execution context. */
   networkProfile?: 'offline' | 'network' | 'package-manager' | 'git';
   reason: string;
   expectedOutcome: string;

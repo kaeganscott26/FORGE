@@ -1,14 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-export type ToolExecutionState = 'pending' | 'approved' | 'running' | 'succeeded' | 'failed' | 'rejected' | 'cancelled';
+export type ToolExecutionState = 'requested' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 /**
  * Concrete execution effects.  Network reads are intentionally distinct from
- * network writes so enabled public research does not inherit GitHub mutation
- * approval semantics.
+ * network writes so callers can describe the operation accurately in audit
+ * events and user-visible execution history.
  */
 export type ToolSideEffect = 'read' | 'workspace-write' | 'repository-write' | 'destructive' | 'process' | 'read-network' | 'write-network';
-export type ApprovalRequirement = 'automatic' | 'explicit' | 'session';
 
 export interface ToolAuditMetadata {
   category: 'filesystem' | 'git' | 'shell' | 'web' | 'memory';
@@ -24,8 +22,6 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   outputSchema: z.ZodType<O>;
   /** Observable effect, independent from a numeric risk label. */
   sideEffect: ToolSideEffect;
-  /** Execution authority required for this exact request. */
-  approval: ApprovalRequirement;
   workspaceBoundary: 'required' | 'not-applicable';
   timeoutMs: number;
   audit: ToolAuditMetadata;
@@ -33,7 +29,6 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   networkAccess: boolean;
   describeTarget(input: I): string;
   describeEffect(input: I): string;
-  sessionScope?(input: I): string;
 }
 
 export interface ProviderToolCall {
@@ -74,8 +69,6 @@ export interface ToolRequest<I = unknown> {
   networkAccess: boolean;
   externalDataDescription?: string;
   diff?: string;
-  approvalRequired: boolean;
-  sessionApprovalAvailable: boolean;
   state: ToolExecutionState;
   requestedAt: number;
   updatedAt: number;
@@ -120,49 +113,6 @@ export class ToolRegistry {
 
 export class ToolValidationError extends Error {
   constructor(public readonly code: 'UNKNOWN_TOOL' | 'MALFORMED_ARGUMENTS' | 'MALFORMED_OUTPUT', message: string) { super(message); }
-}
-
-export interface SessionPermission {
-  id: string;
-  workspaceId: string;
-  toolName: string;
-  scopeHash: string;
-  expiresAt: number;
-}
-
-const scopeHash = (workspaceId: string, toolName: string, scope: string): string => createHash('sha256').update(`${workspaceId}\0${toolName}\0${scope}`).digest('hex');
-
-/** Short-lived exact-scope authority. It is deliberately not persisted. */
-export class SessionPermissionStore {
-  private readonly permissions = new Map<string, SessionPermission>();
-  constructor(private readonly now: () => number = Date.now) {}
-
-  grant(workspaceId: string, definition: ToolDefinition<any, any>, input: unknown, ttlMs = 30 * 60_000): SessionPermission {
-    if (definition.approval !== 'session' || !definition.sessionScope) throw new Error('This tool does not allow a session-scoped approval.');
-    const permission: SessionPermission = { id: randomUUID(), workspaceId, toolName: definition.name, scopeHash: scopeHash(workspaceId, definition.name, definition.sessionScope(input)), expiresAt: this.now() + Math.min(Math.max(ttlMs, 1_000), 60 * 60_000) };
-    this.permissions.set(permission.id, permission);
-    return permission;
-  }
-
-  allows(workspaceId: string, definition: ToolDefinition<any, any>, input: unknown): boolean {
-    this.expire();
-    if (definition.approval !== 'session' || !definition.sessionScope) return false;
-    const expected = scopeHash(workspaceId, definition.name, definition.sessionScope(input));
-    return [...this.permissions.values()].some((permission) => permission.workspaceId === workspaceId && permission.toolName === definition.name && permission.scopeHash === expected);
-  }
-
-  expire(): void { for (const [id, permission] of this.permissions) if (permission.expiresAt <= this.now()) this.permissions.delete(id); }
-  clear(): void { this.permissions.clear(); }
-}
-
-/** Policy is based on concrete side effects and scope, never a model-supplied tier. */
-export class PolicyEngine {
-  constructor(private readonly sessions: SessionPermissionStore) {}
-
-  requiresApproval(workspaceId: string, definition: ToolDefinition<any, any>, input: unknown): boolean {
-    if (definition.approval === 'automatic') return false;
-    return !(definition.approval === 'session' && this.sessions.allows(workspaceId, definition, input));
-  }
 }
 
 export { z };

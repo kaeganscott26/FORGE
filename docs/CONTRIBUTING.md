@@ -67,7 +67,7 @@ Do not claim a packaged-runtime behavior from source-level tests alone. Test the
 - Keep IPC typed and allowlisted; never add a generic Node or shell bridge.
 - Use dependency injection and narrow contracts in reusable packages; avoid process-wide mutable singletons and circular ownership.
 - Treat model output, renderer input, terminal output, Git metadata, and web content as untrusted.
-- Keep normal file operations workspace-contained and preserve rollback/approval semantics for privileged actions.
+- Keep normal file operations workspace-contained and preserve rollback, validation, cancellation, redaction, and audit semantics for all actions.
 - Keep provider adapters replaceable. Product policy, task ownership, and tool authorization cannot depend on a provider-specific protocol.
 
 ## 📝 Update the documentation

@@ -1,6 +1,6 @@
 # 🗺️ FORGE Documentation
 
-This directory is the map for people building with, evaluating, or extending FORGE. Start with the outcome you need, then follow the narrowest relevant guide.
+This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.3.0-beta.2`; start with the outcome you need, then follow the narrowest relevant guide.
 
 ## 🚀 Start here
 

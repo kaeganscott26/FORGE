@@ -2,7 +2,7 @@
 
 **Updated:** August 21, 2026
 
-**Working version:** `2.3.0-beta.1` — FORGE v2.3 Beta
+**Working version:** `2.3.0-beta.2` — FORGE v2.3 Beta
 
 **Published release:** [`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) on `main`
 

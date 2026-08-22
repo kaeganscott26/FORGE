@@ -26,7 +26,7 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
@@ -44,7 +44,7 @@ export interface StoredActionRecord {
   id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string;
   taskId?: string; stepId?: string;
   sanitizedInputs: unknown; executionDurationMs: number;
-  approvalDecision: 'automatic' | 'run-once' | 'session' | 'rejected' | 'cancelled' | 'validation-failed'; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null;
+  executionState: 'requested' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'validation-failed'; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null;
   rollback?: { available: boolean; instructions?: string; backupPath?: string };
 }
 
@@ -194,8 +194,7 @@ export class StorageService {
     for (let index = 0; index < draft.steps.length; index += 1) {
       const step = draft.steps[index]; const stepId = stepIds[index];
       const retryPolicy = { maxAttempts: Math.max(1, step.retryPolicy?.maxAttempts ?? 1), backoffMs: Math.max(0, step.retryPolicy?.backoffMs ?? 0), retryableErrorCodes: step.retryPolicy?.retryableErrorCodes ?? [] };
-      this.ready().run(`INSERT INTO task_steps (id, task_id, position, name, purpose, status, risk_tier, required_tool, expected_input, expected_output, attempts, retry_policy, timeout_ms, approval_state, artifact_paths, verification_criteria, rollback_instructions, audit_references)
-        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '[]')`, [stepId, taskId, index, step.name.trim(), step.purpose.trim(), step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), step.riskTier === 0 ? 'not-required' : 'required', JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null]);
+      this.insertTaskStep(taskId, stepId, index, step, retryPolicy);
       for (const dependency of step.dependencies ?? []) this.ready().run('INSERT INTO task_step_dependencies (task_id, step_id, depends_on_step_id) VALUES (?, ?, ?)', [taskId, stepId, dependency]);
     }
     this.appendTaskEventRow(taskId, undefined, 'task.created', 'Workspace-owned task created in draft state.', { taskType: draft.taskType });
@@ -236,7 +235,7 @@ export class StorageService {
     for (let index = 0; index < draft.steps.length; index += 1) {
       const step = draft.steps[index]; const stepId = stepIds[index];
       const retryPolicy = { maxAttempts: Math.max(1, step.retryPolicy?.maxAttempts ?? 1), backoffMs: Math.max(0, step.retryPolicy?.backoffMs ?? 0), retryableErrorCodes: step.retryPolicy?.retryableErrorCodes ?? [] };
-      this.ready().run(`INSERT INTO task_steps (id, task_id, position, name, purpose, status, risk_tier, required_tool, expected_input, expected_output, attempts, retry_policy, timeout_ms, approval_state, artifact_paths, verification_criteria, rollback_instructions, audit_references) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '[]')`, [stepId, taskId, index, step.name.trim(), step.purpose.trim(), step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), step.riskTier === 0 ? 'not-required' : 'required', JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null]);
+      this.insertTaskStep(taskId, stepId, index, step, retryPolicy);
       for (const dependency of step.dependencies ?? []) this.ready().run('INSERT INTO task_step_dependencies (task_id, step_id, depends_on_step_id) VALUES (?, ?, ?)', [taskId, stepId, dependency]);
     }
     this.appendTaskEventRow(taskId, undefined, 'state.reconciled', 'Task definition edited and saved.', { fields: ['title', 'description', 'taskType', 'priority', 'resumeInstructions', 'steps'] });
@@ -254,13 +253,13 @@ export class StorageService {
     await this.persist(); return this.getPersistentTask(taskId);
   }
 
-  async setTaskStepState(taskId: string, stepId: string, status: TaskStepStatus, options: { summary: string; error?: TaskStep['lastError']; externalProcessId?: number | null; outputPath?: string | null; approvalState?: TaskStep['approvalState']; auditReference?: string; incrementAttempts?: boolean; eventType?: TaskEventType }): Promise<Task> {
+  async setTaskStepState(taskId: string, stepId: string, status: TaskStepStatus, options: { summary: string; error?: TaskStep['lastError']; externalProcessId?: number | null; outputPath?: string | null; auditReference?: string; incrementAttempts?: boolean; eventType?: TaskEventType }): Promise<Task> {
     if (!STEP_STATUSES.has(status)) throw new Error('Task step status is invalid.');
     const row = await this.assertTaskStep(taskId, stepId); const now = Date.now();
     const startedAt = status === 'pending' ? null : now; const completedAt = ['completed', 'skipped'].includes(status) ? now : null;
     const externalProcessId = options.externalProcessId === undefined ? row.external_process_id as SqlValue : options.externalProcessId;
     const outputPath = options.outputPath === undefined ? row.output_path as SqlValue : options.outputPath;
-    this.ready().run(`UPDATE task_steps SET status = ?, started_at = COALESCE(started_at, ?), completed_at = ?, attempts = attempts + ?, last_error = ?, external_process_id = ?, output_path = ?, approval_state = COALESCE(?, approval_state) WHERE id = ? AND task_id = ?`, [status, startedAt, completedAt, options.incrementAttempts ? 1 : 0, options.error ? JSON.stringify(sanitizeTaskData(options.error)) : null, externalProcessId, outputPath, options.approvalState ?? null, stepId, taskId]);
+    this.ready().run(`UPDATE task_steps SET status = ?, started_at = COALESCE(started_at, ?), completed_at = ?, attempts = attempts + ?, last_error = ?, external_process_id = ?, output_path = ? WHERE id = ? AND task_id = ?`, [status, startedAt, completedAt, options.incrementAttempts ? 1 : 0, options.error ? JSON.stringify(sanitizeTaskData(options.error)) : null, externalProcessId, outputPath, stepId, taskId]);
     this.ready().run('UPDATE tasks SET current_step_id = ?, updated_at = ?, progress_summary = ? WHERE id = ?', [stepId, now, options.summary, taskId]);
     const eventType = options.eventType ?? (status === 'completed' ? 'step.completed' : status === 'failed' ? 'step.failed' : status === 'waiting' ? 'step.waiting' : status === 'running' ? 'step.started' : 'state.reconciled');
     this.appendTaskEventRow(taskId, stepId, eventType, options.summary, options.error, options.auditReference);
@@ -273,15 +272,6 @@ export class StorageService {
     for (const reference of checkpoint.auditReferences ?? []) if (!this.one('SELECT id FROM action_log WHERE id = ? AND project_id = ?', [reference, projectId])) throw new Error('Task checkpoint audit reference does not exist in the active workspace.');
     const value: TaskCheckpoint = { id: id(), taskId, stepId: checkpoint.stepId, name: checkpoint.name, summary: checkpoint.summary, verified: checkpoint.verified, evidence: sanitizeTaskData(checkpoint.evidence ?? null), auditReferences: checkpoint.auditReferences ?? [], createdAt: Date.now() };
     this.ready().run('INSERT INTO task_checkpoints VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [value.id, projectId, taskId, value.stepId ?? null, value.name, value.summary, value.verified ? 1 : 0, JSON.stringify(value.evidence), JSON.stringify(value.auditReferences), value.createdAt]);
-    await this.persist(); return value;
-  }
-
-  async recordTaskApproval(taskId: string, stepId: string, approval: { toolRequestId?: string; decision: Task['approvals'][number]['decision']; scope: string; decidedAt?: number; expiresAt?: number; auditReference?: string }): Promise<Task['approvals'][number]> {
-    await this.assertTaskStep(taskId, stepId); const projectId = await this.projectId(); const now = Date.now();
-    const value: Task['approvals'][number] = { id: id(), taskId, stepId, toolRequestId: approval.toolRequestId, decision: approval.decision, scope: approval.scope, requestedAt: now, decidedAt: approval.decidedAt, expiresAt: approval.expiresAt, auditReference: approval.auditReference };
-    this.ready().run('INSERT INTO task_approvals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [value.id, projectId, taskId, stepId, value.toolRequestId ?? null, value.decision, value.scope, value.requestedAt, value.decidedAt ?? null, value.expiresAt ?? null, value.auditReference ?? null]);
-    const approvalState: TaskStep['approvalState'] = approval.decision === 'run-once' || approval.decision === 'session' ? 'approved' : approval.decision;
-    this.ready().run('UPDATE task_steps SET approval_state = ? WHERE id = ? AND task_id = ?', [approvalState, stepId, taskId]);
     await this.persist(); return value;
   }
 
@@ -580,8 +570,8 @@ export class StorageService {
   async appendAction(record: StoredActionRecord): Promise<void> {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error('Audit record belongs to another workspace.');
-    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, task_id, step_id, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, record.taskId ?? null, record.stepId ?? null, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, task_id, step_id, sanitized_inputs, execution_state, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, record.taskId ?? null, record.stepId ?? null, JSON.stringify(record.sanitizedInputs ?? null), record.executionState, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
     await this.persist();
   }
 
@@ -595,9 +585,16 @@ export class StorageService {
     params.push(500);
     return this.all(`SELECT * FROM action_log WHERE ${clauses.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`, params).map((row) => ({
       id: String(row.id), timestamp: Number(row.timestamp), workspaceId: String(row.project_id), conversationId: String(row.conversation_id), modelId: String(row.model_id), toolName: String(row.tool_name), taskId: row.task_id ? String(row.task_id) : undefined, stepId: row.step_id ? String(row.step_id) : undefined,
-      sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, approvalDecision: String(row.approval_decision) as StoredActionRecord['approvalDecision'], executionDurationMs: Number(row.execution_duration_ms),
+      sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, executionState: String(row.execution_state) as StoredActionRecord['executionState'], executionDurationMs: Number(row.execution_duration_ms),
       success: Boolean(row.success), result: row.result_json ? JSON.parse(String(row.result_json)) : { success: Boolean(row.success) }, resultSummary: String(row.result_summary), affectedPaths: row.affected_paths ? JSON.parse(String(row.affected_paths)) as string[] : [], exitCode: row.exit_code === null ? null : Number(row.exit_code), rollback: row.rollback ? JSON.parse(String(row.rollback)) : undefined
     }));
+  }
+
+  private insertTaskStep(taskId: string, stepId: string, position: number, step: TaskDraft['steps'][number], retryPolicy: { maxAttempts: number; backoffMs: number; retryableErrorCodes: string[] }): void {
+    const legacyApprovalColumn = this.all('PRAGMA table_info(task_steps)').some((row) => String(row.name) === 'approval_state');
+    const columns = ['id', 'task_id', 'position', 'name', 'purpose', 'status', 'risk_tier', 'required_tool', 'expected_input', 'expected_output', 'attempts', 'retry_policy', 'timeout_ms', ...(legacyApprovalColumn ? ['approval_state'] : []), 'artifact_paths', 'verification_criteria', 'rollback_instructions', 'audit_references'];
+    const values: SqlValue[] = [stepId, taskId, position, step.name.trim(), step.purpose.trim(), 'pending', step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), 0, JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), ...(legacyApprovalColumn ? ['not-required'] : []), JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null, '[]'];
+    this.ready().run(`INSERT INTO task_steps (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`, values);
   }
 
   private createSchema(): void {
@@ -611,7 +608,7 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
-      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
@@ -622,13 +619,17 @@ export class StorageService {
       DROP INDEX IF EXISTS idx_action_log_project_timestamp;
       DROP INDEX IF EXISTS idx_action_log_conversation;
       ALTER TABLE action_log RENAME TO action_log_legacy;
-      CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
-      INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, execution_state, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
         SELECT id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, COALESCE(result_json, '{}'), result_summary, affected_paths, exit_code, rollback FROM action_log_legacy;
       DROP TABLE action_log_legacy;
     `);
     if (!actionColumns.includes('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
     const currentActionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
+    if (!currentActionColumns.has('execution_state')) {
+      this.ready().run("ALTER TABLE action_log ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'succeeded'");
+      this.ready().run("UPDATE action_log SET execution_state = CASE WHEN approval_decision IN ('automatic', 'run-once', 'session', 'approved', 'consumed') THEN CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END WHEN approval_decision = 'rejected' THEN 'cancelled' ELSE COALESCE(approval_decision, CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END) END");
+    }
     if (!currentActionColumns.has('task_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN task_id TEXT');
     if (!currentActionColumns.has('step_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN step_id TEXT');
     const taskColumns = new Set(this.all('PRAGMA table_info(tasks)').map((row) => String(row.name)));
@@ -655,12 +656,11 @@ export class StorageService {
     addTaskColumn('external_resource_ids', "TEXT NOT NULL DEFAULT '[]'");
     this.ready().run(`
       CREATE TABLE IF NOT EXISTS task_dependencies (task_id TEXT NOT NULL, depends_on_task_id TEXT NOT NULL, PRIMARY KEY(task_id, depends_on_task_id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_task_id) REFERENCES tasks(id));
-      CREATE TABLE IF NOT EXISTS task_steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, position INTEGER NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, risk_tier INTEGER NOT NULL, required_tool TEXT, expected_input TEXT, expected_output TEXT, started_at INTEGER, completed_at INTEGER, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, retry_policy TEXT NOT NULL DEFAULT '{}', timeout_ms INTEGER NOT NULL, approval_state TEXT NOT NULL, external_process_id INTEGER, output_path TEXT, artifact_paths TEXT NOT NULL DEFAULT '[]', verification_criteria TEXT NOT NULL DEFAULT '[]', rollback_instructions TEXT, audit_references TEXT NOT NULL DEFAULT '[]', UNIQUE(task_id, position), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS task_steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, position INTEGER NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, risk_tier INTEGER NOT NULL, required_tool TEXT, expected_input TEXT, expected_output TEXT, started_at INTEGER, completed_at INTEGER, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, retry_policy TEXT NOT NULL DEFAULT '{}', timeout_ms INTEGER NOT NULL, external_process_id INTEGER, output_path TEXT, artifact_paths TEXT NOT NULL DEFAULT '[]', verification_criteria TEXT NOT NULL DEFAULT '[]', rollback_instructions TEXT, audit_references TEXT NOT NULL DEFAULT '[]', UNIQUE(task_id, position), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS task_step_dependencies (task_id TEXT NOT NULL, step_id TEXT NOT NULL, depends_on_step_id TEXT NOT NULL, PRIMARY KEY(task_id, step_id, depends_on_step_id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE, FOREIGN KEY(depends_on_step_id) REFERENCES task_steps(id));
       CREATE TABLE IF NOT EXISTS task_checkpoints (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, name TEXT NOT NULL, summary TEXT NOT NULL, verified INTEGER NOT NULL, evidence TEXT NOT NULL, audit_references TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
       CREATE TABLE IF NOT EXISTS task_artifacts (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, kind TEXT NOT NULL, path TEXT, uri TEXT, sha256 TEXT, size INTEGER, verified_at INTEGER, metadata TEXT, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
       CREATE TABLE IF NOT EXISTS task_external_references (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, type TEXT NOT NULL, provider TEXT, external_id TEXT NOT NULL, url TEXT, state TEXT, metadata TEXT, verified_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(task_id, type, external_id), FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
-      CREATE TABLE IF NOT EXISTS task_approvals (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT NOT NULL, tool_request_id TEXT, decision TEXT NOT NULL, scope TEXT NOT NULL, requested_at INTEGER NOT NULL, decided_at INTEGER, expires_at INTEGER, audit_reference TEXT, FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS task_events (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, type TEXT NOT NULL, summary TEXT NOT NULL, details TEXT, audit_reference TEXT, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
     `);
     this.ready().run("UPDATE tasks SET status = CASE status WHEN 'todo' THEN 'draft' WHEN 'in-progress' THEN 'running' WHEN 'done' THEN 'completed' ELSE status END");
@@ -676,7 +676,6 @@ export class StorageService {
       CREATE INDEX IF NOT EXISTS idx_task_checkpoints_task_created ON task_checkpoints(task_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_events_task_created ON task_events(task_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_task_external_project_type ON task_external_references(project_id, type, external_id);
-      CREATE INDEX IF NOT EXISTS idx_task_approvals_step ON task_approvals(task_id, step_id, requested_at DESC);
       CREATE INDEX IF NOT EXISTS idx_browser_bookmarks_project_created ON browser_bookmarks(project_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_browser_history_project_visited ON browser_history(project_id, visited_at DESC);
     `);
@@ -780,19 +779,13 @@ export class StorageService {
       expectedInput: parseJson(step.expected_input, undefined), expectedOutput: parseJson(step.expected_output, undefined),
       startedAt: step.started_at === null ? undefined : Number(step.started_at), completedAt: step.completed_at === null ? undefined : Number(step.completed_at), attempts: Number(step.attempts),
       lastError: parseJson(step.last_error, undefined), retryPolicy: parseJson(step.retry_policy, { maxAttempts: 1, backoffMs: 0, retryableErrorCodes: [] }), timeoutMs: Number(step.timeout_ms),
-      approvalState: String(step.approval_state) as TaskStep['approvalState'], externalProcessId: step.external_process_id === null ? undefined : Number(step.external_process_id), outputPath: step.output_path ? String(step.output_path) : undefined,
+      externalProcessId: step.external_process_id === null ? undefined : Number(step.external_process_id), outputPath: step.output_path ? String(step.output_path) : undefined,
       artifactPaths: parseJson(step.artifact_paths, []), verificationCriteria: parseJson(step.verification_criteria, []), rollbackInstructions: step.rollback_instructions ? String(step.rollback_instructions) : undefined,
       auditReferences: parseJson(step.audit_references, []), dependencies: stepDependencies.filter((dependency) => String(dependency.step_id) === String(step.id)).map((dependency) => String(dependency.depends_on_step_id))
     }));
     const checkpoints: TaskCheckpoint[] = this.all('SELECT * FROM task_checkpoints WHERE task_id = ? ORDER BY created_at', [taskId]).map((entry) => ({ id: String(entry.id), taskId, stepId: entry.step_id ? String(entry.step_id) : undefined, name: String(entry.name), summary: String(entry.summary), verified: Boolean(entry.verified), evidence: parseJson(entry.evidence, null), auditReferences: parseJson(entry.audit_references, []), createdAt: Number(entry.created_at) }));
     const artifacts: TaskArtifact[] = this.all('SELECT * FROM task_artifacts WHERE task_id = ? ORDER BY created_at', [taskId]).map((entry) => ({ id: String(entry.id), taskId, stepId: entry.step_id ? String(entry.step_id) : undefined, kind: String(entry.kind), path: entry.path ? String(entry.path) : undefined, uri: entry.uri ? String(entry.uri) : undefined, sha256: entry.sha256 ? String(entry.sha256) : undefined, size: entry.size === null ? undefined : Number(entry.size), verifiedAt: entry.verified_at === null ? undefined : Number(entry.verified_at), metadata: parseJson(entry.metadata, undefined), createdAt: Number(entry.created_at) }));
     const externalReferences: TaskExternalReference[] = this.all('SELECT * FROM task_external_references WHERE task_id = ? ORDER BY created_at', [taskId]).map((entry) => ({ id: String(entry.id), taskId, stepId: entry.step_id ? String(entry.step_id) : undefined, type: String(entry.type) as TaskExternalReference['type'], provider: entry.provider ? String(entry.provider) : undefined, externalId: String(entry.external_id), url: entry.url ? String(entry.url) : undefined, state: entry.state ? String(entry.state) : undefined, metadata: parseJson(entry.metadata, undefined), verifiedAt: entry.verified_at === null ? undefined : Number(entry.verified_at), createdAt: Number(entry.created_at), updatedAt: Number(entry.updated_at) }));
-    const approvals: Task['approvals'] = this.all('SELECT * FROM task_approvals WHERE task_id = ? ORDER BY requested_at', [taskId]).map((entry) => { const expiresAt = entry.expires_at === null ? undefined : Number(entry.expires_at); const storedDecision = String(entry.decision) as Task['approvals'][number]['decision']; const decision = expiresAt !== undefined && expiresAt <= Date.now() && !['consumed', 'rejected'].includes(storedDecision) ? 'expired' : storedDecision; return { id: String(entry.id), taskId, stepId: String(entry.step_id), toolRequestId: entry.tool_request_id ? String(entry.tool_request_id) : undefined, decision, scope: String(entry.scope), requestedAt: Number(entry.requested_at), decidedAt: entry.decided_at === null ? undefined : Number(entry.decided_at), expiresAt, auditReference: entry.audit_reference ? String(entry.audit_reference) : undefined }; });
-    for (const step of steps) {
-      const latest = approvals.filter((approval) => approval.stepId === step.id).at(-1);
-      if (!latest) continue;
-      step.approvalState = latest.decision === 'run-once' || latest.decision === 'session' ? 'approved' : latest.decision;
-    }
     const events: TaskEvent[] = this.all('SELECT * FROM task_events WHERE task_id = ? ORDER BY created_at', [taskId]).map((entry) => ({ id: String(entry.id), taskId, stepId: entry.step_id ? String(entry.step_id) : undefined, type: String(entry.type) as TaskEventType, summary: String(entry.summary), details: parseJson(entry.details, undefined), auditReference: entry.audit_reference ? String(entry.audit_reference) : undefined, createdAt: Number(entry.created_at) }));
     return {
       id: taskId, workspaceId: projectId, title: String(row.title), description: row.description ? String(row.description) : undefined, taskType: String(row.task_type ?? 'general'), status: String(row.status) as TaskStatus, priority: String(row.priority) as Task['priority'],
@@ -802,7 +795,7 @@ export class StorageService {
       interruptionReason: row.interruption_reason ? String(row.interruption_reason) : undefined, resumabilityState: String(row.resumability_state ?? 'resumable') as Task['resumabilityState'], resumeInstructions: String(row.resume_instructions ?? ''),
       associatedBranch: row.associated_branch ? String(row.associated_branch) : undefined, associatedCommitSha: row.associated_commit_sha ? String(row.associated_commit_sha) : undefined, associatedPullRequest: row.associated_pull_request ? String(row.associated_pull_request) : undefined,
       associatedReleaseTag: row.associated_release_tag ? String(row.associated_release_tag) : undefined, associatedWorkflowRun: row.associated_workflow_run ? String(row.associated_workflow_run) : undefined,
-      processIds: parseJson(row.process_ids, []), externalResourceIds: parseJson(row.external_resource_ids, []), steps, taskDependencies: dependencies, checkpoints, artifacts, externalReferences, approvals, events
+      processIds: parseJson(row.process_ids, []), externalResourceIds: parseJson(row.external_resource_ids, []), steps, taskDependencies: dependencies, checkpoints, artifacts, externalReferences, events
     };
   }
 

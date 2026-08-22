@@ -2,7 +2,7 @@
 
 ## 🚀 1. Install and open FORGE
 
-Download the current published macOS beta DMG from [FORGE v2.3 Beta](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1), open it, and drag FORGE into Applications. Launch the app and select **Open workspace** to choose a project folder, or **Home** to use your platform home directory as the workspace.
+Download the current published macOS beta DMG from [FORGE v2.3 Beta](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1), open it, and drag FORGE into Applications. The current source/runtime version is `2.3.0-beta.2`; launch FORGE and select **Open workspace** to choose a project folder, or **Home** to use your platform home directory as the workspace.
 
 Native source install/update entry points are `npm run update:mac` on macOS and `npm run update:win` from Windows PowerShell. Native Linux standalone packaging uses `./scripts/package-linux.sh`; FORGE-OS installs and updates the Linux runtime through the sibling repository's `./install.sh` and `./update.sh`.
 

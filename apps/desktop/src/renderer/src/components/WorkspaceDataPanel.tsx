@@ -56,7 +56,7 @@ export default function WorkspaceDataPanel(): JSX.Element {
   };
 
   const deleteTask = async (task: Task): Promise<void> => {
-    if (!window.confirm(`Permanently remove task “${task.title}” and its checkpoints, task events, approvals, and task references? This does not stop external processes or roll back completed work.`)) return;
+    if (!window.confirm(`Permanently remove task “${task.title}” and its checkpoints, task events, and task references? This does not stop external processes or roll back completed work.`)) return;
     await act(() => data<void>('tasks.delete', { taskId: task.id }), 'Task permanently removed.');
   };
 

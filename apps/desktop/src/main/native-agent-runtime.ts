@@ -2,32 +2,23 @@ import type { AgentMessage } from '@forge/ai';
 import type { ToolRequestOutcome } from '@forge/agent-tools';
 import { boundedToolEvidence, parseStructuredToolFallback } from '@forge/agent-tools';
 import { ProgressAwareLoopGuard } from './agent-continuation';
-import { taskApprovalLink, taskEvidenceLink, type TaskStepLink } from './task-links';
+import { taskEvidenceLink, type TaskStepLink } from './task-links';
 
 export interface NativeAgentRuntime {
   runAgentTurn(conversationId: string | undefined, prompt: string): Promise<any>;
   runTaskStep(taskId: string): Promise<any>;
-  continueAfterApproval(request: any, result: any): Promise<void>;
-  recordTaskApproval(request: any, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void>;
 }
 
 /** Native chat is one optional consumer of FORGE workspace intelligence and tool runtime. */
 export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime {
   const { storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 60_000, 60_000), 60 * 60_000);
-  const waitingRuns = new Map<string, { prompt: string; conversationId: string; executionTask?: TaskStepLink; evidence: string }>();
   const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId)).map((entry: any) => ({ role: entry.role, content: entry.content }));
   const recordTaskOutcome = async (request: any, result: any): Promise<string | null> => {
     const link = taskEvidenceLink(request);
     if (!link) return null;
     try { await taskRuntime.recordToolOutcome(link.taskId, link.stepId, request.id, result); return null; }
     catch (error) { return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`; }
-  };
-  const recordTaskApproval = async (request: any, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void> => {
-    const link = taskApprovalLink(request);
-    if (!link) return;
-    try { await taskRuntime.recordApproval(link.taskId, link.stepId, request.id, request.toolName, decision); }
-    catch { /* Approval projection must not turn stale task metadata into execution authority or abort a valid tool lifecycle. */ }
   };
   const runAgentTurn = async (conversationId: string | undefined, prompt: string, executionTask?: TaskStepLink) => {
     await emitRuntimeEvent?.('agent.started', { conversationId });
@@ -72,14 +63,6 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
         loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
         await emitRuntimeEvent?.('tool.completed', { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
         if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
-        else await recordTaskApproval(outcome.request, 'pending');
-      }
-      const pending = round.find((outcome) => !outcome.result);
-      if (pending) {
-        waitingRuns.set(pending.request.id, { prompt, conversationId: state.activeConversationId, executionTask, evidence: round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n') });
-        modelContent = `FORGE is waiting for approval to ${pending.request.expectedEffect} (${pending.request.toolName}). The project state and this request remain persisted; approving the exact request will resume the agent from its observed result.`;
-        await emitRuntimeEvent?.('agent.progress', { conversationId: state.activeConversationId, state: 'waiting-for-approval', requestId: pending.request.id });
-        break;
       }
       const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
       continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
@@ -100,17 +83,14 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     const step = task.steps.find((candidate: any) => candidate.id === task.currentStepId);
     if (!step || task.status !== 'ready') return task;
     const conversationId = task.lastActiveConversationId ?? task.originatingConversationId;
-    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool without supplying runtime IDs or audit metadata. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join('; ')}.`, { taskId: task.id, stepId: step.id });
-    return taskRuntime.get(taskId);
+    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool without supplying runtime IDs or audit metadata. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join('; ')}. When the observed evidence satisfies every criterion, request task.checkpoint using only its semantic fields; FORGE attaches the active task, step, and audit identities.`, { taskId: task.id, stepId: step.id });
+    const updated = await taskRuntime.get(taskId);
+    // A verified checkpoint may have made the next dependency-ready step
+    // executable in the same durable operation. Continue it automatically;
+    // Failed tools and reconciliation states stop here.
+    if (updated.status === 'ready' && updated.currentStepId && updated.currentStepId !== step.id) return runTaskStep(taskId);
+    return updated;
   };
 
-  const continueAfterApproval = async (request: any, result: any): Promise<void> => {
-    const checkpointWarning = await recordTaskOutcome(request, result);
-    const evidence = boundedToolEvidence(result);
-    const waiting = waitingRuns.get(request.id); waitingRuns.delete(request.id);
-    const original = waiting?.prompt ?? 'the original request';
-    await runAgentTurn(waiting?.conversationId ?? request.conversationId, `The explicitly approved action ${request.toolName} has completed. Continue the original objective: ${original}. Preserve the remaining ordered actions, do not repeat the completed call, and use this bounded result as evidence:\n\n${waiting?.evidence ? `${waiting.evidence}\n\n` : ''}${evidence}${checkpointWarning ? `\n\n${checkpointWarning}` : ''}`, waiting?.executionTask);
-  };
-
-  return { runAgentTurn, runTaskStep, continueAfterApproval, recordTaskApproval };
+  return { runAgentTurn, runTaskStep };
 }

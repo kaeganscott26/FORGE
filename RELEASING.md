@@ -22,7 +22,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 - Stable accepts only strictly newer normal SemVer.
 - A legacy stored `preview` preference migrates to Beta.
 - Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`; the current beta release is `v2.3.0-beta.1` and its public name is `FORGE v2.3 Beta`.
+- Tags use `v<package-version>`; the current source beta is `v2.3.0-beta.2` and its public name is `FORGE v2.3 Beta`. The published beta remains `v2.3.0-beta.1` until the newer version is tagged and released.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 
