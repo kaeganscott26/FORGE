@@ -126,9 +126,10 @@ describe('workspace-owned conversation storage', () => {
 
   it('persists action logs per workspace and filters without exposing other workspaces', async () => {
     const first = await storage(); const second = await storage(); const firstId = await first.workspaceId(); const secondId = await second.workspaceId();
-    await first.appendAction({ id: 'action-1', timestamp: 10, workspaceId: firstId, conversationId: 'conversation-a', modelId: 'model', toolName: 'file.read', sanitizedInputs: { path: 'README.md' }, approvalDecision: 'automatic', executionDurationMs: 2, success: true, result: { success: true }, resultSummary: 'ok', affectedPaths: [] });
+    await first.appendAction({ id: 'action-1', timestamp: 10, workspaceId: firstId, conversationId: 'conversation-a', modelId: 'model', toolName: 'file.read', taskId: 'task-a', stepId: 'inspect', sanitizedInputs: { path: 'README.md' }, approvalDecision: 'automatic', executionDurationMs: 2, success: true, result: { success: true }, resultSummary: 'ok', affectedPaths: [] });
     await second.appendAction({ id: 'action-2', timestamp: 20, workspaceId: secondId, conversationId: 'conversation-b', modelId: 'model', toolName: 'shell.run', sanitizedInputs: { command: 'pwd' }, approvalDecision: 'automatic', executionDurationMs: 3, success: false, result: { success: false }, resultSummary: 'failed', affectedPaths: [] });
     expect((await first.listActions()).map((entry) => entry.id)).toEqual(['action-1']);
+    expect(await first.listActions()).toMatchObject([{ taskId: 'task-a', stepId: 'inspect' }]);
     expect(await first.listActions({ toolName: 'shell.run' })).toEqual([]);
     await expect(first.appendAction({ id: 'wrong', timestamp: 30, workspaceId: secondId, conversationId: 'x', modelId: 'm', toolName: 'file.read', sanitizedInputs: {}, approvalDecision: 'automatic', executionDurationMs: 0, success: true, result: { success: true }, resultSummary: 'x', affectedPaths: [] })).rejects.toThrow(/another workspace/);
     await first.close(); await second.close();
@@ -142,7 +143,7 @@ describe('workspace-owned conversation storage', () => {
     legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['v3-project', 'forge-v3', directory, now, now]); legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'v3-project', 'Legacy task', null, 'in-progress', 'high', now, now]); legacy.run('PRAGMA user_version = 3');
     await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
     const service = new StorageService(); await service.init(directory); const migrated = await service.getPersistentTask('legacy-task'); expect(migrated.status).toBe('running'); expect(migrated.taskType).toBe('general'); expect(migrated.events).toEqual([]); await service.close();
-    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(7); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
+    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(8); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
   });
 
   it('persists scoped project observations used to invalidate cached context', async () => {

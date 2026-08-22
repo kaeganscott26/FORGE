@@ -26,7 +26,7 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
@@ -34,6 +34,7 @@ const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 
 
 export interface StoredActionRecord {
   id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string;
+  taskId?: string; stepId?: string;
   sanitizedInputs: unknown; executionDurationMs: number;
   approvalDecision: 'automatic' | 'run-once' | 'session' | 'rejected' | 'cancelled' | 'validation-failed'; success: boolean; result: unknown; resultSummary: string; affectedPaths: string[]; exitCode?: number | null;
   rollback?: { available: boolean; instructions?: string; backupPath?: string };
@@ -523,8 +524,8 @@ export class StorageService {
   async appendAction(record: StoredActionRecord): Promise<void> {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error('Audit record belongs to another workspace.');
-    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, task_id, step_id, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, record.taskId ?? null, record.stepId ?? null, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
     await this.persist();
   }
 
@@ -537,7 +538,7 @@ export class StorageService {
     if (filters.to !== undefined) { clauses.push('timestamp <= ?'); params.push(filters.to); }
     params.push(500);
     return this.all(`SELECT * FROM action_log WHERE ${clauses.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`, params).map((row) => ({
-      id: String(row.id), timestamp: Number(row.timestamp), workspaceId: String(row.project_id), conversationId: String(row.conversation_id), modelId: String(row.model_id), toolName: String(row.tool_name),
+      id: String(row.id), timestamp: Number(row.timestamp), workspaceId: String(row.project_id), conversationId: String(row.conversation_id), modelId: String(row.model_id), toolName: String(row.tool_name), taskId: row.task_id ? String(row.task_id) : undefined, stepId: row.step_id ? String(row.step_id) : undefined,
       sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null, approvalDecision: String(row.approval_decision) as StoredActionRecord['approvalDecision'], executionDurationMs: Number(row.execution_duration_ms),
       success: Boolean(row.success), result: row.result_json ? JSON.parse(String(row.result_json)) : { success: Boolean(row.success) }, resultSummary: String(row.result_summary), affectedPaths: row.affected_paths ? JSON.parse(String(row.affected_paths)) as string[] : [], exitCode: row.exit_code === null ? null : Number(row.exit_code), rollback: row.rollback ? JSON.parse(String(row.rollback)) : undefined
     }));
@@ -554,7 +555,7 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
-      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
@@ -571,6 +572,9 @@ export class StorageService {
       DROP TABLE action_log_legacy;
     `);
     if (!actionColumns.includes('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
+    const currentActionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
+    if (!currentActionColumns.has('task_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN task_id TEXT');
+    if (!currentActionColumns.has('step_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN step_id TEXT');
     const taskColumns = new Set(this.all('PRAGMA table_info(tasks)').map((row) => String(row.name)));
     const addTaskColumn = (name: string, definition: string): void => { if (!taskColumns.has(name)) this.ready().run(`ALTER TABLE tasks ADD COLUMN ${name} ${definition}`); };
     addTaskColumn('task_type', "TEXT NOT NULL DEFAULT 'general'");

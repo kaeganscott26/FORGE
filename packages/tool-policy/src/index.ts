@@ -43,6 +43,21 @@ export interface ProviderToolCall {
   provider: string;
 }
 
+/**
+ * Runtime-owned identity and audit context for one tool execution. These
+ * values are never provider arguments and must not be requested from a model
+ * or user.
+ */
+export interface ToolExecutionContext {
+  requestId: string;
+  workspaceId: string;
+  conversationId: string;
+  modelId: string;
+  reason: string;
+  taskId?: string;
+  stepId?: string;
+}
+
 export interface ToolRequest<I = unknown> {
   id: string;
   workspaceId: string;
@@ -50,6 +65,7 @@ export interface ToolRequest<I = unknown> {
   modelId: string;
   toolName: string;
   input: I;
+  executionContext: ToolExecutionContext;
   reason: string;
   target: string;
   workingDirectory?: string;

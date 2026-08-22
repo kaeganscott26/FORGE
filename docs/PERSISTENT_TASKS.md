@@ -53,7 +53,7 @@ The provider-neutral registry exposes:
 - Tier 1: `task.create`, `task.resume`, `task.pause`, `task.cancel`, `task.checkpoint`, and `task.handoff`;
 - Tier 2: `task.process.start`.
 
-Existing filesystem, Git, shell, terminal, and web tools accept optional `taskContext` so their result can be attached to an exact task step. The policy tier of the underlying tool does not change.
+Existing filesystem, Git, shell, terminal, browser, and web tools receive task/step linkage through the internal `ToolExecutionContext`. Providers do not see or supply this metadata. The policy tier of the underlying tool does not change.
 
 The renderer has a dedicated **TASKS** view, separate from chat. It shows progress, current step, blocker, checkpoint, related conversation/Git/workflow/process state, verification criteria, approvals, and events. Users can inspect, resume, pause, cancel tracking, retry a failed step, open the associated conversation or audit view, and generate/copy a handoff.
 

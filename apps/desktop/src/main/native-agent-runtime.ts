@@ -2,7 +2,7 @@ import type { AgentMessage } from '@forge/ai';
 import type { ToolRequestOutcome } from '@forge/agent-tools';
 import { boundedToolEvidence, parseStructuredToolFallback } from '@forge/agent-tools';
 import { ProgressAwareLoopGuard } from './agent-continuation';
-import { reconcileTaskContext, taskApprovalLink, taskEvidenceLink } from './task-links';
+import { taskApprovalLink, taskEvidenceLink, type TaskStepLink } from './task-links';
 
 export interface NativeAgentRuntime {
   runAgentTurn(conversationId: string | undefined, prompt: string): Promise<any>;
@@ -28,7 +28,7 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     try { await taskRuntime.recordApproval(link.taskId, link.stepId, request.id, request.toolName, decision); }
     catch { /* Approval projection must not turn stale task metadata into execution authority or abort a valid tool lifecycle. */ }
   };
-  const runAgentTurn = async (conversationId: string | undefined, prompt: string) => {
+  const runAgentTurn = async (conversationId: string | undefined, prompt: string, executionTask?: TaskStepLink) => {
     await emitRuntimeEvent?.('agent.started', { conversationId });
     try {
     const state = await storage.conversationState(conversationId);
@@ -65,12 +65,11 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const round: ToolRequestOutcome[] = [];
       for (const call of fresh) {
-        const reconciledCall = await reconcileTaskContext(call, project.id, (taskId) => taskRuntime.get(taskId));
-        await emitRuntimeEvent?.('tool.requested', { toolName: reconciledCall.name, conversationId: state.activeConversationId });
-        const outcome = await toolRouter.request(reconciledCall, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
+        await emitRuntimeEvent?.('tool.requested', { toolName: call.name, conversationId: state.activeConversationId });
+        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel, userRequest: prompt, task: executionTask });
         round.push(outcome); outcomes.push(outcome);
-        loopGuard.record(reconciledCall, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-        await emitRuntimeEvent?.('tool.completed', { toolName: reconciledCall.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
+        loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+        await emitRuntimeEvent?.('tool.completed', { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
         if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
         else await recordTaskApproval(outcome.request, 'pending');
       }
@@ -82,7 +81,7 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
       continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
-      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. If a task was just created or resumed, execute its next dependency-ready step with its exact taskContext.\n\n${evidence}`, continuationHistory, definitions);
+      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.\n\n${evidence}`, continuationHistory, definitions);
     }
     const summary = outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? 'succeeded' : 'failed'}${result?.error ? `: ${result.error.message}` : ''}.`).join('\n');
     const content = [modelContent, summary].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
@@ -99,7 +98,7 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     const step = task.steps.find((candidate: any) => candidate.id === task.currentStepId);
     if (!step || task.status !== 'ready') return task;
     const conversationId = task.lastActiveConversationId ?? task.originatingConversationId;
-    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool with taskContext { taskId: "${task.id}", stepId: "${step.id}" }. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join('; ')}.`);
+    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool without supplying runtime IDs or audit metadata. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join('; ')}.`, { taskId: task.id, stepId: step.id });
     return taskRuntime.get(taskId);
   };
 

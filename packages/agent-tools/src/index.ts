@@ -26,6 +26,8 @@ export interface AuditRecord {
   conversationId: string;
   modelId: string;
   toolName: string;
+  taskId?: string;
+  stepId?: string;
   sanitizedInputs: unknown;
   approvalDecision: 'automatic' | 'run-once' | 'session' | 'rejected' | 'cancelled' | 'validation-failed';
   executionDurationMs: number;
@@ -58,6 +60,10 @@ export interface ToolRouterContext {
   conversationId: string;
   modelId: string;
   workspaceRoot: string;
+  /** Current natural-language request, used only to produce an audit reason. */
+  userRequest?: string;
+  /** Runtime-owned persistent task linkage, never exposed as tool arguments. */
+  task?: { taskId: string; stepId: string };
 }
 
 export interface ToolRequestOutcome { request: ToolRequest; result?: ToolResult; }
@@ -154,8 +160,8 @@ export function createToolRegistry(): ToolRegistry {
   registry.register(definition({ ...base, name: 'web.search', purpose: 'Search the public web when external research is enabled. Workspace content is never sent automatically.', inputSchema: z.object({ query: z.string().min(1).max(1_000), reason, projectDataSent: z.literal('None').default('None'), ...taskContext }), sideEffect: 'read-network', approval: 'automatic', workspaceBoundary: 'not-applicable', timeoutMs: 30_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => 'Send the exact public query to an external search service and return cited results.' }));
   registry.register(definition({ ...base, name: 'web.fetch', purpose: 'Retrieve a public HTTP(S) resource when external research is enabled. Workspace content is never sent automatically.', inputSchema: z.object({ url: z.string().url().max(8_000), reason, projectDataSent: z.literal('None').default('None'), ...taskContext }), sideEffect: 'read-network', approval: 'automatic', workspaceBoundary: 'not-applicable', timeoutMs: 30_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => 'Retrieve bounded public web evidence without browser automation.' }));
   registry.register(definition({ ...base, name: 'browser.open', purpose: 'Open a validated public HTTP(S) URL in the user-visible FORGE Browser.', inputSchema: z.object({ url: z.string().url().max(8_000), reason, projectDataSent: z.literal('None').default('None'), ...taskContext }), sideEffect: 'read-network', approval: 'explicit', workspaceBoundary: 'not-applicable', timeoutMs: 45_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => 'Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data.' }));
-  registry.register(definition({ ...base, name: 'browser.read', purpose: 'Read bounded rendered text from the current visible FORGE Browser page.', inputSchema: z.object({ reason, ...taskContext }), sideEffect: 'read-network', approval: 'explicit', workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => 'the current FORGE Browser page', describeEffect: () => 'Send bounded rendered page text from the current public page to the configured model for analysis.' }));
-  registry.register(definition({ ...base, name: 'browser.find', purpose: 'Find bounded text excerpts on the current visible FORGE Browser page.', inputSchema: z.object({ query: z.string().min(1).max(1_000), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), sideEffect: 'read-network', approval: 'explicit', workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => 'the current FORGE Browser page', describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
+  registry.register(definition({ ...base, name: 'browser.read', purpose: 'Read bounded rendered text from the current visible FORGE Browser page.', inputSchema: z.object({ reason, ...taskContext }), sideEffect: 'read-network', approval: 'automatic', workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => 'the current FORGE Browser page', describeEffect: () => 'Send bounded rendered page text from the current public page to the configured model for analysis.' }));
+  registry.register(definition({ ...base, name: 'browser.find', purpose: 'Find bounded text excerpts on the current visible FORGE Browser page.', inputSchema: z.object({ query: z.string().min(1).max(1_000), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), sideEffect: 'read-network', approval: 'automatic', workspaceBoundary: 'not-applicable', timeoutMs: 20_000, audit: { category: 'web', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => 'the current FORGE Browser page', describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
   registry.register(definition({ ...base, name: 'browser.savecontext', purpose: 'Save an agent-authored summary of the current browser page as durable workspace context.', inputSchema: z.object({ title: z.string().min(1).max(500), content: z.string().min(1).max(200_000), reason, ...taskContext }), workspaceBoundary: 'required', timeoutMs: 15_000, audit: { category: 'memory', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, sideEffect: 'workspace-write', approval: 'session', sessionScope: (input) => JSON.stringify({ tool: 'browser.savecontext', title: input.title }), describeTarget: (input) => `durable workspace context: ${input.title}`, describeEffect: () => 'Persist the supplied browser-page summary in workspace-owned durable memory. It can be removed from Durable Memory later.' }));
   registry.register(definition({ ...base, name: 'github.read', purpose: 'Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.', inputSchema: z.object({ resource: z.enum(['metadata', 'branches', 'commits', 'issues', 'pulls', 'issue-comments', 'pull-comments', 'workflow-runs', 'workflow-jobs', 'releases', 'release-assets']), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), sideEffect: 'read-network', approval: 'automatic', workspaceBoundary: 'required', timeoutMs: 30_000, audit: { category: 'git', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => 'Read bounded GitHub repository evidence using the active origin.' }));
   const githubMutationContext = { reason, ...taskContext };
@@ -199,6 +205,43 @@ export function boundedToolEvidence(result: ToolResult, limit = 12_000): string 
   return text.length > limit ? `${text.slice(0, limit)}\n[FORGE bounded the remaining tool output]` : text;
 }
 
+const INTERNAL_PROVIDER_ARGUMENTS = new Set(['reason', 'taskContext']);
+
+/** Remove runtime-owned bookkeeping from every nested provider schema branch. */
+export function modelVisibleToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const visit = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== 'object') return value;
+    const output: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (key === 'properties' && entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        output[key] = Object.fromEntries(Object.entries(entry as Record<string, unknown>)
+          .filter(([property]) => !INTERNAL_PROVIDER_ARGUMENTS.has(property))
+          .map(([property, propertySchema]) => [property, visit(propertySchema)]));
+      } else if (key === 'required' && Array.isArray(entry)) {
+        output[key] = entry.filter((property) => typeof property !== 'string' || !INTERNAL_PROVIDER_ARGUMENTS.has(property));
+      } else {
+        output[key] = visit(entry);
+      }
+    }
+    return output;
+  };
+  return visit(schema) as Record<string, unknown>;
+}
+
+function inferExecutionReason(definition: ToolDefinition<any, any>, context: ToolRouterContext): string {
+  const request = context.userRequest?.trim().replace(/\s+/g, ' ');
+  return request
+    ? `${definition.purpose} Current user request: ${request}`.slice(0, 2_000)
+    : definition.purpose.slice(0, 2_000);
+}
+
+function enrichRuntimeArguments(argumentsValue: unknown, reasonValue: string, task: ToolRouterContext['task']): unknown {
+  if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) return argumentsValue;
+  const { reason: _providerReason, taskContext: _providerTaskContext, ...semanticArguments } = argumentsValue as Record<string, unknown>;
+  return { ...semanticArguments, reason: reasonValue, ...(task ? { taskContext: task } : {}) };
+}
+
 export class ToolRouter {
   readonly registry: ToolRegistry;
   private readonly requests = new Map<string, ToolRequest>();
@@ -213,13 +256,16 @@ export class ToolRouter {
   }
 
   definitions(): ToolDefinition<any, any>[] { return this.registry.list(); }
-  providerDefinitions(): Array<{ name: string; description: string; parameters: Record<string, unknown>; sideEffects: string; approval: string; networkAccess: boolean; cancellation: boolean; resultSemantics: string }> { return this.registry.list().filter((entry) => this.availability(entry.name).available).map((entry) => ({ name: entry.name, description: entry.purpose, parameters: zodToJsonSchema(entry.inputSchema, { target: 'openApi3' }) as Record<string, unknown>, sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: 'Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable.' })); }
+  providerDefinitions(): Array<{ name: string; description: string; parameters: Record<string, unknown>; sideEffects: string; approval: string; networkAccess: boolean; cancellation: boolean; resultSemantics: string }> { return this.registry.list().filter((entry) => this.availability(entry.name).available).map((entry) => ({ name: entry.name, description: entry.purpose, parameters: modelVisibleToolSchema(zodToJsonSchema(entry.inputSchema, { target: 'openApi3' }) as Record<string, unknown>), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: 'Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable.' })); }
   listRequests(workspaceId?: string): ToolRequest[] { return [...this.requests.values()].filter((request) => !workspaceId || request.workspaceId === workspaceId).sort((a, b) => b.requestedAt - a.requestedAt).map((request) => ({ ...request, input: sanitizeToolData(request.input) })); }
   requestById(id: string): ToolRequest | undefined { const request = this.requests.get(id); return request ? { ...request } : undefined; }
 
   async request(call: ProviderToolCall, context: ToolRouterContext): Promise<ToolRequestOutcome> {
+    const definitionForContext = this.registry.get(call.name);
+    const executionReason = definitionForContext ? inferExecutionReason(definitionForContext, context) : `Request ${call.name}`;
+    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context.task) };
     let parsed: ReturnType<ToolRegistry['parse']>;
-    try { parsed = this.registry.parse(call); }
+    try { parsed = this.registry.parse(runtimeCall); }
     catch (error) {
       await this.auditValidationFailure(call, context, error);
       throw error;
@@ -233,10 +279,13 @@ export class ToolRouter {
     }
     this.workspaceRoots.set(context.workspaceId, context.workspaceRoot);
     const now = Date.now();
+    const requestId = call.id || randomUUID();
     const prediction = await this.predict(definition.name, input, context.workspaceRoot);
     const request: ToolRequest = {
-      id: call.id || randomUUID(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId,
-      toolName: definition.name, input, reason: typeof input.reason === 'string' ? input.reason : definition.purpose,
+      id: requestId, workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId,
+      toolName: definition.name, input,
+      executionContext: { requestId, workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, reason: executionReason, ...context.task },
+      reason: executionReason,
       target: prediction.target ?? definition.describeTarget(input), workingDirectory: typeof input.workingDirectory === 'string' ? input.workingDirectory : undefined,
       expectedEffect: definition.describeEffect(input), predictedAffectedPaths: prediction.paths, networkAccess: definition.networkAccess && (input.networkProfile ?? 'network') !== 'offline',
       externalDataDescription: typeof input.projectDataSent === 'string' ? input.projectDataSent : undefined, diff: prediction.diff,
@@ -295,12 +344,12 @@ export class ToolRouter {
   }
 
   private record(request: ToolRequest, approvalDecision: AuditRecord['approvalDecision'], success: boolean, executionDurationMs: number, resultSummary: string, affectedPaths: string[], exitCode?: number | null, rollback?: ToolResult['rollback']): AuditRecord {
-    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, sanitizedInputs: sanitizeToolData(request.input), approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
+    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, taskId: request.executionContext.taskId, stepId: request.executionContext.stepId, sanitizedInputs: sanitizeToolData(request.input), approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
   }
 
   private async auditValidationFailure(call: ProviderToolCall, context: ToolRouterContext, error: unknown): Promise<void> {
     const summary = error instanceof Error ? error.message : String(error);
-    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, sanitizedInputs: sanitizeToolData(call.arguments), approvalDecision: 'validation-failed', executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
+    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, taskId: context.task?.taskId, stepId: context.task?.stepId, sanitizedInputs: sanitizeToolData(call.arguments), approvalDecision: 'validation-failed', executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
   }
 
   private required(id: string): ToolRequest { const request = this.requests.get(id); if (!request) throw new Error('Unknown tool request.'); return request; }

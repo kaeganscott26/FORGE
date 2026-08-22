@@ -2587,7 +2587,7 @@ function parseDiff(text) {
   return { files };
 }
 const id = () => randomUUID();
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 const MAX_MEMORY_CONTENT_CHARS = 2e5;
 const MAX_MEMORY_METADATA_CHARS = 1e5;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
@@ -3066,8 +3066,8 @@ class StorageService {
   async appendAction(record) {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error("Audit record belongs to another workspace.");
-    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
+    this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, task_id, step_id, sanitized_inputs, approval_decision, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [record.id, projectId, record.timestamp, record.conversationId, record.modelId, record.toolName, record.taskId ?? null, record.stepId ?? null, JSON.stringify(record.sanitizedInputs ?? null), record.approvalDecision, record.executionDurationMs, record.success ? 1 : 0, JSON.stringify(record.result ?? null), record.resultSummary, JSON.stringify(record.affectedPaths), record.exitCode ?? null, record.rollback ? JSON.stringify(record.rollback) : null]);
     await this.persist();
   }
   async listActions(filters = {}) {
@@ -3101,6 +3101,8 @@ class StorageService {
       conversationId: String(row.conversation_id),
       modelId: String(row.model_id),
       toolName: String(row.tool_name),
+      taskId: row.task_id ? String(row.task_id) : void 0,
+      stepId: row.step_id ? String(row.step_id) : void 0,
       sanitizedInputs: row.sanitized_inputs ? JSON.parse(String(row.sanitized_inputs)) : null,
       approvalDecision: String(row.approval_decision),
       executionDurationMs: Number(row.execution_duration_ms),
@@ -3123,7 +3125,7 @@ class StorageService {
       CREATE TABLE IF NOT EXISTS workspace_state (project_id TEXT PRIMARY KEY, active_conversation_id TEXT, layout_json TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_observations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL, timestamp INTEGER NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS project_context_state (project_id TEXT PRIMARY KEY, invalidated_at INTEGER, invalidation_reasons TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id));
-      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
+      CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
@@ -3140,6 +3142,9 @@ class StorageService {
       DROP TABLE action_log_legacy;
     `);
     if (!actionColumns.includes("result_json")) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
+    const currentActionColumns = new Set(this.all("PRAGMA table_info(action_log)").map((row) => String(row.name)));
+    if (!currentActionColumns.has("task_id")) this.ready().run("ALTER TABLE action_log ADD COLUMN task_id TEXT");
+    if (!currentActionColumns.has("step_id")) this.ready().run("ALTER TABLE action_log ADD COLUMN step_id TEXT");
     const taskColumns = new Set(this.all("PRAGMA table_info(tasks)").map((row) => String(row.name)));
     const addTaskColumn = (name, definition2) => {
       if (!taskColumns.has(name)) this.ready().run(`ALTER TABLE tasks ADD COLUMN ${name} ${definition2}`);
@@ -6499,8 +6504,8 @@ function createToolRegistry() {
   registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact public query to an external search service and return cited results." }));
   registry.register(definition({ ...base, name: "web.fetch", purpose: "Retrieve a public HTTP(S) resource when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded public web evidence without browser automation." }));
   registry.register(definition({ ...base, name: "browser.open", purpose: "Open a validated public HTTP(S) URL in the user-visible FORGE Browser.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None"), ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 45e3, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data." }));
-  registry.register(definition({ ...base, name: "browser.read", purpose: "Read bounded rendered text from the current visible FORGE Browser page.", inputSchema: z.object({ reason, ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: () => "Send bounded rendered page text from the current public page to the configured model for analysis." }));
-  registry.register(definition({ ...base, name: "browser.find", purpose: "Find bounded text excerpts on the current visible FORGE Browser page.", inputSchema: z.object({ query: z.string().min(1).max(1e3), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), sideEffect: "read-network", approval: "explicit", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
+  registry.register(definition({ ...base, name: "browser.read", purpose: "Read bounded rendered text from the current visible FORGE Browser page.", inputSchema: z.object({ reason, ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: () => "Send bounded rendered page text from the current public page to the configured model for analysis." }));
+  registry.register(definition({ ...base, name: "browser.find", purpose: "Find bounded text excerpts on the current visible FORGE Browser page.", inputSchema: z.object({ query: z.string().min(1).max(1e3), maxResults: z.number().int().min(1).max(50).default(10), reason, ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "not-applicable", timeoutMs: 2e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: false, describeTarget: () => "the current FORGE Browser page", describeEffect: (input) => `Send excerpts matching ${JSON.stringify(input.query)} from the current public page to the configured model.` }));
   registry.register(definition({ ...base, name: "browser.savecontext", purpose: "Save an agent-authored summary of the current browser page as durable workspace context.", inputSchema: z.object({ title: z.string().min(1).max(500), content: z.string().min(1).max(2e5), reason, ...taskContext }), workspaceBoundary: "required", timeoutMs: 15e3, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, sideEffect: "workspace-write", approval: "session", sessionScope: (input) => JSON.stringify({ tool: "browser.savecontext", title: input.title }), describeTarget: (input) => `durable workspace context: ${input.title}`, describeEffect: () => "Persist the supplied browser-page summary in workspace-owned durable memory. It can be removed from Durable Memory later." }));
   registry.register(definition({ ...base, name: "github.read", purpose: "Inspect metadata, branches, commits, issues, pull requests, comments, workflow state, releases, or assets for the active GitHub repository.", inputSchema: z.object({ resource: z.enum(["metadata", "branches", "commits", "issues", "pulls", "issue-comments", "pull-comments", "workflow-runs", "workflow-jobs", "releases", "release-assets"]), number: z.number().int().positive().optional(), runId: z.number().int().positive().optional(), releaseId: z.number().int().positive().optional(), page: z.number().int().min(1).max(100).default(1), reason, ...taskContext }), sideEffect: "read-network", approval: "automatic", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "git", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => `GitHub ${input.resource}`, describeEffect: () => "Read bounded GitHub repository evidence using the active origin." }));
   const githubMutationContext = { reason, ...taskContext };
@@ -6543,6 +6548,34 @@ function boundedToolEvidence(result, limit = 12e3) {
   return text.length > limit ? `${text.slice(0, limit)}
 [FORGE bounded the remaining tool output]` : text;
 }
+const INTERNAL_PROVIDER_ARGUMENTS = /* @__PURE__ */ new Set(["reason", "taskContext"]);
+function modelVisibleToolSchema(schema) {
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (!value || typeof value !== "object") return value;
+    const output = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "properties" && entry && typeof entry === "object" && !Array.isArray(entry)) {
+        output[key] = Object.fromEntries(Object.entries(entry).filter(([property]) => !INTERNAL_PROVIDER_ARGUMENTS.has(property)).map(([property, propertySchema]) => [property, visit(propertySchema)]));
+      } else if (key === "required" && Array.isArray(entry)) {
+        output[key] = entry.filter((property) => typeof property !== "string" || !INTERNAL_PROVIDER_ARGUMENTS.has(property));
+      } else {
+        output[key] = visit(entry);
+      }
+    }
+    return output;
+  };
+  return visit(schema);
+}
+function inferExecutionReason(definition2, context) {
+  const request = context.userRequest?.trim().replace(/\s+/g, " ");
+  return request ? `${definition2.purpose} Current user request: ${request}`.slice(0, 2e3) : definition2.purpose.slice(0, 2e3);
+}
+function enrichRuntimeArguments(argumentsValue, reasonValue, task) {
+  if (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) return argumentsValue;
+  const { reason: _providerReason, taskContext: _providerTaskContext, ...semanticArguments } = argumentsValue;
+  return { ...semanticArguments, reason: reasonValue, ...task ? { taskContext: task } : {} };
+}
 class ToolRouter {
   constructor(dependencies) {
     this.dependencies = dependencies;
@@ -6560,7 +6593,7 @@ class ToolRouter {
     return this.registry.list();
   }
   providerDefinitions() {
-    return this.registry.list().filter((entry) => this.availability(entry.name).available).map((entry) => ({ name: entry.name, description: entry.purpose, parameters: zodToJsonSchema(entry.inputSchema, { target: "openApi3" }), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: "Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable." }));
+    return this.registry.list().filter((entry) => this.availability(entry.name).available).map((entry) => ({ name: entry.name, description: entry.purpose, parameters: modelVisibleToolSchema(zodToJsonSchema(entry.inputSchema, { target: "openApi3" })), sideEffects: entry.sideEffect, approval: entry.approval, networkAccess: entry.networkAccess, cancellation: entry.cancellable, resultSemantics: "Returns a structured, bounded result with success, affected paths, warnings, and recovery metadata when applicable." }));
   }
   listRequests(workspaceId) {
     return [...this.requests.values()].filter((request) => !workspaceId || request.workspaceId === workspaceId).sort((a, b) => b.requestedAt - a.requestedAt).map((request) => ({ ...request, input: sanitizeToolData(request.input) }));
@@ -6570,9 +6603,12 @@ class ToolRouter {
     return request ? { ...request } : void 0;
   }
   async request(call, context) {
+    const definitionForContext = this.registry.get(call.name);
+    const executionReason = definitionForContext ? inferExecutionReason(definitionForContext, context) : `Request ${call.name}`;
+    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context.task) };
     let parsed;
     try {
-      parsed = this.registry.parse(call);
+      parsed = this.registry.parse(runtimeCall);
     } catch (error) {
       await this.auditValidationFailure(call, context, error);
       throw error;
@@ -6586,15 +6622,17 @@ class ToolRouter {
     }
     this.workspaceRoots.set(context.workspaceId, context.workspaceRoot);
     const now = Date.now();
+    const requestId = call.id || randomUUID();
     const prediction = await this.predict(definition2.name, input, context.workspaceRoot);
     const request = {
-      id: call.id || randomUUID(),
+      id: requestId,
       workspaceId: context.workspaceId,
       conversationId: context.conversationId,
       modelId: context.modelId,
       toolName: definition2.name,
       input,
-      reason: typeof input.reason === "string" ? input.reason : definition2.purpose,
+      executionContext: { requestId, workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, reason: executionReason, ...context.task },
+      reason: executionReason,
       target: prediction.target ?? definition2.describeTarget(input),
       workingDirectory: typeof input.workingDirectory === "string" ? input.workingDirectory : void 0,
       expectedEffect: definition2.describeEffect(input),
@@ -6675,11 +6713,11 @@ class ToolRouter {
     }
   }
   record(request, approvalDecision, success, executionDurationMs, resultSummary, affectedPaths, exitCode, rollback) {
-    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, sanitizedInputs: sanitizeToolData(request.input), approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
+    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, taskId: request.executionContext.taskId, stepId: request.executionContext.stepId, sanitizedInputs: sanitizeToolData(request.input), approvalDecision, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
   }
   async auditValidationFailure(call, context, error) {
     const summary = error instanceof Error ? error.message : String(error);
-    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, sanitizedInputs: sanitizeToolData(call.arguments), approvalDecision: "validation-failed", executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
+    await this.dependencies.audit.appendAction({ id: randomUUID(), timestamp: Date.now(), workspaceId: context.workspaceId, conversationId: context.conversationId, modelId: context.modelId, toolName: call.name, taskId: context.task?.taskId, stepId: context.task?.stepId, sanitizedInputs: sanitizeToolData(call.arguments), approvalDecision: "validation-failed", executionDurationMs: 0, success: false, result: { success: false, summary }, resultSummary: summary, affectedPaths: [] });
   }
   required(id2) {
     const request = this.requests.get(id2);
@@ -8880,25 +8918,10 @@ function directTaskLink(input) {
   return typeof link?.taskId === "string" && typeof link.stepId === "string" ? { taskId: link.taskId, stepId: link.stepId } : null;
 }
 function taskEvidenceLink(request) {
-  return nestedTaskLink(request.input) ?? (request.toolName === "task.process.start" ? directTaskLink(request.input) : null);
+  return directTaskLink(request.executionContext) ?? nestedTaskLink(request.input) ?? (request.toolName === "task.process.start" ? directTaskLink(request.input) : null);
 }
 function taskApprovalLink(request) {
   return taskEvidenceLink(request) ?? (request.toolName === "task.checkpoint" ? directTaskLink(request.input) : null);
-}
-async function reconcileTaskContext(call, workspaceId, getTask) {
-  const input = call.arguments;
-  if (!input || typeof input !== "object" || Array.isArray(input) || !Object.prototype.hasOwnProperty.call(input, "taskContext")) return call;
-  const record = input;
-  const link = nestedTaskLink(record);
-  if (link) {
-    try {
-      const task = await getTask(link.taskId);
-      if (task.workspaceId === workspaceId && task.steps.some((step) => step.id === link.stepId)) return call;
-    } catch {
-    }
-  }
-  const { taskContext: _discarded, ...argumentsWithoutTaskContext } = record;
-  return { ...call, arguments: argumentsWithoutTaskContext };
 }
 function createNativeAgentRuntime(dependencies) {
   const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2 } = dependencies;
@@ -8922,7 +8945,7 @@ function createNativeAgentRuntime(dependencies) {
     } catch {
     }
   };
-  const runAgentTurn = async (conversationId, prompt) => {
+  const runAgentTurn = async (conversationId, prompt, executionTask) => {
     await emitRuntimeEvent2?.("agent.started", { conversationId });
     try {
       const state = await storage2.conversationState(conversationId);
@@ -8966,13 +8989,12 @@ ${evidence2}`, continuationHistory)).content;
         }
         const round = [];
         for (const call of fresh) {
-          const reconciledCall = await reconcileTaskContext(call, project.id, (taskId) => taskRuntime2.get(taskId));
-          await emitRuntimeEvent2?.("tool.requested", { toolName: reconciledCall.name, conversationId: state.activeConversationId });
-          const outcome = await toolRouter2.request(reconciledCall, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel });
+          await emitRuntimeEvent2?.("tool.requested", { toolName: call.name, conversationId: state.activeConversationId });
+          const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel, userRequest: prompt, task: executionTask });
           round.push(outcome);
           outcomes.push(outcome);
-          loopGuard.record(reconciledCall, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-          await emitRuntimeEvent2?.("tool.completed", { toolName: reconciledCall.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
+          loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+          await emitRuntimeEvent2?.("tool.completed", { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
           if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
           else await recordTaskApproval(outcome.request, "pending");
         }
@@ -8984,7 +9006,7 @@ ${evidence2}`, continuationHistory)).content;
         }
         const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
         continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
-        turn = await agent2.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. If a task was just created or resumed, execute its next dependency-ready step with its exact taskContext.
+        turn = await agent2.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.
 
 ${evidence}`, continuationHistory, definitions);
       }
@@ -9003,7 +9025,7 @@ ${evidence}`, continuationHistory, definitions);
     const step = task.steps.find((candidate) => candidate.id === task.currentStepId);
     if (!step || task.status !== "ready") return task;
     const conversationId = task.lastActiveConversationId ?? task.originatingConversationId;
-    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool with taskContext { taskId: "${task.id}", stepId: "${step.id}" }. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join("; ")}.`);
+    await runAgentTurn(conversationId, `Start the dependency-ready task step now. Use the required tool without supplying runtime IDs or audit metadata. Do not only describe the plan. Task: ${task.title}. Step: ${step.name}. Purpose: ${step.purpose}. Expected input: ${JSON.stringify(step.expectedInput ?? {})}. Verification: ${step.verificationCriteria.join("; ")}.`, { taskId: task.id, stepId: step.id });
     return taskRuntime2.get(taskId);
   };
   const continueAfterApproval = async (request, result) => {
@@ -9190,8 +9212,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "4a54d324ef2dfcabdebca4f939a9d09845880b77",
-    buildDate: "2026-08-22T03:33:00.616Z",
+    commit: "1e69e647082ab9e35b2dcf3b5331dc1994911471",
+    buildDate: "2026-08-22T04:27:09.487Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,

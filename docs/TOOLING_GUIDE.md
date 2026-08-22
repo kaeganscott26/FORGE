@@ -29,7 +29,7 @@ Read-only workspace and Git inspection is automatic. Public `web.search`, `web.f
 
 ## ✋ What requires your approval
 
-FORGE shows the tool name, reason, target, working directory, predicted file diff or paths where available, network use, and expected effect before it performs these actions.
+FORGE derives the audit reason and execution identity internally. It shows the tool name, inferred reason, target, working directory, predicted file diff or paths where available, network use, and expected effect before an approval-required action. Models provide only semantic operation arguments.
 
 | Tool commands | What approval allows |
 | --- | --- |
@@ -41,7 +41,7 @@ FORGE shows the tool name, reason, target, working directory, predicted file dif
 | `git.pull`, `git.push` | Receive remote Git changes or send local commits. This always needs a fresh approval and uses the configured Git credentials. |
 | `shell.run` | Run one executable with an argument array in the workspace. The request declares `offline`, `network`, `package-manager`, or `git` network intent; this is a disclosure and policy guard, not an operating-system network sandbox. |
 | `browser.open` | Open one validated public page in the visible FORGE Browser. |
-| `browser.read`, `browser.find` | Send bounded rendered text or matching excerpts from the visible Browser page to the configured model. |
+| `browser.read`, `browser.find` | Automatically return bounded rendered text or matching excerpts from the visible Browser page when Web Research is enabled. |
 | `browser.savecontext` | Save an agent-written page summary in workspace durable memory. |
 | `github.mutate` | Make one typed GitHub change: create/update/comment on an issue, create a branch or file, create/comment on a pull request, retry a workflow, or create/update a release. |
 | `task.create`, `task.resume`, `task.pause`, `task.cancel`, `task.checkpoint`, `task.handoff` | Create or update workspace task tracking, record a checkpoint, or write a human-readable task handoff. Task tracking alone never starts work. |

@@ -90,7 +90,7 @@ The Settings build diagnostic is intentionally separate from user configuration.
 
 ## 🛡️ Tool and update configuration
 
-External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabled public `web.search` and `web.fetch` requests may run as bounded read-only network tools without sending workspace content; Browser page disclosure to a model, remote writes, and any declared project-data transfer retain explicit approval. Every request is still validated, bounded, and audited.
+External web research is off by default and has no environment-variable bypass. Enable it explicitly in Settings. Enabled public `web.search`, `web.fetch`, `browser.read`, and `browser.find` requests run as bounded read-only tools; browser navigation, remote writes, and declared project-data transfer retain approval. Provider schemas contain only semantic tool arguments: FORGE supplies audit reasons and workspace/conversation/model/task execution identity internally. Every request remains validated, bounded, and audited.
 
 The update channel defaults to **Stable**, including settings with no recognized channel. Choose **Beta** to allow newer beta, release-candidate, or stable versions. A legacy stored `preview` value migrates to `beta`. Bounded GitHub Release discovery filters drafts, malformed versions, incompatible prereleases, unsafe metadata, and non-forward versions before selecting an exact feed. Stable accepts only normal semantic versions. The selected feed resets downgrade permission, and the returned version is checked again before download. This preference contains no secret.
 

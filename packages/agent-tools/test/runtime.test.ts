@@ -19,22 +19,40 @@ describe('agent tool runtime', () => {
     expect(registry.parse({ id: 'linked-write', name: 'file.create', provider: 'test', arguments: { path: 'note.md', content: '', reason: 'Create task output.', taskContext: { taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' } } }).input.taskContext).toEqual({ taskId: '00000000-0000-4000-8000-000000000000', stepId: 'write' });
   });
 
-  it('requires approval before exposing browser text to the model and saves approved page context durably', async () => {
+  it('reads the visible browser immediately with runtime-owned execution metadata and saves approved page context durably', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-browser-tools-'));
     const saved: Array<{ type: string; title?: string | null; content: string; metadata?: unknown }> = [];
-    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, browser: fakeBrowser, memories: { create: async (entry) => { saved.push(entry); return { id: 'memory-1', createdAt: 1, updatedAt: 1 }; } }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
-    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
-    const read = await router.request({ id: 'browser-read', name: 'browser.read', provider: 'test', arguments: { reason: 'Summarize the page.' } }, context);
-    expect(read.request.state).toBe('pending');
-    const readResult = await router.approve(read.request.id, context, 'run-once');
+    const records: AuditRecord[] = [];
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, browser: fakeBrowser, memories: { create: async (entry) => { saved.push(entry); return { id: 'memory-1', createdAt: 1, updatedAt: 1 }; } }, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model', userRequest: 'browser.read and tell me what you see', task: { taskId: '00000000-0000-4000-8000-000000000000', stepId: 'inspect-browser' } };
+    const read = await router.request({ id: 'browser-read', name: 'browser.read', provider: 'test', arguments: {} }, context);
+    expect(read.request.state).toBe('succeeded');
+    const readResult = read.result!;
     expect(readResult.output).toMatchObject({ url: 'https://example.com/', text: expect.stringContaining('Example Domain') });
-    const find = await router.request({ id: 'browser-find', name: 'browser.find', provider: 'test', arguments: { query: 'illustrative', reason: 'Find the relevant statement.' } }, context);
-    const findResult = await router.approve(find.request.id, context, 'run-once');
+    expect(read.request.executionContext).toMatchObject({ requestId: 'browser-read', workspaceId: 'workspace-1', conversationId: 'conversation-1', modelId: 'test-model', taskId: context.task.taskId, stepId: context.task.stepId, reason: expect.stringContaining('browser.read and tell me what you see') });
+    expect(records.at(-1)).toMatchObject({ id: 'browser-read', approvalDecision: 'automatic', taskId: context.task.taskId, stepId: context.task.stepId });
+    const find = await router.request({ id: 'browser-find', name: 'browser.find', provider: 'test', arguments: { query: 'illustrative' } }, context);
+    const findResult = find.result!;
     expect(findResult.output).toMatchObject({ matches: [{ excerpt: expect.stringContaining('illustrative') }] });
+    const open = await router.request({ id: 'browser-open', name: 'browser.open', provider: 'test', arguments: { url: 'https://example.com/next' } }, context);
+    expect(open.result).toBeUndefined();
+    expect(open.request).toMatchObject({ state: 'pending', approvalRequired: true });
     const save = await router.request({ id: 'browser-save', name: 'browser.savecontext', provider: 'test', arguments: { title: 'Example reference', content: 'The page is a reserved example domain.', reason: 'Save this reference.' } }, context);
     expect(save.request.state).toBe('pending');
     expect((await router.approve(save.request.id, context, 'run-once')).rollback?.available).toBe(true);
     expect(saved).toEqual([expect.objectContaining({ type: 'document', title: 'Example reference', metadata: expect.objectContaining({ url: 'https://example.com/' }) })]);
+  });
+
+  it('keeps runtime bookkeeping out of every provider-visible tool schema', () => {
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => true }, browser: fakeBrowser, terminal: { list: () => [] }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const schemas = router.providerDefinitions();
+    const browserRead = schemas.find((entry) => entry.name === 'browser.read');
+    expect(browserRead?.parameters).toMatchObject({ type: 'object', properties: {}, additionalProperties: false });
+    for (const entry of schemas) {
+      const schema = JSON.stringify(entry.parameters);
+      expect(schema).not.toContain('taskContext');
+      expect(schema).not.toContain('"reason"');
+    }
   });
 
   it('blocks traversal and symlink workspace escapes', async () => {
@@ -142,6 +160,9 @@ describe('agent tool runtime', () => {
     expect(result.success).toBe(true); expect(result.rollback?.backupPath).toContain('.forge/backups/');
     expect(await readFile(path.join(root, 'note.txt'), 'utf8')).toBe('after\n'); expect(records.at(-1)?.approvalDecision).toBe('run-once');
     expect(records.at(-1)?.id).toBe('patch-1');
+    const destructive = await router.request({ id: 'delete-1', name: 'file.delete', provider: 'test', arguments: { path: 'note.txt' } }, context);
+    expect(destructive.result).toBeUndefined();
+    expect(destructive.request).toMatchObject({ state: 'pending', approvalRequired: true });
   });
 
   it('reuses only an exact session-scoped reversible approval', async () => {

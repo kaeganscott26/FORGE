@@ -76,11 +76,11 @@ Memory is separate from conversation history. Deleting a memory is an explicit d
 
 ## 🛡️ 8. Review and approve agent tools
 
-When Workspace AI requests a tool, open **Agent Actions** in the bottom panel. The request remains visible and shows tool, risk tier, reason, exact target or command, working directory, network use, expected effect, predicted paths, and a file diff when applicable.
+When Workspace AI requests a tool, FORGE generates its execution identity and audit reason internally. You never provide task IDs, step IDs, conversation/workspace IDs, or a bookkeeping reason. Open **Agent Actions** in the bottom panel to inspect the resulting tool, side effect, inferred reason, exact target or command, working directory, network use, expected effect, predicted paths, and file diff when applicable.
 
 - Tier 0 reads may complete automatically and return bounded evidence to the conversation.
 - Tier 1 changes offer **Run once**, an exact-scope session permission, or **Reject**. Session permissions expire and reset when the workspace changes.
-- Tier 2 actions offer only a one-time approval or rejection. Shell, delete, commit, pull, push, browser page disclosure, and remote mutations remain Tier 2. Enabled public `web.search` and `web.fetch` are bounded read-only network tools and never send workspace content automatically.
+- Tier 2 actions offer only a one-time approval or rejection. Shell, delete, commit, pull, push, browser navigation, and remote mutations remain Tier 2. Enabled `browser.read`, `browser.find`, `web.search`, and `web.fetch` are bounded read-only tools; web search/fetch never send workspace content automatically.
 
 Running operations can be cancelled. Completed requests retain their state; local structured results can be inspected and copied. The persistent action log can be filtered by tool, risk, and outcome. Tool logs and conversations are stored in the active workspace database, so another workspace cannot see them.
 
