@@ -2069,6 +2069,8 @@ const IPC_CHANNELS = {
   workspaceLayoutSave: "workspace.layout.save",
   fileList: "file.list",
   fileRead: "file.read",
+  fileMetadata: "file.metadata",
+  filePreview: "file.preview",
   fileWrite: "file.write",
   fileCreate: "file.create",
   fileDelete: "file.delete",
@@ -2132,6 +2134,7 @@ const IPC_CHANNELS = {
   tasksList: "tasks.list",
   tasksGet: "tasks.get",
   tasksCreate: "tasks.create",
+  tasksUpdate: "tasks.update",
   tasksCreateRelease: "tasks.create.release",
   tasksResume: "tasks.resume",
   tasksPause: "tasks.pause",
@@ -2166,9 +2169,19 @@ const IGNORED_PATH_PATTERNS = [
 function isSkippableFileSystemError(error) {
   return error instanceof Error && "code" in error && ["EACCES", "EPERM", "ENOENT"].includes(String(error.code));
 }
-function shouldIgnore(relativePath2) {
+function shouldIgnore(relativePath2, showHidden = false) {
   const normalized = relativePath2.replaceAll("\\", "/");
-  return normalized.split("/").some((part) => IGNORED.has(part)) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+  return normalized.split("/").some((part) => part.startsWith(".") && !showHidden || IGNORED.has(part) && !(showHidden && part.startsWith("."))) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized) && !showHidden);
+}
+const mimeByExtension = { txt: "text/plain", md: "text/markdown", markdown: "text/markdown", json: "application/json", jsonc: "application/json", yaml: "application/yaml", yml: "application/yaml", toml: "application/toml", xml: "application/xml", csv: "text/csv", log: "text/plain", ini: "text/plain", conf: "text/plain", env: "text/plain", sh: "text/x-shellscript", bash: "text/x-shellscript", zsh: "text/x-shellscript", ps1: "text/x-powershell", bat: "text/plain", cmd: "text/plain", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", bmp: "image/bmp", svg: "image/svg+xml", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac", m4a: "audio/mp4", aac: "audio/aac", mp4: "video/mp4", webm: "video/webm", ogv: "video/ogg", mov: "video/quicktime" };
+const textExtensions = new Set(Object.keys(mimeByExtension).filter((extension) => mimeByExtension[extension].startsWith("text/") || ["json", "yaml", "toml"].includes(extension)));
+function kindFor(extension, mimeType, executable) {
+  if (executable) return "executable";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("text/") || textExtensions.has(extension)) return "text";
+  return mimeType === "application/octet-stream" ? "binary" : "unknown";
 }
 function parseMarkdown(content) {
   const frontmatter = {};
@@ -2218,7 +2231,7 @@ class WorkspaceService extends EventEmitter {
   }
   async list(relativePath2 = "", options = {}) {
     const budget = { count: 0, maximum: Math.max(1, options.maxEntries ?? 5e3) };
-    return this.listDirectory(await this.resolve(relativePath2), relativePath2, options.recursive !== false, budget);
+    return this.listDirectory(await this.resolve(relativePath2), relativePath2, options.recursive !== false, budget, options.showHidden ?? false);
   }
   async readFile(relativePath2) {
     const absolute = await this.resolve(relativePath2);
@@ -2233,6 +2246,28 @@ class WorkspaceService extends EventEmitter {
       throw new Error("Forge could not decode this file as UTF-8 text.");
     }
     return { path: relativePath2, content, modifiedAt: stat.mtimeMs };
+  }
+  async metadata(relativePath2) {
+    const absolute = await this.resolve(relativePath2);
+    const stat = await promises.stat(absolute);
+    const extension = path.extname(absolute).slice(1).toLowerCase();
+    const bytes = stat.isFile() ? await promises.open(absolute, "r").then(async (handle) => {
+      const buffer = Buffer.alloc(16);
+      await handle.read(buffer, 0, 16, 0);
+      await handle.close();
+      return buffer;
+    }) : Buffer.alloc(0);
+    const signature = bytes.length >= 4 ? bytes.subarray(0, 8).toString("hex").match(/.{2}/g)?.join(" ") : void 0;
+    const executable = process.platform === "win32" ? [".exe", ".bat", ".cmd", ".ps1"].includes(path.extname(absolute).toLowerCase()) : Boolean(stat.mode & 73);
+    const mimeType = mimeByExtension[extension] ?? (bytes[0] === 127 && bytes[1] === 69 ? "application/x-elf" : "application/octet-stream");
+    return { path: relativePath2, name: path.basename(absolute), extension: extension || void 0, size: stat.size, modifiedAt: stat.mtimeMs, createdAt: stat.birthtimeMs, mimeType, kind: kindFor(extension, mimeType, executable), executable, permissions: process.platform === "win32" ? void 0 : (stat.mode & 511).toString(8), signature };
+  }
+  async preview(relativePath2) {
+    const metadata = await this.metadata(relativePath2);
+    if (!["image", "audio", "video"].includes(metadata.kind)) throw new Error("This file does not have a safe media preview.");
+    if (metadata.size > 25 * 1024 * 1024) throw new Error("Media preview is limited to 25 MB.");
+    const bytes = await promises.readFile(await this.resolve(relativePath2));
+    return { path: relativePath2, mimeType: metadata.mimeType, dataUrl: `data:${metadata.mimeType};base64,${bytes.toString("base64")}` };
   }
   async writeFile(relativePath2, content) {
     const absolute = await this.resolve(relativePath2, true);
@@ -2293,7 +2328,7 @@ class WorkspaceService extends EventEmitter {
       if (!isSkippableFileSystemError(error)) throw error;
     }
   }
-  async listDirectory(absolute, relative, recursive, budget) {
+  async listDirectory(absolute, relative, recursive, budget, showHidden = false) {
     let entries;
     try {
       entries = await promises.readdir(absolute, { withFileTypes: true });
@@ -2305,12 +2340,12 @@ class WorkspaceService extends EventEmitter {
     for (const entry of entries) {
       if (budget.count >= budget.maximum) break;
       const childRelative = relative ? path.join(relative, entry.name) : entry.name;
-      if (shouldIgnore(childRelative) || entry.isSymbolicLink()) continue;
+      if (shouldIgnore(childRelative, showHidden) || entry.isSymbolicLink()) continue;
       const childAbsolute = path.join(absolute, entry.name);
       try {
         const node = await this.nodeFor(childAbsolute, childRelative);
         budget.count += 1;
-        if (entry.isDirectory() && recursive) node.children = await this.listDirectory(childAbsolute, childRelative, recursive, budget);
+        if (entry.isDirectory() && recursive) node.children = await this.listDirectory(childAbsolute, childRelative, recursive, budget, showHidden);
         nodes.push(node);
       } catch (error) {
         if (!isSkippableFileSystemError(error)) throw error;
@@ -2722,6 +2757,37 @@ class StorageService {
   async getPersistentTask(taskId) {
     const row = await this.assertTask(taskId);
     return this.taskFromRow(row);
+  }
+  async updatePersistentTask(taskId, draft) {
+    await this.assertTask(taskId);
+    if (!draft.title.trim()) throw new Error("Task title is required.");
+    if (!draft.taskType.trim()) throw new Error("Task type is required.");
+    if (!draft.resumeInstructions.trim()) throw new Error("Resume instructions are required.");
+    if (!draft.steps.length) throw new Error("At least one step is required.");
+    if (draft.steps.some((step) => !step.name.trim() || !step.purpose.trim() || !step.verificationCriteria.length)) throw new Error("Each step needs a name, purpose, and verification criterion.");
+    const stepIds = draft.steps.map((step) => step.id ?? id());
+    if (new Set(stepIds).size !== stepIds.length) throw new Error("Task step IDs must be unique.");
+    const stepIdSet = new Set(stepIds);
+    for (let index = 0; index < draft.steps.length; index += 1) {
+      const step = draft.steps[index];
+      if (![0, 1, 2].includes(step.riskTier) || step.dependencies?.some((dependency) => !stepIdSet.has(dependency) || dependency === stepIds[index])) throw new Error("Task step dependency or risk tier is invalid.");
+    }
+    this.assertAcyclicSteps(stepIds, draft.steps.map((step) => step.dependencies ?? []));
+    const projectId = await this.projectId();
+    const now = Date.now();
+    this.ready().run(`UPDATE tasks SET title = ?, description = ?, task_type = ?, priority = ?, resume_instructions = ?, associated_branch = ?, progress_summary = ?, updated_at = ? WHERE id = ? AND project_id = ?`, [draft.title.trim(), draft.description ?? null, draft.taskType.trim(), draft.priority ?? "medium", draft.resumeInstructions.trim(), draft.associatedBranch ?? null, draft.progressSummary ?? "Task definition updated.", now, taskId, projectId]);
+    this.ready().run("DELETE FROM task_step_dependencies WHERE task_id = ?", [taskId]);
+    this.ready().run("DELETE FROM task_steps WHERE task_id = ?", [taskId]);
+    for (let index = 0; index < draft.steps.length; index += 1) {
+      const step = draft.steps[index];
+      const stepId = stepIds[index];
+      const retryPolicy = { maxAttempts: Math.max(1, step.retryPolicy?.maxAttempts ?? 1), backoffMs: Math.max(0, step.retryPolicy?.backoffMs ?? 0), retryableErrorCodes: step.retryPolicy?.retryableErrorCodes ?? [] };
+      this.ready().run(`INSERT INTO task_steps (id, task_id, position, name, purpose, status, risk_tier, required_tool, expected_input, expected_output, attempts, retry_policy, timeout_ms, approval_state, artifact_paths, verification_criteria, rollback_instructions, audit_references) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '[]')`, [stepId, taskId, index, step.name.trim(), step.purpose.trim(), step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 12e4), step.riskTier === 0 ? "not-required" : "required", JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null]);
+      for (const dependency of step.dependencies ?? []) this.ready().run("INSERT INTO task_step_dependencies (task_id, step_id, depends_on_step_id) VALUES (?, ?, ?)", [taskId, stepId, dependency]);
+    }
+    this.appendTaskEventRow(taskId, void 0, "state.reconciled", "Task definition edited and saved.", { fields: ["title", "description", "taskType", "priority", "resumeInstructions", "steps"] });
+    await this.persist();
+    return this.getPersistentTask(taskId);
   }
   async setPersistentTaskState(taskId, status, options) {
     if (!TASK_STATUSES.has(status)) throw new Error("Task status is invalid.");
@@ -8664,6 +8730,9 @@ class TaskRuntime {
   create(draft) {
     return this.dependencies.storage.createPersistentTask(draft);
   }
+  update(taskId, draft) {
+    return this.dependencies.storage.updatePersistentTask(taskId, draft);
+  }
   list() {
     return this.dependencies.storage.listPersistentTasks();
   }
@@ -8939,6 +9008,7 @@ function taskApprovalLink(request) {
 function createNativeAgentRuntime(dependencies) {
   const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2 } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 6e4, 6e4), 60 * 6e4);
+  const waitingRuns = /* @__PURE__ */ new Map();
   const historyFor = async (conversationId) => (await storage2.listConversationMessages(conversationId)).map((entry) => ({ role: entry.role, content: entry.content }));
   const recordTaskOutcome = async (request, result) => {
     const link = taskEvidenceLink(request);
@@ -9013,6 +9083,7 @@ ${evidence2}`, continuationHistory)).content;
         }
         const pending = round.find((outcome) => !outcome.result);
         if (pending) {
+          waitingRuns.set(pending.request.id, { prompt, conversationId: state.activeConversationId, executionTask, evidence: round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n") });
           modelContent = `FORGE is waiting for approval to ${pending.request.expectedEffect} (${pending.request.toolName}). The project state and this request remain persisted; approving the exact request will resume the agent from its observed result.`;
           await emitRuntimeEvent2?.("agent.progress", { conversationId: state.activeConversationId, state: "waiting-for-approval", requestId: pending.request.id });
           break;
@@ -9044,11 +9115,16 @@ ${evidence}`, continuationHistory, definitions);
   const continueAfterApproval = async (request, result) => {
     const checkpointWarning = await recordTaskOutcome(request, result);
     const evidence = boundedToolEvidence(result);
-    await runAgentTurn(request.conversationId, `An explicitly approved FORGE tool request has completed. Continue the original work from the persisted workspace and task state. Do not repeat this call unless the workspace has changed.
+    const waiting = waitingRuns.get(request.id);
+    waitingRuns.delete(request.id);
+    const original = waiting?.prompt ?? "the original request";
+    await runAgentTurn(waiting?.conversationId ?? request.conversationId, `The explicitly approved action ${request.toolName} has completed. Continue the original objective: ${original}. Preserve the remaining ordered actions, do not repeat the completed call, and use this bounded result as evidence:
 
-${evidence}${checkpointWarning ? `
+${waiting?.evidence ? `${waiting.evidence}
 
-${checkpointWarning}` : ""}`);
+` : ""}${evidence}${checkpointWarning ? `
+
+${checkpointWarning}` : ""}`, waiting?.executionTask);
   };
   return { runAgentTurn, runTaskStep, continueAfterApproval, recordTaskApproval };
 }
@@ -9225,8 +9301,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "a56c9f26f825a84474bf630e705fcbe93a2c3b88",
-    buildDate: "2026-08-22T08:07:22.837Z",
+    commit: "9c864ae9e84647e9d7e5b16eb7d6091273a01890",
+    buildDate: "2026-08-22T08:44:55.587Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9496,8 +9572,10 @@ function registerHandlers() {
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
-  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive }));
+  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive, showHidden: request?.showHidden }));
   register(IPC_CHANNELS.fileRead, async (request) => workspace.readFile(request.path));
+  register(IPC_CHANNELS.fileMetadata, async (request) => workspace.metadata(request.path));
+  register(IPC_CHANNELS.filePreview, async (request) => workspace.preview(request.path));
   register(IPC_CHANNELS.fileWrite, async (request) => workspace.writeFile(request.path, request.content));
   register(IPC_CHANNELS.fileCreate, async (request) => workspace.create(request.path, request.type, request.content));
   register(IPC_CHANNELS.fileDelete, async (request) => workspace.delete(request.path));
@@ -9628,6 +9706,7 @@ function registerHandlers() {
   register(IPC_CHANNELS.tasksList, async () => taskRuntime.list());
   register(IPC_CHANNELS.tasksGet, async (request) => taskRuntime.get(request.taskId));
   register(IPC_CHANNELS.tasksCreate, async (request) => taskRuntime.create(request));
+  register(IPC_CHANNELS.tasksUpdate, async (request) => taskRuntime.update(request.taskId, request.draft));
   register(IPC_CHANNELS.tasksCreateRelease, async (request) => taskRuntime.createRelease(request.version, request.originatingConversationId));
   register(IPC_CHANNELS.tasksResume, async (request) => nativeAgent.runTaskStep(request.taskId));
   register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));
