@@ -84,7 +84,7 @@ Use clear emoji-led top-level sections for developer-facing guides, keep paragra
 
 ## 🔐 Secrets and safety
 
-Never commit API keys, tokens, certificates, `.env` files, local workspace databases, generated package artifacts, or personally sensitive terminal output. Do not relax the tool policy to make a demo easier: a model request is never permission.
+Never commit API keys, tokens, certificates, `.env` files, local workspace databases, generated package artifacts, or personally sensitive terminal output. Do not bypass runtime validation, workspace containment, or execution logging to make a demo easier.
 
 ## 📦 Releases and external writes
 

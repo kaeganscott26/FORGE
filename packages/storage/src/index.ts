@@ -26,7 +26,7 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
@@ -591,9 +591,8 @@ export class StorageService {
   }
 
   private insertTaskStep(taskId: string, stepId: string, position: number, step: TaskDraft['steps'][number], retryPolicy: { maxAttempts: number; backoffMs: number; retryableErrorCodes: string[] }): void {
-    const legacyApprovalColumn = this.all('PRAGMA table_info(task_steps)').some((row) => String(row.name) === 'approval_state');
-    const columns = ['id', 'task_id', 'position', 'name', 'purpose', 'status', 'risk_tier', 'required_tool', 'expected_input', 'expected_output', 'attempts', 'retry_policy', 'timeout_ms', ...(legacyApprovalColumn ? ['approval_state'] : []), 'artifact_paths', 'verification_criteria', 'rollback_instructions', 'audit_references'];
-    const values: SqlValue[] = [stepId, taskId, position, step.name.trim(), step.purpose.trim(), 'pending', step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), 0, JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), ...(legacyApprovalColumn ? ['not-required'] : []), JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null, '[]'];
+    const columns = ['id', 'task_id', 'position', 'name', 'purpose', 'status', 'risk_tier', 'required_tool', 'expected_input', 'expected_output', 'attempts', 'retry_policy', 'timeout_ms', 'artifact_paths', 'verification_criteria', 'rollback_instructions', 'audit_references'];
+    const values: SqlValue[] = [stepId, taskId, position, step.name.trim(), step.purpose.trim(), 'pending', step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), 0, JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null, '[]'];
     this.ready().run(`INSERT INTO task_steps (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`, values);
   }
 
@@ -614,22 +613,29 @@ export class StorageService {
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
-    const actionColumns = this.all('PRAGMA table_info(action_log)').map((row) => String(row.name));
-    if (actionColumns.includes('risk_tier')) this.ready().run(`
-      DROP INDEX IF EXISTS idx_action_log_project_timestamp;
-      DROP INDEX IF EXISTS idx_action_log_conversation;
-      ALTER TABLE action_log RENAME TO action_log_legacy;
-      CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
-      INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, execution_state, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
-        SELECT id, project_id, timestamp, conversation_id, model_id, tool_name, sanitized_inputs, approval_decision, execution_duration_ms, success, COALESCE(result_json, '{}'), result_summary, affected_paths, exit_code, rollback FROM action_log_legacy;
-      DROP TABLE action_log_legacy;
-    `);
-    if (!actionColumns.includes('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
-    const currentActionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
-    if (!currentActionColumns.has('execution_state')) {
-      this.ready().run("ALTER TABLE action_log ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'succeeded'");
-      this.ready().run("UPDATE action_log SET execution_state = CASE WHEN approval_decision IN ('automatic', 'run-once', 'session', 'approved', 'consumed') THEN CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END WHEN approval_decision = 'rejected' THEN 'cancelled' ELSE COALESCE(approval_decision, CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END) END");
+    const actionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
+    // SQLite cannot drop a column in every version we support. Rebuild every pre-autonomous
+    // action log so legacy approval data is removed without losing the execution history.
+    // Historical state is intentionally derived only from the recorded outcome, never from
+    // approval_decision; approval was not an execution result in the autonomous runtime.
+    if (actionColumns.has('approval_decision') || actionColumns.has('risk_tier') || !actionColumns.has('execution_state')) {
+      const legacyResult = actionColumns.has('result_json') ? "COALESCE(result_json, '{}')" : "'{}'";
+      const legacyTaskId = actionColumns.has('task_id') ? 'task_id' : 'NULL';
+      const legacyStepId = actionColumns.has('step_id') ? 'step_id' : 'NULL';
+      this.ready().run('BEGIN');
+      try {
+        this.ready().run('DROP INDEX IF EXISTS idx_action_log_project_timestamp');
+        this.ready().run('DROP INDEX IF EXISTS idx_action_log_conversation');
+        this.ready().run('ALTER TABLE action_log RENAME TO action_log_legacy');
+        this.ready().run("CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id))");
+        this.ready().run(`INSERT INTO action_log (id, project_id, timestamp, conversation_id, model_id, tool_name, task_id, step_id, sanitized_inputs, execution_state, execution_duration_ms, success, result_json, result_summary, affected_paths, exit_code, rollback)
+          SELECT id, project_id, timestamp, conversation_id, model_id, tool_name, ${legacyTaskId}, ${legacyStepId}, sanitized_inputs, CASE WHEN success = 1 THEN 'succeeded' ELSE 'failed' END, execution_duration_ms, success, ${legacyResult}, result_summary, affected_paths, exit_code, rollback FROM action_log_legacy`);
+        this.ready().run('DROP TABLE action_log_legacy');
+        this.ready().run('COMMIT');
+      } catch (error) { this.ready().run('ROLLBACK'); throw error; }
     }
+    const currentActionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
+    if (!currentActionColumns.has('result_json')) this.ready().run("ALTER TABLE action_log ADD COLUMN result_json TEXT NOT NULL DEFAULT '{}'");
     if (!currentActionColumns.has('task_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN task_id TEXT');
     if (!currentActionColumns.has('step_id')) this.ready().run('ALTER TABLE action_log ADD COLUMN step_id TEXT');
     const taskColumns = new Set(this.all('PRAGMA table_info(tasks)').map((row) => String(row.name)));
@@ -663,6 +669,11 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS task_external_references (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, type TEXT NOT NULL, provider TEXT, external_id TEXT NOT NULL, url TEXT, state TEXT, metadata TEXT, verified_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(task_id, type, external_id), FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
       CREATE TABLE IF NOT EXISTS task_events (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT, type TEXT NOT NULL, summary TEXT NOT NULL, details TEXT, audit_reference TEXT, created_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id), FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY(step_id) REFERENCES task_steps(id) ON DELETE SET NULL);
     `);
+    // This table contained only the retired approval queue. Agent actions and task evidence
+    // remain in action_log, task_steps, task_checkpoints, and task_events.
+    this.ready().run('DROP TABLE IF EXISTS task_approvals');
+    const taskStepColumns = new Set(this.all('PRAGMA table_info(task_steps)').map((row) => String(row.name)));
+    if (taskStepColumns.has('approval_state')) this.ready().run('ALTER TABLE task_steps DROP COLUMN approval_state');
     this.ready().run("UPDATE tasks SET status = CASE status WHEN 'todo' THEN 'draft' WHEN 'in-progress' THEN 'running' WHEN 'done' THEN 'completed' ELSE status END");
     this.ready().run("UPDATE tasks SET completed_at = COALESCE(completed_at, updated_at), resumability_state = 'complete' WHERE status = 'completed'");
     this.ready().run(`

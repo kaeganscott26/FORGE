@@ -29,6 +29,35 @@ describe('workspace-owned conversation storage', () => {
     database.close();
   });
 
+  it('migrates a 2.3.x approval-era action log without losing history or requiring approval values', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-legacy-action-log-')); temporaryDirectories.push(directory); await mkdir(join(directory, '.forge'));
+    const SQL = await initSqlJs(); const legacy = new SQL.Database(); const now = Date.now();
+    legacy.run('CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+    legacy.run('CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL, priority TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+    legacy.run("CREATE TABLE task_steps (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, position INTEGER NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, risk_tier INTEGER NOT NULL, required_tool TEXT, expected_input TEXT, expected_output TEXT, started_at INTEGER, completed_at INTEGER, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, retry_policy TEXT NOT NULL DEFAULT '{}', timeout_ms INTEGER NOT NULL, approval_state TEXT NOT NULL, external_process_id INTEGER, output_path TEXT, artifact_paths TEXT NOT NULL DEFAULT '[]', verification_criteria TEXT NOT NULL DEFAULT '[]', rollback_instructions TEXT, audit_references TEXT NOT NULL DEFAULT '[]', UNIQUE(task_id, position))");
+    legacy.run('CREATE TABLE task_approvals (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT NOT NULL, step_id TEXT NOT NULL, tool_request_id TEXT, decision TEXT NOT NULL, scope TEXT NOT NULL, requested_at INTEGER NOT NULL, decided_at INTEGER, expires_at INTEGER, audit_reference TEXT)');
+    legacy.run("CREATE TABLE action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, sanitized_inputs TEXT NOT NULL, approval_decision TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, task_id TEXT, step_id TEXT)");
+    legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['legacy-project', 'legacy', directory, now, now]);
+    legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'legacy-project', 'Legacy task', null, 'running', 'medium', now, now]);
+    legacy.run("INSERT INTO task_steps (id, task_id, position, name, purpose, status, risk_tier, attempts, retry_policy, timeout_ms, approval_state, artifact_paths, verification_criteria, audit_references) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", ['legacy-step', 'legacy-task', 0, 'Inspect', 'Inspect the workspace.', 'running', 0, 1, '{}', 120000, 'approved', '[]', '["Workspace inspected"]', '[]']);
+    legacy.run('INSERT INTO action_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-action', 'legacy-project', now, 'legacy-conversation', 'legacy-model', 'file.list', '{"path":"."}', 'rejected', 12, 1, '{"success":true}', 'Listed workspace files.', '["README.md"]', null, null, 'legacy-task', 'legacy-step']);
+    legacy.run('PRAGMA user_version = 8'); await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
+
+    const service = new StorageService(); await service.init(directory);
+    expect(await service.listActions()).toMatchObject([{ id: 'legacy-action', toolName: 'file.list', taskId: 'legacy-task', stepId: 'legacy-step', executionState: 'succeeded', affectedPaths: ['README.md'] }]);
+    expect((await service.getPersistentTask('legacy-task')).steps).toMatchObject([{ id: 'legacy-step', name: 'Inspect', status: 'running' }]);
+    const workspaceId = await service.workspaceId();
+    await service.appendAction({ id: 'autonomous-action', timestamp: now + 1, workspaceId, conversationId: 'next-conversation', modelId: 'next-model', toolName: 'file.read', sanitizedInputs: { path: 'README.md' }, executionState: 'succeeded', executionDurationMs: 3, success: true, result: { success: true }, resultSummary: 'Read README.', affectedPaths: ['README.md'] });
+    await service.close();
+
+    const migrated = new SQL.Database(await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')));
+    const actionColumns = migrated.exec('PRAGMA table_info(action_log)')[0].values.map((row) => row[1]);
+    const taskStepColumns = migrated.exec('PRAGMA table_info(task_steps)')[0].values.map((row) => row[1]);
+    expect(actionColumns).not.toContain('approval_decision'); expect(taskStepColumns).not.toContain('approval_state'); expect(migrated.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_approvals'")).toEqual([]); expect(migrated.exec('SELECT id FROM action_log ORDER BY timestamp')[0].values).toEqual([['legacy-action'], ['autonomous-action']]);
+    migrated.close();
+    const reopened = new StorageService(); await reopened.init(directory); expect((await reopened.listActions()).map((action) => action.id)).toEqual(['autonomous-action', 'legacy-action']); await reopened.close();
+  });
+
   it('updates a draft task definition and replaces its editable steps in SQLite', async () => {
     const service = await storage();
     const task = await service.createPersistentTask({ title: 'Draft', taskType: 'custom', resumeInstructions: 'Reconcile before continuing.', steps: [{ id: 'inspect', name: 'Inspect', purpose: 'Inspect inputs.', riskTier: 0, verificationCriteria: ['Inputs identified'] }] });
@@ -163,7 +192,7 @@ describe('workspace-owned conversation storage', () => {
     legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['v3-project', 'forge-v3', directory, now, now]); legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'v3-project', 'Legacy task', null, 'in-progress', 'high', now, now]); legacy.run('PRAGMA user_version = 3');
     await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
     const service = new StorageService(); await service.init(directory); const migrated = await service.getPersistentTask('legacy-task'); expect(migrated.status).toBe('running'); expect(migrated.taskType).toBe('general'); expect(migrated.events).toEqual([]); await service.close();
-    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(9); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
+    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(10); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
   });
 
   it('persists scoped project observations used to invalidate cached context', async () => {

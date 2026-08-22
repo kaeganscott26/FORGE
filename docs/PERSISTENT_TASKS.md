@@ -6,4 +6,4 @@ When a task resumes, FORGE reconciles the stored task with the workspace, Git st
 
 Tasks preserve retries, timeouts, cancellation, verification checkpoints, atomic-write rollback metadata, and bounded audit evidence. A successful tool result is observed evidence, not automatic proof that a verification criterion is complete.
 
-Legacy `task_approvals` and `task_steps.approval_state` SQLite structures are retained temporarily so existing workspace databases open safely. Current task/runtime code does not read either structure or write `task_approvals`; older databases with the non-null `approval_state` column receive only the inert `not-required` compatibility value while a future table rebuild removes that column safely.
+Schema v10 removes the retired approval queue and task-step approval column when an existing workspace database is opened. Task steps, checkpoints, events, and Agent Actions remain intact as the durable execution history.

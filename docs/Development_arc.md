@@ -66,13 +66,13 @@ Because once Codex, Ollama, Claude CLI, shell processes, builds, test runners, e
 It can observe the work.
 That distinction leads directly into where the architecture is heading now.
 
-6. Tool policy introduced controlled agency
+6. Autonomous execution introduced durable activity
 The next stage added an actual agent-tool runtime:
 filesystem tools
 Git tools
 shell operations
-policy tiers
-approval requirements
+semantic validation
+runtime-owned execution context
 workspace confinement
 audit records
 rollback backups

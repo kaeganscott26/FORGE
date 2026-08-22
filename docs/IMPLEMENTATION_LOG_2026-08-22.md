@@ -5,14 +5,14 @@
 - Desktop platforms share the same TypeScript renderer/main runtime and package `apps/desktop/out/**/*`; the Explorer lazy-load, terminal fit/resize, and browser code paths are shared rather than separately implemented per operating system.
 - The Explorer starts at the selected workspace root and lazily loads children through typed `file.list`; expansion is stateful in the renderer. Files are classified into text, binary, executable, image, audio, and video with metadata/preview behavior.
 - The terminal already uses xterm's fit addon plus `ResizeObserver`, reports PTY dimensions through typed IPC, preserves bounded scrollback, and separates user terminal input from agent shell execution.
-- The native agent runtime already centralizes context assembly, provider calls, semantic tool schemas, FORGE-owned execution context, approvals, task linkage, audit results, recovery, cancellation, and progress-loop protection.
+- The native agent runtime already centralizes context assembly, provider calls, semantic tool schemas, FORGE-owned execution context, task linkage, audit results, recovery, cancellation, and progress-loop protection.
 - No ISO manifests, Arch package manifests, bootstrap scripts, or systemd/DBus configuration for FORGE-OS exist in this checkout. Bluetooth and power-service installation cannot be truthfully changed here.
 
 ## IMPLEMENTED
 
 - **Autonomous tool execution migration:** replaced `@forge/tool-policy` with `@forge/tool-runtime`. The retained shared package contains only schemas, registry, request/result contracts, validation, and FORGE-owned execution context. `PolicyEngine`, session grants, approval metadata, pending approval states, approval IPC, native-runtime approval pauses, and Agent Actions approval controls were removed.
 - Tool definitions no longer carry an approval classification. `ToolRouter.request` now validates/enriches a semantic request and executes it directly; audit records use execution states rather than authorization decisions.
-- Task execution no longer projects or records approval decisions. New databases no longer create `task_approvals`; existing tables are not read or written. Existing `task_steps.approval_state` is not read, and receives only the inert `not-required` compatibility value because it is a non-null legacy column; a separately versioned table rebuild is still needed to remove that column safely.
+- Task execution no longer projects or records approval decisions. New databases no longer create `task_approvals`; existing tables are not read or written. Schema v10 rebuilds legacy action history without `action_log.approval_decision` and removes `task_steps.approval_state`, while retaining the associated execution and task-step history.
 - Agent Actions is now a live execution/history surface: requested, running, succeeded, failed, cancelled, audit details, task linkage, and cancellation remain available, while Allow/Deny/session controls and their IPC endpoints are gone.
 - Added `@forge/agent-runtime`: Hermes CLI/endpoint detection, safe native fallback, and cross-platform progressive skill discovery.
 - Added Settings and typed IPC for runtime preference/status and discovered skills. Hermes configuration rejects embedded URL credentials, non-loopback HTTP endpoints, and malformed command values.

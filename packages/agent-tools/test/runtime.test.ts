@@ -44,6 +44,19 @@ describe('agent tool runtime', () => {
     expect(saved).toEqual([expect.objectContaining({ type: 'document', title: 'Example reference', metadata: expect.objectContaining({ url: 'https://example.com/' }) })]);
   });
 
+  it('continues from file.list to file.read with autonomous execution records and no approval state', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-autonomous-follow-up-')); await writeFile(path.join(root, 'README.md'), 'autonomous workflow');
+    const records: AuditRecord[] = [];
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: fakeWeb, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set() });
+    const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model', userRequest: 'Inspect the workspace and read its README.' };
+    const listed = await router.request({ id: 'list-workspace', name: 'file.list', provider: 'test', arguments: {} }, context);
+    expect(listed.request.state).toBe('succeeded'); expect(listed.result?.success).toBe(true);
+    const read = await router.request({ id: 'read-readme', name: 'file.read', provider: 'test', arguments: { path: 'README.md' } }, context);
+    expect(read.request.state).toBe('succeeded'); expect(read.result?.output).toMatchObject({ content: 'autonomous workflow' });
+    expect(records).toMatchObject([{ id: 'list-workspace', executionState: 'succeeded' }, { id: 'read-readme', executionState: 'succeeded' }]);
+    expect(JSON.stringify(records)).not.toContain('approval');
+  });
+
   it('keeps runtime bookkeeping out of every provider-visible tool schema', () => {
     const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => true }, browser: fakeBrowser, terminal: { list: () => [] }, tasks: fakeTasks, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
     const schemas = router.providerDefinitions();

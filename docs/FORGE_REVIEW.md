@@ -916,7 +916,7 @@ requiredTool
 
 determine the policy dynamically.
 
-Do not persist a duplicate risk model inside tasks if ToolPolicy already owns execution authority.
+Do not persist a duplicate risk model inside tasks when the task runtime already owns execution context and evidence linkage.
 
 That's exactly how architectures drift.
 

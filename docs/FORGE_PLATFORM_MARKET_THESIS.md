@@ -196,7 +196,7 @@ FORGE can distinguish durable project evidence from model inference. Git state, 
 
 Powerful agents need real capabilities, but filesystem writes, remote Git operations, browser disclosure, shell execution, and destructive system operations should not all receive identical authority.
 
-FORGE's policy-controlled tool architecture can become a major differentiator as agentic workflows become more powerful.
+FORGE's workspace-contained execution runtime and durable activity evidence can become a major differentiator as agentic workflows become more powerful.
 
 ### Human and AI continuity
 
@@ -238,7 +238,7 @@ The valuable shared object is not simply chat history. It is **project understan
 
 Enterprise value could come from policy, auditability, controlled model access, private/local providers, governed tooling, reproducible agent workflows, and organizational knowledge continuity.
 
-Enterprises are unlikely to want autonomous agents with unlimited shell and repository authority. A policy-controlled environment can become more valuable as agents become more capable.
+Enterprises are unlikely to want autonomous agents with unlimited shell and repository authority. A workspace-contained environment with inspectable execution activity can become more valuable as agents become more capable.
 
 ### Platform and ecosystem
 
