@@ -12,7 +12,9 @@ const SAFE_PARENT_ENV = [
   'XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME',
   'XDG_DATA_DIRS', 'XDG_CONFIG_DIRS', 'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE',
   'DESKTOP_SESSION', 'FORGE_OS_SESSION', 'FORGE_SHELL_MODE', 'FORGE_OS_VERSION',
-  'BROWSER'
+  'BROWSER',
+  'SystemRoot', 'ComSpec', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  'PROGRAMDATA', 'TEMP', 'TMP', 'WINDIR'
 ] as const;
 
 function validSessionVariable(name: string, value: string): boolean {
@@ -97,11 +99,9 @@ export function terminalEnvironment(shell: string): Record<string, string> {
   const username = os.userInfo().username;
   const inherited = filteredEnvironment();
   const pathEntries = [
-    `${home}/.local/bin`,
-    `${home}/.opencode/bin`,
-    '/opt/homebrew/bin',
-    '/opt/homebrew/sbin',
-    '/usr/local/bin',
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.opencode', 'bin'),
+    ...(process.platform === 'win32' ? [] : ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']),
     ...(inherited.PATH ?? '').split(path.delimiter)
   ].filter(Boolean);
   return {
@@ -126,6 +126,10 @@ export function defaultTerminalShell(environment: NodeJS.ProcessEnv = process.en
   if (configuredShell && path.isAbsolute(configuredShell)) return configuredShell;
   if (process.platform === 'win32') return environment.COMSPEC || 'cmd.exe';
   return '/bin/bash';
+}
+
+export function terminalSpawnArguments(): string[] {
+  return process.platform === 'win32' ? [] : ['-l'];
 }
 
 export class ShellService {
@@ -238,7 +242,7 @@ export class TerminalService {
     const id = requestedId ?? randomUUID();
     if (this.sessions.has(id)) throw new Error('Terminal session already exists.');
     const shell = defaultTerminalShell();
-    const terminal = pty.spawn(shell, ['-l'], { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
+    const terminal = pty.spawn(shell, terminalSpawnArguments(), { name: 'xterm-256color', cols: Math.max(20, columns), rows: Math.max(5, rows), cwd, env: terminalEnvironment(shell) });
     const info: TerminalSessionInfo = { id, cwd, pid: terminal.pid, state: 'running', exitCode: null, createdAt: Date.now(), title: path.basename(cwd), recentOutput: '' };
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id, session);

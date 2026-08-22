@@ -19,12 +19,20 @@ foreach ($RequiredFile in @("package.json", "package-lock.json", "scripts\prepar
     }
 }
 
-npm ci
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm run package:win
+function Invoke-NpmChecked {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+    & npm @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm $($Arguments -join ' ') failed with exit code $LASTEXITCODE."
+    }
+}
+
+Invoke-NpmChecked ci
+Invoke-NpmChecked run typecheck
+Invoke-NpmChecked run lint
+Invoke-NpmChecked test
+Invoke-NpmChecked run build
+Invoke-NpmChecked run package:win
 
 $Version = node -p "require('./package.json').version"
 $OutputDirectory = Join-Path $RepositoryRoot "dist_electron"

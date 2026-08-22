@@ -2,7 +2,7 @@ import { mkdtemp, realpath, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { defaultTerminalShell, filteredEnvironment, ShellService, terminalEnvironment, TerminalService } from '../src';
+import { defaultTerminalShell, filteredEnvironment, ShellService, terminalEnvironment, terminalSpawnArguments, TerminalService } from '../src';
 
 describe('shell and terminal services', () => {
   it('filters the parent environment and blocks secret-like requested variables', () => {
@@ -16,7 +16,8 @@ describe('shell and terminal services', () => {
     expect(environment.HOME).toBe(os.homedir());
     expect(environment.SHELL).toBe('/bin/zsh');
     expect(environment.TERM_PROGRAM).toBe('FORGE');
-    expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local/bin')]));
+    expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining([path.join(os.homedir(), '.local', 'bin')]));
+    if (process.platform !== 'win32') expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin']));
     expect(environment.OPENAI_API_KEY).toBeUndefined();
   });
 
@@ -52,11 +53,15 @@ describe('shell and terminal services', () => {
     if (process.platform !== 'win32') expect(defaultTerminalShell({})).toBe('/bin/bash');
   });
 
+  it('does not pass Unix login arguments to the Windows command shell', () => {
+    expect(terminalSpawnArguments()).toEqual(process.platform === 'win32' ? [] : ['-l']);
+  });
+
   it('enforces output limits and timeouts', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-shell-')); const service = new ShellService(() => root, 20);
-    const output = await service.run({ command: '/bin/sh', args: ['-c', 'printf 1234567890123456789012345'], workingDirectory: '.', timeoutMs: 2_000, reason: 'test', expectedOutcome: 'bounded output' });
+    const output = await service.run({ command: process.execPath, args: ['-e', "process.stdout.write('1234567890123456789012345')"], workingDirectory: '.', timeoutMs: 2_000, reason: 'test', expectedOutcome: 'bounded output' });
     expect(output.truncated).toBe(true); expect(output.stdout.length).toBe(20);
-    const timeout = await service.run({ command: '/bin/sh', args: ['-c', 'sleep 2'], workingDirectory: '.', timeoutMs: 100, reason: 'test', expectedOutcome: 'timeout' });
+    const timeout = await service.run({ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 2000)'], workingDirectory: '.', timeoutMs: 100, reason: 'test', expectedOutcome: 'timeout' });
     expect(timeout.timedOut).toBe(true);
   });
 
@@ -67,15 +72,20 @@ describe('shell and terminal services', () => {
 
   it('cancels process trees', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-cancel-')); const service = new ShellService(() => root); const id = 'cancel-me';
-    const running = service.run({ command: '/bin/sh', args: ['-c', 'sleep 5'], workingDirectory: '.', timeoutMs: 10_000, reason: 'test', expectedOutcome: 'cancel' }, id);
+    const running = service.run({ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], workingDirectory: '.', timeoutMs: 10_000, reason: 'test', expectedOutcome: 'cancel' }, id);
     await new Promise((resolve) => setTimeout(resolve, 80)); expect(service.cancel(id)).toBe(true); expect((await running).cancelled).toBe(true);
   });
 
   it('starts detached workspace-owned output without blocking the caller', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-background-')); const service = new ShellService(() => root);
-    const started = await service.startBackground({ command: '/bin/sh', args: ['-c', 'printf background-ready'], workingDirectory: '.', timeoutMs: 2_000, reason: 'test background process', expectedOutcome: 'output file' }, '.forge/task-output/test.log', 'background-test');
+    const started = await service.startBackground({ command: process.execPath, args: ['-e', "process.stdout.write('background-ready')"], workingDirectory: '.', timeoutMs: 2_000, reason: 'test background process', expectedOutcome: 'output file' }, '.forge/task-output/test.log', 'background-test');
     expect(started.pid).toBeGreaterThan(0); expect(started.outputPath).toBe('.forge/task-output/test.log');
-    await new Promise((resolve) => setTimeout(resolve, 80)); expect(await (await import('node:fs/promises')).readFile(path.join(root, started.outputPath), 'utf8')).toContain('background-ready');
+    const outputFile = path.join(root, started.outputPath); let output = ''; const deadline = Date.now() + 3_000;
+    while (Date.now() < deadline && !output.includes('background-ready')) {
+      output = await (await import('node:fs/promises')).readFile(outputFile, 'utf8').catch(() => '');
+      if (!output.includes('background-ready')) await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(output).toContain('background-ready');
   });
 
   it.skipIf(process.platform !== 'darwin')('forwards PTY input, rejects exited sessions, and restarts writable in the active workspace', async () => {

@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { IPC_CHANNELS } from '@forge/ipc';
 
-const rendererRoot = dirname(new URL(import.meta.url).pathname);
+const rendererRoot = dirname(fileURLToPath(import.meta.url));
 const files = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const target = join(directory, entry.name);
   if (entry.isDirectory()) return files(target);

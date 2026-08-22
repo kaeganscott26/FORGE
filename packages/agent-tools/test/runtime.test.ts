@@ -60,7 +60,7 @@ describe('agent tool runtime', () => {
 
   it('blocks traversal and symlink workspace escapes', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-containment-')); const outside = await mkdtemp(path.join(os.tmpdir(), 'forge-outside-'));
-    await mkdir(path.join(root, 'inside')); await symlink(outside, path.join(root, 'escape'));
+    await mkdir(path.join(root, 'inside')); await symlink(outside, path.join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
     await expect(resolveContainedPath(root, '../outside', true)).rejects.toThrow(/relative|traverse/);
     await expect(resolveContainedPath(root, 'escape')).rejects.toThrow(/Symlink/);
   });
