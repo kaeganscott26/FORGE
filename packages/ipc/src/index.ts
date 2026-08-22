@@ -17,7 +17,7 @@ export interface FileMetadata { path: string; name: string; extension?: string; 
 export interface FilePreview { path: string; mimeType: string; dataUrl: string; }
 
 export interface WorkspaceInfo { rootPath: string; name: string; gitRoot: string | null; createdAt: number; }
-export interface FileContent { path: string; content: string; modifiedAt: number; }
+export interface FileContent { path: string; content: string; modifiedAt: number; encoding?: 'utf8' | 'utf8-bom' | 'base64'; binary?: boolean; }
 export interface FileCopyRequest { sourcePath: string; destinationPath: string; }
 export interface ParsedMarkdown { content: string; frontmatter: Record<string, string | string[]>; wikiLinks: string[]; tags: string[]; headings: Array<{ level: number; text: string; slug: string }>; }
 export interface GitStatusFile { path: string; indexStatus: string; workingStatus: string; untracked: boolean; }
@@ -243,7 +243,7 @@ export const IPC_CHANNELS = {
   workspaceOpen: 'workspace.open', workspaceOpenHome: 'workspace.open.home', workspaceInfo: 'workspace.info', workspaceLayoutGet: 'workspace.layout.get', workspaceLayoutSave: 'workspace.layout.save',
   fileList: 'file.list', fileRead: 'file.read', fileMetadata: 'file.metadata', filePreview: 'file.preview', fileWrite: 'file.write', fileCreate: 'file.create', fileDelete: 'file.delete', fileRename: 'file.rename', fileCopy: 'file.copy',
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
-  metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaTaskCreate: 'meta.task.create',
+  metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaGoalUpdate: 'meta.goal.update', metaGoalDelete: 'meta.goal.delete', metaTaskCreate: 'meta.task.create',
   appUpdateStatus: 'app.update.status', appUpdateCheck: 'app.update.check', appUpdateInstall: 'app.update.install', appReleaseOpen: 'app.release.open', appBuildInfo: 'app.build.info', appBuildInfoCopy: 'app.build.info.copy',
   settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate',
   agentAsk: 'agent.ask', agentExplainProject: 'agent.explainProject', agentReviewChanges: 'agent.reviewChanges',
@@ -262,7 +262,7 @@ export interface IPCRequestMap {
   'workspace.open': undefined; 'workspace.open.home': undefined; 'workspace.info': undefined; 'workspace.layout.get': undefined; 'workspace.layout.save': WorkspaceLayout;
   'file.list': { path?: string; recursive?: boolean; showHidden?: boolean }; 'file.read': { path: string }; 'file.metadata': { path: string }; 'file.preview': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string }; 'file.copy': FileCopyRequest;
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
-  'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
+  'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.goal.update': { goalId: string; title: string; description?: string; status?: Goal['status'] }; 'meta.goal.delete': { goalId: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
   'app.update.status': undefined; 'app.update.check': undefined; 'app.update.install': undefined; 'app.release.open': undefined; 'app.build.info': undefined; 'app.build.info.copy': undefined;
   'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest;
   'agent.ask': AgentAskRequest; 'agent.explainProject': { conversationId?: string } | undefined; 'agent.reviewChanges': { conversationId?: string } | undefined;
@@ -282,7 +282,7 @@ export interface IPCResponseMap {
   'workspace.open': WorkspaceInfo; 'workspace.open.home': WorkspaceInfo; 'workspace.info': WorkspaceInfo | null; 'workspace.layout.get': WorkspaceLayout; 'workspace.layout.save': WorkspaceLayout;
   'file.list': FileNode[]; 'file.read': FileContent; 'file.metadata': FileMetadata; 'file.preview': FilePreview; 'file.write': FileContent; 'file.create': FileNode; 'file.delete': void; 'file.rename': FileNode; 'file.copy': FileNode;
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
-  'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.task.create': Task;
+  'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.goal.update': Goal; 'meta.goal.delete': void; 'meta.task.create': Task;
   'app.update.status': AppUpdateStatus; 'app.update.check': AppUpdateStatus; 'app.update.install': void; 'app.release.open': void; 'app.build.info': AppBuildInfo; 'app.build.info.copy': AppBuildInfo;
   'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult;
   'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;

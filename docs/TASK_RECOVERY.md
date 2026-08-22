@@ -73,3 +73,17 @@ The handoff should identify:
 - unsupported or still-unverified claims.
 
 See [Persistent Tasks](PERSISTENT_TASKS.md) for the data model and [Releasing FORGE](../RELEASING.md) for release-specific evidence.
+
+# Task menu quick start
+
+Create a task by entering its title. FORGE creates an editable draft with safe defaults, including a first verification step. Select the task in the TASKS panel to edit its description, type, priority, resume instructions, and step array. Use Add Step, Duplicate, Move Up/Down, Remove Step, or Generate Steps with AI, then choose Save Task.
+
+The title is the only field required to create a draft. Before running, complete any objective-specific details and verification criteria. Run / Resume reconciles persisted task state with the current workspace before continuing. Delete task removes the workspace-owned task and its checkpoints.
+
+## Files and media
+
+The explorer can show hidden entries with Hidden, inspect metadata for every accessible file, read UTF-8 and `.txt` content, return binary content as bounded base64, and preview supported image, audio, and video formats with the built-in media controls. Executables are identified by extension or executable mode and can be inspected; running them remains an audited shell/task action.
+
+## Agent actions
+
+Enter the objective in chat and let the provider choose registered tools. Read-only tools run automatically. Workspace writes, process execution, Git mutation, destructive operations, and network operations continue through AGENT ACTIONS so the exact target, effect, audit result, and cancellation control remain visible. “Allow exact scope this session” reduces repeated prompts for the same tool scope; it expires and is cleared when the workspace changes.

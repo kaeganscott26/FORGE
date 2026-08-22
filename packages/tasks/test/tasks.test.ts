@@ -14,6 +14,13 @@ async function runtime(): Promise<{ root: string; storage: StorageService; tasks
 }
 
 describe('workspace-owned persistent tasks', () => {
+  it('creates an editable task from a title without requiring hidden parameters', async () => {
+    const { storage, tasks } = await runtime();
+    const task = await tasks.create({ title: 'Title-only task', taskType: '', resumeInstructions: '', steps: [] });
+    expect(task.title).toBe('Title-only task'); expect(task.taskType).toBe('custom'); expect(task.steps[0]).toMatchObject({ name: 'Define and verify the objective', riskTier: 0 });
+    await storage.close();
+  });
+
   it('creates a dependency-aware release template without granting execution approval', async () => {
     const { storage, tasks } = await runtime(); const task = await tasks.createRelease('1.1.0-beta.2');
     expect(task.taskType).toBe('release'); expect(task.steps.length).toBeGreaterThan(20); expect(task.steps[0].status).toBe('pending');

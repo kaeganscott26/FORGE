@@ -330,6 +330,8 @@ function registerHandlers(): void {
     return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
+  register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
+  register(IPC_CHANNELS.metaGoalDelete, async (request) => storage.deleteGoal(request.goalId));
   register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
   register(IPC_CHANNELS.appUpdateStatus, async () => updater.status());
   register(IPC_CHANNELS.appUpdateCheck, async () => updater.check());

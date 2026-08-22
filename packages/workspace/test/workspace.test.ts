@@ -86,4 +86,14 @@ describe('WorkspaceService state', () => {
       await expect(service.metadata('pixel.png')).resolves.toMatchObject({ kind: 'image', mimeType: 'image/png', signature: '89 50 4e 47 00 00 00 00' });
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
+
+  it('returns binary files as base64 while preserving metadata access', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-binary-'));
+    try {
+      await fs.writeFile(join(root, 'sample.bin'), Buffer.from([0, 1, 2, 255]));
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.readFile('sample.bin')).resolves.toMatchObject({ content: 'AAEC/w==', encoding: 'base64', binary: true });
+      await expect(service.metadata('sample.bin')).resolves.toMatchObject({ kind: 'binary', size: 4 });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
 });

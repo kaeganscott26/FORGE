@@ -2088,6 +2088,8 @@ const IPC_CHANNELS = {
   gitPush: "git.push",
   metaDashboard: "meta.dashboard",
   metaGoalCreate: "meta.goal.create",
+  metaGoalUpdate: "meta.goal.update",
+  metaGoalDelete: "meta.goal.delete",
   metaTaskCreate: "meta.task.create",
   appUpdateStatus: "app.update.status",
   appUpdateCheck: "app.update.check",
@@ -2238,14 +2240,14 @@ class WorkspaceService extends EventEmitter {
     const stat = await promises.stat(absolute);
     if (!stat.isFile()) throw new Error("Path is not a file.");
     const bytes = await promises.readFile(absolute);
-    if (bytes.includes(0)) throw new Error("Forge cannot open binary files. Choose a text or source file.");
+    if (bytes.includes(0)) return { path: relativePath2, content: bytes.toString("base64"), modifiedAt: stat.mtimeMs, encoding: "base64", binary: true };
     let content;
     try {
       content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
       throw new Error("Forge could not decode this file as UTF-8 text.");
     }
-    return { path: relativePath2, content, modifiedAt: stat.mtimeMs };
+    return { path: relativePath2, content, modifiedAt: stat.mtimeMs, encoding: content.startsWith("\uFEFF") ? "utf8-bom" : "utf8" };
   }
   async metadata(relativePath2) {
     const absolute = await this.resolve(relativePath2);
@@ -2627,6 +2629,12 @@ const MAX_MEMORY_CONTENT_CHARS = 2e5;
 const MAX_MEMORY_METADATA_CHARS = 1e5;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
 const STEP_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "waiting", "blocked", "failed", "skipped", "completed"]);
+function normalizeTaskDraft(input) {
+  const title = input.title.trim();
+  const objective = input.description?.trim() || title || "the requested objective";
+  const steps = input.steps.length ? input.steps : [{ id: "define-objective", name: "Define and verify the objective", purpose: `Clarify and complete ${objective}.`, riskTier: 0, verificationCriteria: ["The objective and next action are recorded."], dependencies: [] }];
+  return { ...input, title, taskType: input.taskType?.trim() || "custom", resumeInstructions: input.resumeInstructions?.trim() || "Reconcile the workspace, complete pending steps, and verify each criterion before advancing.", progressSummary: input.progressSummary?.trim() || "Draft task created; complete the definition before running.", steps: steps.map((step, index) => ({ ...step, id: step.id?.trim() || `step-${index + 1}`, name: step.name?.trim() || `Step ${index + 1}`, purpose: step.purpose?.trim() || `Complete step ${index + 1} for ${objective}.`, riskTier: step.riskTier ?? 0, verificationCriteria: (step.verificationCriteria ?? []).map((criterion) => criterion.trim()).filter(Boolean).length ? (step.verificationCriteria ?? []).map((criterion) => criterion.trim()).filter(Boolean) : ["The step result is observed and recorded."], dependencies: step.dependencies ?? [], artifactPaths: step.artifactPaths ?? [] })) };
+}
 function normalizeTitle(value) {
   const title = value?.trim() || "New conversation";
   return title.slice(0, 120);
@@ -2708,10 +2716,28 @@ class StorageService {
     await this.persist();
     return goal;
   }
+  async updateGoal(goalId, title, description, status = "active") {
+    if (!title.trim()) throw new Error("Goal title is required.");
+    if (!["active", "completed", "archived"].includes(status)) throw new Error("Goal status is invalid.");
+    const projectId = await this.projectId();
+    if (!this.one("SELECT id FROM goals WHERE id = ? AND project_id = ?", [goalId, projectId])) throw new Error("Goal was not found in the active workspace.");
+    this.ready().run("UPDATE goals SET title = ?, description = ?, status = ?, updated_at = ? WHERE id = ? AND project_id = ?", [title.trim(), description ?? null, status, Date.now(), goalId, projectId]);
+    await this.persist();
+    return this.dashboard().then((project) => project?.goals.find((goal) => goal.id === goalId) ?? (() => {
+      throw new Error("Goal could not be reloaded.");
+    })());
+  }
+  async deleteGoal(goalId) {
+    const projectId = await this.projectId();
+    if (!this.one("SELECT id FROM goals WHERE id = ? AND project_id = ?", [goalId, projectId])) throw new Error("Goal was not found in the active workspace.");
+    this.ready().run("DELETE FROM goals WHERE id = ? AND project_id = ?", [goalId, projectId]);
+    await this.persist();
+  }
   async createTask(title, description, priority = "medium") {
     return this.createPersistentTask({ title, description, taskType: "general", priority, progressSummary: "Draft task created from workspace metadata.", resumeInstructions: "Inspect the workspace and define verified steps before starting.", steps: [] });
   }
   async createPersistentTask(draft) {
+    draft = normalizeTaskDraft(draft);
     if (!draft.title.trim()) throw new Error("Task title is required.");
     if (draft.title.length > 240) throw new Error("Task title is too long.");
     if (!draft.taskType.trim()) throw new Error("Task type is required.");
@@ -2759,6 +2785,7 @@ class StorageService {
     return this.taskFromRow(row);
   }
   async updatePersistentTask(taskId, draft) {
+    draft = normalizeTaskDraft(draft);
     await this.assertTask(taskId);
     if (!draft.title.trim()) throw new Error("Task title is required.");
     if (!draft.taskType.trim()) throw new Error("Task type is required.");
@@ -6518,7 +6545,7 @@ function unifiedDiff(filePath, before, after) {
 async function readText(absolute, maxBytes = MAX_TEXT_BYTES) {
   const [buffer, stat] = await Promise.all([promises.readFile(absolute), promises.stat(absolute)]);
   if (buffer.byteLength > maxBytes) throw new Error(`File exceeds the supported ${maxBytes.toLocaleString()} byte text size limit.`);
-  if (buffer.includes(0)) throw new Error("Binary files are not supported by this tool.");
+  if (buffer.includes(0)) throw new Error("Binary content must be requested with file.readBinary.");
   const bom = buffer.length >= 3 && buffer[0] === 239 && buffer[1] === 187 && buffer[2] === 191;
   return { content: buffer.subarray(bom ? 3 : 0).toString("utf8"), encoding: bom ? "utf8-bom" : "utf8", mode: stat.mode };
 }
@@ -6549,7 +6576,8 @@ function createToolRegistry() {
   const base = { outputSchema: textOutput, cancellable: true };
   const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };
   registry.register(definition({ ...base, name: "file.list", purpose: "Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.", inputSchema: z.object({ path: z.string().max(4096).default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1e6).default(0) }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: () => "Read a bounded workspace directory listing, beginning at the workspace root by default." }));
-  registry.register(definition({ ...base, name: "file.read", purpose: "Read a bounded range of a supported workspace text file. Use the returned continuation to inspect more without exhausting context.", inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(2e5).default(12e3), ...taskContext }).refine((input) => input.endLine === void 0 || input.startLine === void 0 || input.endLine >= input.startLine, "endLine must not precede startLine.").refine((input) => input.offset === void 0 || input.startLine === void 0 && input.endLine === void 0, "offset cannot be combined with line ranges."), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read bounded text without changing the workspace." }));
+  registry.register(definition({ ...base, name: "file.read", purpose: "Read a bounded range of a supported workspace text file. Use file.readBinary for binary content.", inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(2e5).default(12e3), ...taskContext }).refine((input) => input.endLine === void 0 || input.startLine === void 0 || input.endLine >= input.startLine, "endLine must not precede startLine.").refine((input) => input.offset === void 0 || input.startLine === void 0 && input.endLine === void 0, "offset cannot be combined with line ranges."), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read bounded text without changing the workspace." }));
+  registry.register(definition({ ...base, name: "file.read.binary", purpose: "Read bounded binary content as base64 together with file metadata.", inputSchema: z.object({ path: relativePath, maxBytes: z.number().int().min(1).max(25e6).default(2e6), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Read binary bytes as bounded base64 without changing the workspace." }));
   registry.register(definition({ ...base, name: "file.search", purpose: "Search supported workspace text files. When truncated, continue using the returned offset.", inputSchema: z.object({ query: z.string().min(1).max(500), path: z.string().max(4096).default("."), caseSensitive: z.boolean().default(false), maxResults: z.number().int().min(1).max(MAX_SEARCH_RESULTS).default(50), offset: z.number().int().min(0).max(1e5).default(0), ...taskContext }), sideEffect: "read", approval: "automatic", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "filesystem", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? ".", describeEffect: (input) => `Search workspace text for ${JSON.stringify(input.query)}.` }));
   registry.register(definition({ ...base, name: "file.create", purpose: "Create a workspace file.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Create a new file atomically." }));
   registry.register(definition({ ...base, name: "file.write", purpose: "Replace a workspace text file after showing a diff.", inputSchema: z.object({ path: relativePath, content: z.string().max(MAX_TEXT_BYTES), reason, ...taskContext }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "filesystem", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => "Atomically write the approved diff with a rollback backup." }));
@@ -6891,6 +6919,13 @@ class ToolRouter {
       };
       const truncated = maxEnd < endOffset;
       return ok({ path: input.path, content: returned, encoding: data.encoding, totalCharacters: content.length, totalLines, returnedRange: { offset: startOffset, length: returned.length, startLine: lineAt(startOffset), endLine: lineAt(Math.max(startOffset, maxEnd - 1)) }, truncated, continuation: truncated ? { offset: maxEnd, instruction: "Call file.read again with this offset and the same maxCharacters." } : void 0 });
+    });
+    this.executors.set("file.read.binary", async (input, request) => {
+      const absolute = await resolveContainedPath(this.root(request), input.path);
+      const [buffer, stat] = await Promise.all([promises.readFile(absolute), promises.stat(absolute)]);
+      if (!stat.isFile()) return ok({ path: input.path, unreadable: true, reason: "not-a-file" });
+      if (buffer.byteLength > input.maxBytes) throw new Error(`Binary file exceeds the requested ${input.maxBytes.toLocaleString()} byte limit.`);
+      return ok({ path: input.path, encoding: "base64", content: buffer.toString("base64"), byteLength: buffer.byteLength, mode: stat.mode });
     });
     this.executors.set("file.search", async (input, request, signal) => {
       const requestedPath = input.path === "." ? "." : input.path;
@@ -9302,7 +9337,7 @@ function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
     commit: "9c864ae9e84647e9d7e5b16eb7d6091273a01890",
-    buildDate: "2026-08-22T08:44:55.587Z",
+    buildDate: "2026-08-22T09:39:35.735Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9598,6 +9633,8 @@ function registerHandlers() {
     return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
+  register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
+  register(IPC_CHANNELS.metaGoalDelete, async (request) => storage.deleteGoal(request.goalId));
   register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
   register(IPC_CHANNELS.appUpdateStatus, async () => updater.status());
   register(IPC_CHANNELS.appUpdateCheck, async () => updater.check());

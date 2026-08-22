@@ -32,6 +32,14 @@ const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
 const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 'blocked', 'failed', 'skipped', 'completed']);
 
+/** Task creation starts with a title; the remaining durable fields stay editable. */
+function normalizeTaskDraft(input: TaskDraft): TaskDraft {
+  const title = input.title.trim();
+  const objective = input.description?.trim() || title || 'the requested objective';
+  const steps = input.steps.length ? input.steps : [{ id: 'define-objective', name: 'Define and verify the objective', purpose: `Clarify and complete ${objective}.`, riskTier: 0 as const, verificationCriteria: ['The objective and next action are recorded.'], dependencies: [] }];
+  return { ...input, title, taskType: input.taskType?.trim() || 'custom', resumeInstructions: input.resumeInstructions?.trim() || 'Reconcile the workspace, complete pending steps, and verify each criterion before advancing.', progressSummary: input.progressSummary?.trim() || 'Draft task created; complete the definition before running.', steps: steps.map((step, index) => ({ ...step, id: step.id?.trim() || `step-${index + 1}`, name: step.name?.trim() || `Step ${index + 1}`, purpose: step.purpose?.trim() || `Complete step ${index + 1} for ${objective}.`, riskTier: step.riskTier ?? 0, verificationCriteria: (step.verificationCriteria ?? []).map((criterion) => criterion.trim()).filter(Boolean).length ? (step.verificationCriteria ?? []).map((criterion) => criterion.trim()).filter(Boolean) : ['The step result is observed and recorded.'], dependencies: step.dependencies ?? [], artifactPaths: step.artifactPaths ?? [] })) };
+}
+
 export interface StoredActionRecord {
   id: string; timestamp: number; workspaceId: string; conversationId: string; modelId: string; toolName: string;
   taskId?: string; stepId?: string;
@@ -136,11 +144,29 @@ export class StorageService {
     return goal;
   }
 
+  async updateGoal(goalId: string, title: string, description?: string, status: Goal['status'] = 'active'): Promise<Goal> {
+    if (!title.trim()) throw new Error('Goal title is required.');
+    if (!['active', 'completed', 'archived'].includes(status)) throw new Error('Goal status is invalid.');
+    const projectId = await this.projectId();
+    if (!this.one('SELECT id FROM goals WHERE id = ? AND project_id = ?', [goalId, projectId])) throw new Error('Goal was not found in the active workspace.');
+    this.ready().run('UPDATE goals SET title = ?, description = ?, status = ?, updated_at = ? WHERE id = ? AND project_id = ?', [title.trim(), description ?? null, status, Date.now(), goalId, projectId]);
+    await this.persist();
+    return this.dashboard().then((project) => project?.goals.find((goal) => goal.id === goalId) ?? (() => { throw new Error('Goal could not be reloaded.'); })());
+  }
+
+  async deleteGoal(goalId: string): Promise<void> {
+    const projectId = await this.projectId();
+    if (!this.one('SELECT id FROM goals WHERE id = ? AND project_id = ?', [goalId, projectId])) throw new Error('Goal was not found in the active workspace.');
+    this.ready().run('DELETE FROM goals WHERE id = ? AND project_id = ?', [goalId, projectId]);
+    await this.persist();
+  }
+
   async createTask(title: string, description?: string, priority: Task['priority'] = 'medium'): Promise<Task> {
     return this.createPersistentTask({ title, description, taskType: 'general', priority, progressSummary: 'Draft task created from workspace metadata.', resumeInstructions: 'Inspect the workspace and define verified steps before starting.', steps: [] });
   }
 
   async createPersistentTask(draft: TaskDraft): Promise<Task> {
+    draft = normalizeTaskDraft(draft);
     if (!draft.title.trim()) throw new Error('Task title is required.');
     if (draft.title.length > 240) throw new Error('Task title is too long.');
     if (!draft.taskType.trim()) throw new Error('Task type is required.');
@@ -188,6 +214,7 @@ export class StorageService {
   }
 
   async updatePersistentTask(taskId: string, draft: TaskDraft): Promise<Task> {
+    draft = normalizeTaskDraft(draft);
     await this.assertTask(taskId);
     if (!draft.title.trim()) throw new Error('Task title is required.');
     if (!draft.taskType.trim()) throw new Error('Task type is required.');

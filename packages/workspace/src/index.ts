@@ -60,11 +60,11 @@ export class WorkspaceService extends EventEmitter {
     const stat = await fs.stat(absolute);
     if (!stat.isFile()) throw new Error('Path is not a file.');
     const bytes = await fs.readFile(absolute);
-    if (bytes.includes(0)) throw new Error('Forge cannot open binary files. Choose a text or source file.');
+    if (bytes.includes(0)) return { path: relativePath, content: bytes.toString('base64'), modifiedAt: stat.mtimeMs, encoding: 'base64', binary: true };
     let content: string;
     try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { throw new Error('Forge could not decode this file as UTF-8 text.'); }
-    return { path: relativePath, content, modifiedAt: stat.mtimeMs };
+    return { path: relativePath, content, modifiedAt: stat.mtimeMs, encoding: content.startsWith('\ufeff') ? 'utf8-bom' : 'utf8' };
   }
   async metadata(relativePath: string): Promise<FileMetadata> {
     const absolute = await this.resolve(relativePath); const stat = await fs.stat(absolute); const extension = path.extname(absolute).slice(1).toLowerCase();
