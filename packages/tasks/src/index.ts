@@ -7,7 +7,7 @@ import type { StorageService } from '@forge/storage';
 import type { BackgroundShellRunOutput, ShellRunInput } from '@forge/shell';
 
 type TaskStore = Pick<StorageService,
-  'workspaceId' | 'createPersistentTask' | 'listPersistentTasks' | 'getPersistentTask' | 'setPersistentTaskState' | 'setTaskStepState' |
+  'workspaceId' | 'createPersistentTask' | 'updatePersistentTask' | 'listPersistentTasks' | 'getPersistentTask' | 'setPersistentTaskState' | 'setTaskStepState' |
   'appendTaskCheckpoint' | 'appendTaskArtifact' | 'upsertTaskExternalReference' | 'appendTaskEvent' | 'updateTaskReality' | 'linkTaskStepAudit' | 'recordTaskApproval'>;
 
 export interface TaskRuntimeDependencies {
@@ -38,6 +38,7 @@ export class TaskRuntime {
   }
 
   create(draft: TaskDraft): Promise<Task> { return this.dependencies.storage.createPersistentTask(draft); }
+  update(taskId: string, draft: TaskDraft): Promise<Task> { return this.dependencies.storage.updatePersistentTask(taskId, draft); }
   list(): Promise<Task[]> { return this.dependencies.storage.listPersistentTasks(); }
   get(taskId: string): Promise<Task> { return this.dependencies.storage.getPersistentTask(taskId); }
 

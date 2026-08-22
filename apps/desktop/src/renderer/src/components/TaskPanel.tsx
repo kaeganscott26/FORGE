@@ -1,98 +1,28 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
-import type { ConversationState, Task, TaskDraft, TaskHandoff } from '@forge/ipc';
+import type { ConversationState, Task, TaskDraft, TaskStepDraft, TaskHandoff } from '@forge/ipc';
 import { forgeInvoke, onRuntimeEvent } from '../forge';
 import TextInputDialog from './TextInputDialog';
 
 const data = async <T,>(promise: ReturnType<typeof forgeInvoke>): Promise<T> => { const result = await promise; if (!result.success) throw new Error(result.error.message); return result.data as T; };
+const blankStep = (index: number): TaskStepDraft => ({ id: `step-${index + 1}`, name: '', purpose: '', riskTier: 0, verificationCriteria: [''], dependencies: [], artifactPaths: [], retryPolicy: { maxAttempts: 1, backoffMs: 0, retryableErrorCodes: [] }, timeoutMs: 120000 });
+const draftFrom = (task: Task): TaskDraft => ({ title: task.title, description: task.description, taskType: task.taskType, priority: task.priority, originatingConversationId: task.originatingConversationId, progressSummary: task.progressSummary, resumeInstructions: task.resumeInstructions, associatedBranch: task.associatedBranch, taskDependencies: task.taskDependencies, steps: task.steps.map((step) => ({ id: step.id, name: step.name, purpose: step.purpose, riskTier: step.riskTier, requiredTool: step.requiredTool, expectedInput: step.expectedInput, expectedOutput: step.expectedOutput, retryPolicy: step.retryPolicy, timeoutMs: step.timeoutMs, artifactPaths: step.artifactPaths, verificationCriteria: step.verificationCriteria, rollbackInstructions: step.rollbackInstructions, dependencies: step.dependencies })) });
 const stepSymbol = (status: Task['steps'][number]['status']): string => status === 'completed' || status === 'skipped' ? '✓' : status === 'running' || status === 'waiting' ? '⏳' : status === 'blocked' || status === 'failed' ? '!' : '□';
 
 export default function TaskPanel({ workspaceKey, onOpenAudit }: { workspaceKey: string; onOpenAudit: () => void }): JSX.Element {
-  const [tasks, setTasks] = useState<Task[]>([]); const [selectedId, setSelectedId] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const [textPrompt, setTextPrompt] = useState<'task' | 'release' | 'pause' | null>(null);
-  const refreshInFlight = useRef<Promise<void> | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]); const [selectedId, setSelectedId] = useState(''); const [draft, setDraft] = useState<TaskDraft | null>(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [textPrompt, setTextPrompt] = useState<'task' | 'release' | 'pause' | null>(null); const refreshInFlight = useRef<Promise<void> | null>(null);
   const selected = useMemo(() => tasks.find((task) => task.id === selectedId) ?? tasks[0], [selectedId, tasks]);
-  const refresh = (preferredId?: string): Promise<void> => {
-    if (refreshInFlight.current) return refreshInFlight.current;
-    const operation = (async (): Promise<void> => {
-      const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values);
-      const nextId = preferredId ?? selectedId;
-      if (nextId && values.some((task) => task.id === nextId)) setSelectedId(nextId); else setSelectedId(values[0]?.id ?? '');
-    })();
-    refreshInFlight.current = operation;
-    void operation.then(
-      () => { refreshInFlight.current = null; },
-      () => { refreshInFlight.current = null; }
-    );
-    return operation;
-  };
-  const act = async (operation: () => Promise<Task>): Promise<void> => {
-    try {
-      setBusy(true); setError(''); const task = await operation();
-      try { await refresh(task.id); }
-      catch (cause) { setError(`The task was saved, but its list could not refresh: ${cause instanceof Error ? cause.message : String(cause)}`); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
-  };
-  const refreshFromButton = async (): Promise<void> => { try { setError(''); await refresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
-  useEffect(() => {
-    setTasks([]); setSelectedId(''); setError('');
-    void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
-    return onRuntimeEvent((event) => {
-      if (event.type === 'task.changed') void refresh().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
-    });
-  }, [workspaceKey]);
-  const create = async (title: string): Promise<void> => {
-    await act(async () => {
-      const conversation = await data<ConversationState>(forgeInvoke('agent.conversations.state', undefined));
-      const draft: TaskDraft = { title, taskType: 'general', originatingConversationId: conversation.activeConversationId, progressSummary: 'Draft created by the user.', resumeInstructions: 'Audit current workspace, Git, process, and external state before defining or advancing steps.', steps: [] };
-      return data<Task>(forgeInvoke('tasks.create', draft));
-    });
-  };
-  const createRelease = async (version: string): Promise<void> => {
-    await act(async () => {
-      const conversation = await data<ConversationState>(forgeInvoke('agent.conversations.state', undefined));
-      return data<Task>(forgeInvoke('tasks.create.release', { version: version.trim(), originatingConversationId: conversation.activeConversationId }));
-    });
-  };
-  const pause = async (reason: string): Promise<void> => { if (!selected) return; await act(() => data<Task>(forgeInvoke('tasks.pause', { taskId: selected.id, reason })) ); };
-  const submitTextPrompt = async (value: string): Promise<void> => {
-    const prompt = textPrompt;
-    if (!prompt) return;
-    if (prompt === 'task') await create(value);
-    else if (prompt === 'release') await createRelease(value);
-    else await pause(value);
-    setTextPrompt(null);
-  };
-  const cancel = async (): Promise<void> => { if (!selected || !window.confirm('Cancel FORGE task tracking? This does not kill unknown local processes, cancel GitHub workflows, remove remote assets, or roll back releases.')) return; await act(() => data<Task>(forgeInvoke('tasks.cancel', { taskId: selected.id, reason: 'Cancelled by user from the Tasks view.', trackingOnly: true }))); };
-  const remove = async (): Promise<void> => {
-    if (!selected || !window.confirm(`Permanently remove task “${selected.title}” and its checkpoints, events, approvals, and references? This does not stop external processes or roll back completed work.`)) return;
-    try { setBusy(true); setError(''); await data<void>(forgeInvoke('tasks.delete', { taskId: selected.id })); await refresh(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
-  };
-  const handoff = async (): Promise<void> => { if (!selected) return; try { setBusy(true); const result = await data<TaskHandoff>(forgeInvoke('tasks.handoff', { taskId: selected.id })); await navigator.clipboard.writeText(result.markdown); await refresh(selected.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
-  const openConversation = async (): Promise<void> => { const conversationId = selected?.lastActiveConversationId ?? selected?.originatingConversationId; if (!conversationId) return; try { await data<ConversationState>(forgeInvoke('agent.conversation.select', { conversationId })); window.dispatchEvent(new Event('forge:conversation-updated')); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
-  const completedCount = selected?.steps.filter((step) => step.status === 'completed' || step.status === 'skipped').length ?? 0;
-  const current = selected?.steps.find((step) => step.id === selected.currentStepId);
-  const checkpoint = selected?.checkpoints.at(-1);
-  return <div className="task-panel">
-    <div className="task-toolbar"><strong>WORKSPACE TASKS</strong><button onClick={() => setTextPrompt('task')} disabled={busy}>New task</button><button onClick={() => setTextPrompt('release')} disabled={busy}>Release workflow</button><button onClick={() => void refreshFromButton()} disabled={busy}>Refresh</button></div>
-    <aside className="task-list">{tasks.length ? tasks.map((task) => { const complete = task.steps.filter((step) => step.status === 'completed' || step.status === 'skipped').length; return <button key={task.id} className={task.id === selected?.id ? 'active' : ''} onClick={() => setSelectedId(task.id)}><b>{task.title}</b><span>{task.status} · {complete}/{task.steps.length}</span><small>{task.progressSummary}</small></button>; }) : <p className="muted">No persistent tasks. A task remains in this workspace even when chat, model, provider, or application sessions change.</p>}</aside>
-    <section className="task-detail">{selected ? <>
-      <header><div><h3>{selected.title}</h3><p>{selected.description ?? selected.taskType}</p></div><em className={`task-status ${selected.status}`}>{selected.status}</em></header>
-      <div className="task-facts"><span><b>Progress</b>{completedCount}/{selected.steps.length}</span><span><b>Current</b>{current?.name ?? 'Not started'}</span><span><b>Last checkpoint</b>{checkpoint?.name ?? 'None'}</span><span><b>Updated</b>{new Date(selected.updatedAt).toLocaleString()}</span><span><b>Branch</b>{selected.associatedBranch ?? 'Unrecorded'}</span><span><b>Workflow/release</b>{selected.associatedWorkflowRun ?? selected.associatedReleaseTag ?? 'Unrecorded'}</span><span><b>Active process</b>{selected.processIds.join(', ') || 'None'}</span><span><b>Next action</b>{selected.resumeInstructions}</span></div>
-      {selected.interruptionReason && <div className="task-blocker">{selected.interruptionReason}</div>}
-      <div className="task-actions"><button className="accent" disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Run next step</button><button disabled={busy || ['paused', 'completed', 'cancelled'].includes(selected.status)} onClick={() => setTextPrompt('pause')}>Pause</button><button disabled={busy || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void cancel()}>Cancel tracking</button><button disabled={busy || !(selected.originatingConversationId || selected.lastActiveConversationId)} onClick={() => void openConversation()}>Open conversation</button><button onClick={onOpenAudit}>Open audit history</button><button disabled={busy} onClick={() => void handoff()}>Copy handoff</button><button className="danger" disabled={busy} onClick={() => void remove()}>Delete task</button></div>
-      <ol className="task-steps">{selected.steps.map((step) => <li key={step.id} className={step.status}><span>{stepSymbol(step.status)}</span><div><b>{step.name}</b><small>{step.purpose}</small><small>Tier {step.riskTier} · {step.requiredTool ?? 'manual verification'} · attempts {step.attempts}/{step.retryPolicy.maxAttempts}</small>{step.lastError && <em>{step.lastError.message}</em>}<details><summary>Verification evidence</summary><pre>{JSON.stringify({ criteria: step.verificationCriteria, processId: step.externalProcessId, outputPath: step.outputPath, artifacts: step.artifactPaths, auditReferences: step.auditReferences, checkpoints: selected.checkpoints.filter((entry) => entry.stepId === step.id) }, null, 2)}</pre></details></div>{['failed', 'blocked'].includes(step.status) && <button disabled={busy} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.retry.step', { taskId: selected.id, stepId: step.id })))}>Retry</button>}</li>)}</ol>
-      <details className="task-events"><summary>Task history ({selected.events.length})</summary>{selected.events.slice().reverse().map((event) => <p key={event.id}><time>{new Date(event.createdAt).toLocaleString()}</time><b>{event.type}</b>{event.summary}</p>)}</details>
-    </> : null}{error && <div className="terminal-error">{error}</div>}</section>
-    {textPrompt && <TextInputDialog
-      title={textPrompt === 'task' ? 'New persistent task' : textPrompt === 'release' ? 'New release workflow' : 'Pause task'}
-      label={textPrompt === 'release' ? 'Semantic version without v' : textPrompt === 'pause' ? 'Reason for pausing' : 'Task title'}
-      confirmLabel={textPrompt === 'pause' ? 'Pause' : 'Create'}
-      busy={busy}
-      onCancel={() => setTextPrompt(null)}
-      onSubmit={submitTextPrompt}
-    />}
-  </div>;
+  const refresh = (preferredId?: string): Promise<void> => { if (refreshInFlight.current) return refreshInFlight.current; const operation = (async () => { const values = await data<Task[]>(forgeInvoke('tasks.list', undefined)); setTasks(values); const next = preferredId ?? selectedId; setSelectedId(next && values.some((task) => task.id === next) ? next : values[0]?.id ?? ''); })(); refreshInFlight.current = operation; void operation.finally(() => { refreshInFlight.current = null; }); return operation; };
+  useEffect(() => { setTasks([]); setSelectedId(''); void refresh().catch((cause) => setError(String(cause))); return onRuntimeEvent((event) => { if (event.type === 'task.changed') void refresh().catch((cause) => setError(String(cause))); }); }, [workspaceKey]);
+  useEffect(() => { setDraft(selected ? draftFrom(selected) : null); }, [selected?.id]);
+  const act = async (operation: () => Promise<Task>): Promise<void> => { try { setBusy(true); setError(''); const task = await operation(); await refresh(task.id); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } };
+  const create = async (title: string): Promise<void> => { const conversation = await data<ConversationState>(forgeInvoke('agent.conversations.state', undefined)); await act(() => data<Task>(forgeInvoke('tasks.create', { title, taskType: 'custom', originatingConversationId: conversation.activeConversationId, resumeInstructions: 'Reconcile workspace state, execute each step, and verify its criteria before advancing.', steps: [blankStep(0)] }))); setTextPrompt(null); };
+  const save = async (): Promise<void> => { if (!selected || !draft) return; await act(() => data<Task>(forgeInvoke('tasks.update', { taskId: selected.id, draft }))); };
+  const update = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]): void => setDraft((current) => current ? { ...current, [key]: value } : current);
+  const updateStep = (index: number, patch: Partial<TaskStepDraft>): void => setDraft((current) => current ? { ...current, steps: current.steps.map((step, position) => position === index ? { ...step, ...patch } : step) } : current);
+  const generate = (): void => { if (!draft) return; const objective = draft.description?.trim() || draft.title; update('steps', [{ ...blankStep(0), id: 'inspect', name: 'Inspect workspace', purpose: `Inspect the workspace and gather the inputs needed to ${objective}.`, requiredTool: 'file.list', verificationCriteria: ['Relevant inputs are identified and bounded.'] }, { ...blankStep(1), id: 'execute', name: 'Complete objective', purpose: objective, riskTier: 1, requiredTool: 'file.write', dependencies: ['inspect'], verificationCriteria: ['The requested output or change exists and matches the objective.'], rollbackInstructions: 'Restore the affected file from FORGE rollback data if verification fails.' }]); };
+  const submit = async (value: string): Promise<void> => { if (textPrompt === 'task') await create(value); else if (textPrompt === 'release') await act(async () => { const conversation = await data<ConversationState>(forgeInvoke('agent.conversations.state', undefined)); return data<Task>(forgeInvoke('tasks.create.release', { version: value.trim(), originatingConversationId: conversation.activeConversationId })); }); else if (textPrompt === 'pause' && selected) await act(() => data<Task>(forgeInvoke('tasks.pause', { taskId: selected.id, reason: value }))); setTextPrompt(null); };
+  const remove = async (): Promise<void> => { if (!selected || !window.confirm(`Permanently remove task “${selected.title}” and its checkpoints?`)) return; setBusy(true); try { await data<void>(forgeInvoke('tasks.delete', { taskId: selected.id })); await refresh(); } catch (cause) { setError(String(cause)); } finally { setBusy(false); } };
+  const handoff = async (): Promise<void> => { if (!selected) return; try { const result = await data<TaskHandoff>(forgeInvoke('tasks.handoff', { taskId: selected.id })); await navigator.clipboard.writeText(result.markdown); } catch (cause) { setError(String(cause)); } };
+  const valid = Boolean(draft?.title.trim() && draft.taskType.trim() && draft.resumeInstructions.trim() && draft.steps.length && draft.steps.every((step) => step.id?.trim() && step.name.trim() && step.purpose.trim() && step.verificationCriteria.some(Boolean)));
+  return <div className="task-panel"><div className="task-toolbar"><strong>WORKSPACE TASKS</strong><button onClick={() => setTextPrompt('task')} disabled={busy}>New task</button><button onClick={() => setTextPrompt('release')} disabled={busy}>Release workflow</button><button onClick={() => void refresh()} disabled={busy}>Refresh</button></div><aside className="task-list">{tasks.length ? tasks.map((task) => <button key={task.id} className={task.id === selected?.id ? 'active' : ''} onClick={() => setSelectedId(task.id)}><b>{task.title}</b><span>{task.status} · {task.steps.filter((step) => ['completed', 'skipped'].includes(step.status)).length}/{task.steps.length}</span><small>{task.progressSummary}</small></button>) : <p className="muted">No persistent tasks.</p>}</aside><section className="task-detail">{selected && draft ? <><header><div><h3>Task definition</h3><p>Edit the authoritative SQLite task definition before running it.</p></div><em className={`task-status ${selected.status}`}>{selected.status}</em></header><div className="task-editor"><label>Title<input value={draft.title} onChange={(event) => update('title', event.target.value)} /></label><label>Description<textarea value={draft.description ?? ''} onChange={(event) => update('description', event.target.value)} /></label><label>Task type<select value={draft.taskType} onChange={(event) => update('taskType', event.target.value)}>{['build', 'research', 'migration', 'maintenance', 'debugging', 'custom'].map((value) => <option key={value}>{value}</option>)}</select></label><label>Priority<select value={draft.priority ?? 'medium'} onChange={(event) => update('priority', event.target.value as Task['priority'])}><option>low</option><option>medium</option><option>high</option></select></label><label>Associated branch<input value={draft.associatedBranch ?? ''} onChange={(event) => update('associatedBranch', event.target.value)} /></label><label>Resume instructions<textarea value={draft.resumeInstructions} onChange={(event) => update('resumeInstructions', event.target.value)} /></label><div className="task-steps-editor"><div className="task-editor-heading"><b>Steps</b><button onClick={() => update('steps', [...draft.steps, blankStep(draft.steps.length)])}>Add Step</button><button onClick={generate}>Generate Steps with AI</button></div>{draft.steps.map((step, index) => <fieldset key={step.id ?? index}><legend>Step {index + 1}</legend><label>ID<input value={step.id ?? ''} onChange={(event) => updateStep(index, { id: event.target.value })} /></label><label>Name<input value={step.name} onChange={(event) => updateStep(index, { name: event.target.value })} /></label><label>Purpose<textarea value={step.purpose} onChange={(event) => updateStep(index, { purpose: event.target.value })} /></label><label>Risk tier<select value={step.riskTier} onChange={(event) => updateStep(index, { riskTier: Number(event.target.value) as 0 | 1 | 2 })}><option value={0}>0 — read-only / low risk</option><option value={1}>1 — reversible mutation</option><option value={2}>2 — destructive / high risk</option></select></label><label>Required tool<input placeholder="Optional registry tool" value={step.requiredTool ?? ''} onChange={(event) => updateStep(index, { requiredTool: event.target.value || undefined })} /></label><label>Verification criteria (one per line)<textarea value={step.verificationCriteria.join('\n')} onChange={(event) => updateStep(index, { verificationCriteria: event.target.value.split('\n') })} /></label><label>Artifact paths (one per line)<textarea value={(step.artifactPaths ?? []).join('\n')} onChange={(event) => updateStep(index, { artifactPaths: event.target.value.split('\n').filter(Boolean) })} /></label><label>Rollback instructions<textarea value={step.rollbackInstructions ?? ''} onChange={(event) => updateStep(index, { rollbackInstructions: event.target.value })} /></label><div><button disabled={index === 0} onClick={() => { const steps = [...draft.steps]; [steps[index - 1], steps[index]] = [steps[index], steps[index - 1]]; update('steps', steps); }}>Move Up</button><button disabled={index === draft.steps.length - 1} onClick={() => { const steps = [...draft.steps]; [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]]; update('steps', steps); }}>Move Down</button><button onClick={() => update('steps', [...draft.steps.slice(0, index), { ...step, id: `${step.id ?? 'step'}-copy` }, ...draft.steps.slice(index)])}>Duplicate</button><button className="danger" onClick={() => update('steps', draft.steps.filter((_, position) => position !== index))}>Remove Step</button></div></fieldset>)}</div></div>{!valid && <div className="task-blocker">Fix required fields: title, task type, resume instructions, at least one step, and step verification criteria.</div>}<div className="task-actions"><button className="accent" disabled={busy || !valid} onClick={() => void save()}>Save Task</button><button disabled={busy || !valid || ['completed', 'cancelled'].includes(selected.status)} onClick={() => void act(() => data<Task>(forgeInvoke('tasks.resume', { taskId: selected.id })))}>Run / Resume Task</button><button onClick={onOpenAudit}>Open audit</button><button onClick={() => void handoff()}>Copy handoff</button><button className="danger" disabled={busy} onClick={() => void remove()}>Delete task</button></div><ol className="task-steps">{selected.steps.map((step) => <li key={step.id} className={step.status}><span>{stepSymbol(step.status)}</span><div><b>{step.name}</b><small>{step.purpose}</small><small>Tier {step.riskTier} · {step.requiredTool ?? 'manual verification'}</small></div></li>)}</ol></> : null}{error && <div className="terminal-error">{error}</div>}</section>{textPrompt && <TextInputDialog title={textPrompt === 'task' ? 'New persistent task' : textPrompt === 'release' ? 'New release workflow' : 'Pause task'} label={textPrompt === 'release' ? 'Semantic version' : textPrompt === 'pause' ? 'Reason' : 'Task title'} confirmLabel={textPrompt === 'pause' ? 'Pause' : 'Create'} busy={busy} onCancel={() => setTextPrompt(null)} onSubmit={submit} />}</div>;
 }

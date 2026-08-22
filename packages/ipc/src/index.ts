@@ -12,6 +12,9 @@ export interface FileNode {
   modifiedAt?: number;
   children?: FileNode[];
 }
+export type DetectedFileKind = 'text' | 'image' | 'audio' | 'video' | 'executable' | 'binary' | 'unknown';
+export interface FileMetadata { path: string; name: string; extension?: string; size: number; modifiedAt: number; createdAt: number; mimeType: string; kind: DetectedFileKind; executable: boolean; permissions?: string; signature?: string; dimensions?: { width: number; height: number }; }
+export interface FilePreview { path: string; mimeType: string; dataUrl: string; }
 
 export interface WorkspaceInfo { rootPath: string; name: string; gitRoot: string | null; createdAt: number; }
 export interface FileContent { path: string; content: string; modifiedAt: number; }
@@ -238,7 +241,7 @@ export interface AgentResponse {
 
 export const IPC_CHANNELS = {
   workspaceOpen: 'workspace.open', workspaceOpenHome: 'workspace.open.home', workspaceInfo: 'workspace.info', workspaceLayoutGet: 'workspace.layout.get', workspaceLayoutSave: 'workspace.layout.save',
-  fileList: 'file.list', fileRead: 'file.read', fileWrite: 'file.write', fileCreate: 'file.create', fileDelete: 'file.delete', fileRename: 'file.rename', fileCopy: 'file.copy',
+  fileList: 'file.list', fileRead: 'file.read', fileMetadata: 'file.metadata', filePreview: 'file.preview', fileWrite: 'file.write', fileCreate: 'file.create', fileDelete: 'file.delete', fileRename: 'file.rename', fileCopy: 'file.copy',
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
   metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaTaskCreate: 'meta.task.create',
   appUpdateStatus: 'app.update.status', appUpdateCheck: 'app.update.check', appUpdateInstall: 'app.update.install', appReleaseOpen: 'app.release.open', appBuildInfo: 'app.build.info', appBuildInfoCopy: 'app.build.info.copy',
@@ -249,7 +252,7 @@ export const IPC_CHANNELS = {
   agentMemoriesList: 'agent.memories.list', agentMemoriesStats: 'agent.memories.stats', agentMemoriesDelete: 'agent.memories.delete', agentMemoriesClear: 'agent.memories.clear', agentMemoriesReindex: 'agent.memories.reindex'
   , toolRequestsList: 'tool.requests.list', toolRequestApprove: 'tool.request.approve', toolRequestReject: 'tool.request.reject', toolRequestCancel: 'tool.request.cancel', toolActionsList: 'tool.actions.list', editorDirtyUpdate: 'editor.dirty.update',
   terminalCreate: 'terminal.create', terminalList: 'terminal.list', terminalInput: 'terminal.input', terminalResize: 'terminal.resize', terminalTerminate: 'terminal.terminate', terminalRestart: 'terminal.restart', terminalRemove: 'terminal.remove',
-  tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksDelete: 'tasks.delete', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
+  tasksList: 'tasks.list', tasksGet: 'tasks.get', tasksCreate: 'tasks.create', tasksUpdate: 'tasks.update', tasksCreateRelease: 'tasks.create.release', tasksResume: 'tasks.resume', tasksPause: 'tasks.pause', tasksCancel: 'tasks.cancel', tasksDelete: 'tasks.delete', tasksRetryStep: 'tasks.retry.step', tasksHandoff: 'tasks.handoff',
   browserNavigate: 'browser.navigate', browserLayout: 'browser.layout', browserBack: 'browser.back', browserForward: 'browser.forward', browserReload: 'browser.reload',
   browserHome: 'browser.home', browserTabClose: 'browser.tab.close', browserTabSelect: 'browser.tab.select', browserBookmarkAdd: 'browser.bookmark.add', browserBookmarkRemove: 'browser.bookmark.remove',
   forgeOsContext: 'forge-os.context', forgeOsApplications: 'forge-os.applications', forgeOsApplicationLaunch: 'forge-os.application.launch', forgeOsOverview: 'forge-os.overview', forgeOsSessionAction: 'forge-os.session.action'
@@ -257,7 +260,7 @@ export const IPC_CHANNELS = {
 
 export interface IPCRequestMap {
   'workspace.open': undefined; 'workspace.open.home': undefined; 'workspace.info': undefined; 'workspace.layout.get': undefined; 'workspace.layout.save': WorkspaceLayout;
-  'file.list': { path?: string; recursive?: boolean }; 'file.read': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string }; 'file.copy': FileCopyRequest;
+  'file.list': { path?: string; recursive?: boolean; showHidden?: boolean }; 'file.read': { path: string }; 'file.metadata': { path: string }; 'file.preview': { path: string }; 'file.write': { path: string; content: string }; 'file.create': { path: string; type: 'file' | 'directory'; content?: string }; 'file.delete': { path: string }; 'file.rename': { oldPath: string; newPath: string }; 'file.copy': FileCopyRequest;
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
   'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
   'app.update.status': undefined; 'app.update.check': undefined; 'app.update.install': undefined; 'app.release.open': undefined; 'app.build.info': undefined; 'app.build.info.copy': undefined;
@@ -272,12 +275,12 @@ export interface IPCRequestMap {
   'browser.home': undefined; 'browser.tab.close': { tabId: string }; 'browser.tab.select': { tabId: string }; 'browser.bookmark.add': undefined; 'browser.bookmark.remove': { bookmarkId: string };
   'forge-os.context': undefined; 'forge-os.applications': undefined; 'forge-os.application.launch': { id: string }; 'forge-os.overview': undefined; 'forge-os.session.action': { action: 'lock' | 'logout' | 'restart' | 'shutdown' };
   'terminal.create': { workingDirectory?: string; columns?: number; rows?: number }; 'terminal.list': undefined; 'terminal.input': { sessionId: string; data: string }; 'terminal.resize': { sessionId: string; columns: number; rows: number }; 'terminal.terminate': { sessionId: string }; 'terminal.restart': { sessionId: string }; 'terminal.remove': { sessionId: string };
-  'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.delete': { taskId: string }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
+  'tasks.list': undefined; 'tasks.get': { taskId: string }; 'tasks.create': TaskDraft; 'tasks.update': { taskId: string; draft: TaskDraft }; 'tasks.create.release': { version: string; originatingConversationId?: string }; 'tasks.resume': { taskId: string }; 'tasks.pause': { taskId: string; reason: string }; 'tasks.cancel': { taskId: string; reason: string; trackingOnly: boolean }; 'tasks.delete': { taskId: string }; 'tasks.retry.step': { taskId: string; stepId: string }; 'tasks.handoff': { taskId: string };
 }
 
 export interface IPCResponseMap {
   'workspace.open': WorkspaceInfo; 'workspace.open.home': WorkspaceInfo; 'workspace.info': WorkspaceInfo | null; 'workspace.layout.get': WorkspaceLayout; 'workspace.layout.save': WorkspaceLayout;
-  'file.list': FileNode[]; 'file.read': FileContent; 'file.write': FileContent; 'file.create': FileNode; 'file.delete': void; 'file.rename': FileNode; 'file.copy': FileNode;
+  'file.list': FileNode[]; 'file.read': FileContent; 'file.metadata': FileMetadata; 'file.preview': FilePreview; 'file.write': FileContent; 'file.create': FileNode; 'file.delete': void; 'file.rename': FileNode; 'file.copy': FileNode;
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
   'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.task.create': Task;
   'app.update.status': AppUpdateStatus; 'app.update.check': AppUpdateStatus; 'app.update.install': void; 'app.release.open': void; 'app.build.info': AppBuildInfo; 'app.build.info.copy': AppBuildInfo;
@@ -291,7 +294,7 @@ export interface IPCResponseMap {
   'browser.home': BrowserStateView; 'browser.tab.close': BrowserStateView; 'browser.tab.select': BrowserStateView; 'browser.bookmark.add': BrowserStateView; 'browser.bookmark.remove': BrowserStateView;
   'forge-os.context': ForgeOsContext; 'forge-os.applications': DesktopApplication[]; 'forge-os.application.launch': undefined; 'forge-os.overview': SystemOverview; 'forge-os.session.action': undefined;
   'terminal.create': TerminalSessionView; 'terminal.list': TerminalSessionView[]; 'terminal.input': void; 'terminal.resize': void; 'terminal.terminate': void; 'terminal.restart': TerminalSessionView; 'terminal.remove': void;
-  'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.delete': void; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
+  'tasks.list': Task[]; 'tasks.get': Task; 'tasks.create': Task; 'tasks.update': Task; 'tasks.create.release': Task; 'tasks.resume': Task; 'tasks.pause': Task; 'tasks.cancel': Task; 'tasks.delete': void; 'tasks.retry.step': Task; 'tasks.handoff': TaskHandoff;
 }
 
 export type IPCChannel = keyof IPCRequestMap;

@@ -304,8 +304,10 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.workspaceInfo, async () => workspace.info());
   register(IPC_CHANNELS.workspaceLayoutGet, async () => storage.getWorkspaceLayout());
   register(IPC_CHANNELS.workspaceLayoutSave, async (request) => storage.saveWorkspaceLayout(request));
-  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive }));
+  register(IPC_CHANNELS.fileList, async (request) => workspace.list(request?.path, { recursive: request?.recursive, showHidden: request?.showHidden }));
   register(IPC_CHANNELS.fileRead, async (request) => workspace.readFile(request.path));
+  register(IPC_CHANNELS.fileMetadata, async (request) => workspace.metadata(request.path));
+  register(IPC_CHANNELS.filePreview, async (request) => workspace.preview(request.path));
   register(IPC_CHANNELS.fileWrite, async (request) => workspace.writeFile(request.path, request.content));
   register(IPC_CHANNELS.fileCreate, async (request) => workspace.create(request.path, request.type, request.content));
   register(IPC_CHANNELS.fileDelete, async (request) => workspace.delete(request.path));
@@ -389,6 +391,7 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.tasksList, async () => taskRuntime.list());
   register(IPC_CHANNELS.tasksGet, async (request) => taskRuntime.get(request.taskId));
   register(IPC_CHANNELS.tasksCreate, async (request) => taskRuntime.create(request));
+  register(IPC_CHANNELS.tasksUpdate, async (request) => taskRuntime.update(request.taskId, request.draft));
   register(IPC_CHANNELS.tasksCreateRelease, async (request) => taskRuntime.createRelease(request.version, request.originatingConversationId));
   register(IPC_CHANNELS.tasksResume, async (request) => nativeAgent.runTaskStep(request.taskId));
   register(IPC_CHANNELS.tasksPause, async (request) => taskRuntime.pause(request.taskId, request.reason));

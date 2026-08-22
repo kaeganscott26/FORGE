@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { promises as fs, watch as watchFs, type Dirent } from 'node:fs';
 import * as path from 'node:path';
-import type { FileContent, FileNode, ParsedMarkdown, WorkspaceInfo } from '@forge/ipc';
+import type { DetectedFileKind, FileContent, FileMetadata, FileNode, ParsedMarkdown, WorkspaceInfo } from '@forge/ipc';
 
 const IGNORED = new Set(['.git', 'node_modules', 'dist', 'out', 'build', '.next', '.forge', 'coverage', '__pycache__']);
 const IGNORED_PATH_PATTERNS = [
@@ -14,10 +14,13 @@ const IGNORED_PATH_PATTERNS = [
 function isSkippableFileSystemError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'ENOENT'].includes(String(error.code));
 }
-function shouldIgnore(relativePath: string): boolean {
+function shouldIgnore(relativePath: string, showHidden = false): boolean {
   const normalized = relativePath.replaceAll('\\', '/');
-  return normalized.split('/').some((part) => IGNORED.has(part)) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+  return normalized.split('/').some((part) => (part.startsWith('.') && !showHidden) || (IGNORED.has(part) && !(showHidden && part.startsWith('.')))) || IGNORED_PATH_PATTERNS.some((pattern) => pattern.test(normalized) && !showHidden);
 }
+const mimeByExtension: Record<string, string> = { txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', json: 'application/json', jsonc: 'application/json', yaml: 'application/yaml', yml: 'application/yaml', toml: 'application/toml', xml: 'application/xml', csv: 'text/csv', log: 'text/plain', ini: 'text/plain', conf: 'text/plain', env: 'text/plain', sh: 'text/x-shellscript', bash: 'text/x-shellscript', zsh: 'text/x-shellscript', ps1: 'text/x-powershell', bat: 'text/plain', cmd: 'text/plain', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime' };
+const textExtensions = new Set(Object.keys(mimeByExtension).filter((extension) => mimeByExtension[extension].startsWith('text/') || ['json', 'yaml', 'toml'].includes(extension)));
+function kindFor(extension: string, mimeType: string, executable: boolean): DetectedFileKind { if (executable) return 'executable'; if (mimeType.startsWith('image/')) return 'image'; if (mimeType.startsWith('audio/')) return 'audio'; if (mimeType.startsWith('video/')) return 'video'; if (mimeType.startsWith('text/') || textExtensions.has(extension)) return 'text'; return mimeType === 'application/octet-stream' ? 'binary' : 'unknown'; }
 export function parseMarkdown(content: string): ParsedMarkdown {
   const frontmatter: Record<string, string | string[]> = {};
   const matched = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -48,9 +51,9 @@ export class WorkspaceService extends EventEmitter {
   }
   info(): WorkspaceInfo | null { return this.workspaceInfo ? { ...this.workspaceInfo } : null; }
   async close(): Promise<void> { this.watcher?.close(); this.watcher = undefined; this.rootPath = null; this.realRoot = null; this.workspaceInfo = null; }
-  async list(relativePath = '', options: { recursive?: boolean; maxEntries?: number } = {}): Promise<FileNode[]> {
+  async list(relativePath = '', options: { recursive?: boolean; maxEntries?: number; showHidden?: boolean } = {}): Promise<FileNode[]> {
     const budget = { count: 0, maximum: Math.max(1, options.maxEntries ?? 5_000) };
-    return this.listDirectory(await this.resolve(relativePath), relativePath, options.recursive !== false, budget);
+    return this.listDirectory(await this.resolve(relativePath), relativePath, options.recursive !== false, budget, options.showHidden ?? false);
   }
   async readFile(relativePath: string): Promise<FileContent> {
     const absolute = await this.resolve(relativePath);
@@ -62,6 +65,21 @@ export class WorkspaceService extends EventEmitter {
     try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
     catch { throw new Error('Forge could not decode this file as UTF-8 text.'); }
     return { path: relativePath, content, modifiedAt: stat.mtimeMs };
+  }
+  async metadata(relativePath: string): Promise<FileMetadata> {
+    const absolute = await this.resolve(relativePath); const stat = await fs.stat(absolute); const extension = path.extname(absolute).slice(1).toLowerCase();
+    const bytes = stat.isFile() ? await fs.open(absolute, 'r').then(async (handle) => { const buffer = Buffer.alloc(16); await handle.read(buffer, 0, 16, 0); await handle.close(); return buffer; }) : Buffer.alloc(0);
+    const signature = bytes.length >= 4 ? bytes.subarray(0, 8).toString('hex').match(/.{2}/g)?.join(' ') : undefined;
+    const executable = process.platform === 'win32' ? ['.exe', '.bat', '.cmd', '.ps1'].includes(path.extname(absolute).toLowerCase()) : Boolean(stat.mode & 0o111);
+    const mimeType = mimeByExtension[extension] ?? (bytes[0] === 0x7f && bytes[1] === 0x45 ? 'application/x-elf' : 'application/octet-stream');
+    return { path: relativePath, name: path.basename(absolute), extension: extension || undefined, size: stat.size, modifiedAt: stat.mtimeMs, createdAt: stat.birthtimeMs, mimeType, kind: kindFor(extension, mimeType, executable), executable, permissions: process.platform === 'win32' ? undefined : (stat.mode & 0o777).toString(8), signature };
+  }
+  async preview(relativePath: string): Promise<{ path: string; mimeType: string; dataUrl: string }> {
+    const metadata = await this.metadata(relativePath);
+    if (!['image', 'audio', 'video'].includes(metadata.kind)) throw new Error('This file does not have a safe media preview.');
+    if (metadata.size > 25 * 1024 * 1024) throw new Error('Media preview is limited to 25 MB.');
+    const bytes = await fs.readFile(await this.resolve(relativePath));
+    return { path: relativePath, mimeType: metadata.mimeType, dataUrl: `data:${metadata.mimeType};base64,${bytes.toString('base64')}` };
   }
   async writeFile(relativePath: string, content: string): Promise<FileContent> { const absolute = await this.resolve(relativePath, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); await fs.writeFile(absolute, content, 'utf8'); const stat = await fs.stat(absolute); return { path: relativePath, content, modifiedAt: stat.mtimeMs }; }
   async create(relativePath: string, type: 'file' | 'directory', content = ''): Promise<FileNode> { const absolute = await this.resolve(relativePath, true); await fs.mkdir(path.dirname(absolute), { recursive: true }); if (type === 'directory') await fs.mkdir(absolute, { recursive: false }); else await fs.writeFile(absolute, content, { flag: 'wx' }); return this.nodeFor(absolute); }
@@ -92,7 +110,7 @@ export class WorkspaceService extends EventEmitter {
     }
   }
 
-  private async listDirectory(absolute: string, relative: string, recursive: boolean, budget: { count: number; maximum: number }): Promise<FileNode[]> {
+  private async listDirectory(absolute: string, relative: string, recursive: boolean, budget: { count: number; maximum: number }, showHidden = false): Promise<FileNode[]> {
     let entries: Dirent[];
     try { entries = await fs.readdir(absolute, { withFileTypes: true }); }
     catch (error) { if (isSkippableFileSystemError(error)) return []; throw error; }
@@ -100,12 +118,12 @@ export class WorkspaceService extends EventEmitter {
     for (const entry of entries) {
       if (budget.count >= budget.maximum) break;
       const childRelative = relative ? path.join(relative, entry.name) : entry.name;
-      if (shouldIgnore(childRelative) || entry.isSymbolicLink()) continue;
+      if (shouldIgnore(childRelative, showHidden) || entry.isSymbolicLink()) continue;
       const childAbsolute = path.join(absolute, entry.name);
       try {
         const node = await this.nodeFor(childAbsolute, childRelative);
         budget.count += 1;
-        if (entry.isDirectory() && recursive) node.children = await this.listDirectory(childAbsolute, childRelative, recursive, budget);
+        if (entry.isDirectory() && recursive) node.children = await this.listDirectory(childAbsolute, childRelative, recursive, budget, showHidden);
         nodes.push(node);
       } catch (error) {
         if (!isSkippableFileSystemError(error)) throw error;

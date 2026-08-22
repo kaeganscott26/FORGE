@@ -187,6 +187,35 @@ export class StorageService {
     return this.taskFromRow(row);
   }
 
+  async updatePersistentTask(taskId: string, draft: TaskDraft): Promise<Task> {
+    await this.assertTask(taskId);
+    if (!draft.title.trim()) throw new Error('Task title is required.');
+    if (!draft.taskType.trim()) throw new Error('Task type is required.');
+    if (!draft.resumeInstructions.trim()) throw new Error('Resume instructions are required.');
+    if (!draft.steps.length) throw new Error('At least one step is required.');
+    if (draft.steps.some((step) => !step.name.trim() || !step.purpose.trim() || !step.verificationCriteria.length)) throw new Error('Each step needs a name, purpose, and verification criterion.');
+    const stepIds = draft.steps.map((step) => step.id ?? id());
+    if (new Set(stepIds).size !== stepIds.length) throw new Error('Task step IDs must be unique.');
+    const stepIdSet = new Set(stepIds);
+    for (let index = 0; index < draft.steps.length; index += 1) {
+      const step = draft.steps[index];
+      if (![0, 1, 2].includes(step.riskTier) || step.dependencies?.some((dependency) => !stepIdSet.has(dependency) || dependency === stepIds[index])) throw new Error('Task step dependency or risk tier is invalid.');
+    }
+    this.assertAcyclicSteps(stepIds, draft.steps.map((step) => step.dependencies ?? []));
+    const projectId = await this.projectId(); const now = Date.now();
+    this.ready().run(`UPDATE tasks SET title = ?, description = ?, task_type = ?, priority = ?, resume_instructions = ?, associated_branch = ?, progress_summary = ?, updated_at = ? WHERE id = ? AND project_id = ?`, [draft.title.trim(), draft.description ?? null, draft.taskType.trim(), draft.priority ?? 'medium', draft.resumeInstructions.trim(), draft.associatedBranch ?? null, draft.progressSummary ?? 'Task definition updated.', now, taskId, projectId]);
+    this.ready().run('DELETE FROM task_step_dependencies WHERE task_id = ?', [taskId]);
+    this.ready().run('DELETE FROM task_steps WHERE task_id = ?', [taskId]);
+    for (let index = 0; index < draft.steps.length; index += 1) {
+      const step = draft.steps[index]; const stepId = stepIds[index];
+      const retryPolicy = { maxAttempts: Math.max(1, step.retryPolicy?.maxAttempts ?? 1), backoffMs: Math.max(0, step.retryPolicy?.backoffMs ?? 0), retryableErrorCodes: step.retryPolicy?.retryableErrorCodes ?? [] };
+      this.ready().run(`INSERT INTO task_steps (id, task_id, position, name, purpose, status, risk_tier, required_tool, expected_input, expected_output, attempts, retry_policy, timeout_ms, approval_state, artifact_paths, verification_criteria, rollback_instructions, audit_references) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, '[]')`, [stepId, taskId, index, step.name.trim(), step.purpose.trim(), step.riskTier, step.requiredTool ?? null, JSON.stringify(sanitizeTaskData(step.expectedInput ?? null)), JSON.stringify(sanitizeTaskData(step.expectedOutput ?? null)), JSON.stringify(retryPolicy), Math.max(100, step.timeoutMs ?? 120_000), step.riskTier === 0 ? 'not-required' : 'required', JSON.stringify(step.artifactPaths ?? []), JSON.stringify(step.verificationCriteria), step.rollbackInstructions ?? null]);
+      for (const dependency of step.dependencies ?? []) this.ready().run('INSERT INTO task_step_dependencies (task_id, step_id, depends_on_step_id) VALUES (?, ?, ?)', [taskId, stepId, dependency]);
+    }
+    this.appendTaskEventRow(taskId, undefined, 'state.reconciled', 'Task definition edited and saved.', { fields: ['title', 'description', 'taskType', 'priority', 'resumeInstructions', 'steps'] });
+    await this.persist(); return this.getPersistentTask(taskId);
+  }
+
   async setPersistentTaskState(taskId: string, status: TaskStatus, options: { summary: string; eventType: TaskEventType; interruptionReason?: string; currentStepId?: string | null; lastActiveConversationId?: string; resumabilityState?: Task['resumabilityState']; details?: unknown; auditReference?: string } ): Promise<Task> {
     if (!TASK_STATUSES.has(status)) throw new Error('Task status is invalid.');
     const row = await this.assertTask(taskId); const now = Date.now();

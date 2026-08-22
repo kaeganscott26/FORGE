@@ -75,4 +75,15 @@ describe('WorkspaceService state', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('shows hidden entries only when requested and classifies media and executables', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-hidden-'));
+    try {
+      await fs.writeFile(join(root, '.env'), 'SECRET=false\n'); await fs.writeFile(join(root, 'pixel.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+      const service = new WorkspaceService(); await service.open(root);
+      expect((await service.list()).some((entry) => entry.name === '.env')).toBe(false);
+      expect((await service.list('', { showHidden: true })).some((entry) => entry.name === '.env')).toBe(true);
+      await expect(service.metadata('pixel.png')).resolves.toMatchObject({ kind: 'image', mimeType: 'image/png', signature: '89 50 4e 47 00 00 00 00' });
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
 });

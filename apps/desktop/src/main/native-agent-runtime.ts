@@ -15,6 +15,7 @@ export interface NativeAgentRuntime {
 export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime {
   const { storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 60_000, 60_000), 60 * 60_000);
+  const waitingRuns = new Map<string, { prompt: string; conversationId: string; executionTask?: TaskStepLink; evidence: string }>();
   const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId)).map((entry: any) => ({ role: entry.role, content: entry.content }));
   const recordTaskOutcome = async (request: any, result: any): Promise<string | null> => {
     const link = taskEvidenceLink(request);
@@ -75,6 +76,7 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const pending = round.find((outcome) => !outcome.result);
       if (pending) {
+        waitingRuns.set(pending.request.id, { prompt, conversationId: state.activeConversationId, executionTask, evidence: round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n') });
         modelContent = `FORGE is waiting for approval to ${pending.request.expectedEffect} (${pending.request.toolName}). The project state and this request remain persisted; approving the exact request will resume the agent from its observed result.`;
         await emitRuntimeEvent?.('agent.progress', { conversationId: state.activeConversationId, state: 'waiting-for-approval', requestId: pending.request.id });
         break;
@@ -105,7 +107,9 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
   const continueAfterApproval = async (request: any, result: any): Promise<void> => {
     const checkpointWarning = await recordTaskOutcome(request, result);
     const evidence = boundedToolEvidence(result);
-    await runAgentTurn(request.conversationId, `An explicitly approved FORGE tool request has completed. Continue the original work from the persisted workspace and task state. Do not repeat this call unless the workspace has changed.\n\n${evidence}${checkpointWarning ? `\n\n${checkpointWarning}` : ''}`);
+    const waiting = waitingRuns.get(request.id); waitingRuns.delete(request.id);
+    const original = waiting?.prompt ?? 'the original request';
+    await runAgentTurn(waiting?.conversationId ?? request.conversationId, `The explicitly approved action ${request.toolName} has completed. Continue the original objective: ${original}. Preserve the remaining ordered actions, do not repeat the completed call, and use this bounded result as evidence:\n\n${waiting?.evidence ? `${waiting.evidence}\n\n` : ''}${evidence}${checkpointWarning ? `\n\n${checkpointWarning}` : ''}`, waiting?.executionTask);
   };
 
   return { runAgentTurn, runTaskStep, continueAfterApproval, recordTaskApproval };

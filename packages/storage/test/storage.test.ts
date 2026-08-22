@@ -17,6 +17,14 @@ async function storage(): Promise<StorageService> {
 }
 
 describe('workspace-owned conversation storage', () => {
+  it('updates a draft task definition and replaces its editable steps in SQLite', async () => {
+    const service = await storage();
+    const task = await service.createPersistentTask({ title: 'Draft', taskType: 'custom', resumeInstructions: 'Reconcile before continuing.', steps: [{ id: 'inspect', name: 'Inspect', purpose: 'Inspect inputs.', riskTier: 0, verificationCriteria: ['Inputs identified'] }] });
+    const updated = await service.updatePersistentTask(task.id, { title: 'Updated', description: 'Objective', taskType: 'debugging', priority: 'high', resumeInstructions: 'Resume from the first unverified step.', steps: [{ id: 'fix', name: 'Fix', purpose: 'Apply the fix.', riskTier: 1, requiredTool: 'file.write', verificationCriteria: ['Tests pass'], retryPolicy: { maxAttempts: 2 }, artifactPaths: ['result.txt'] }] });
+    expect(updated).toMatchObject({ title: 'Updated', taskType: 'debugging', priority: 'high', description: 'Objective' });
+    expect(updated.steps).toHaveLength(1); expect(updated.steps[0]).toMatchObject({ id: 'fix', name: 'Fix', riskTier: 1, artifactPaths: ['result.txt'] });
+    await service.close();
+  });
   it('supports multiple threads and clears only active conversation messages', async () => {
     const service = await storage();
     const first = await service.conversationState();
