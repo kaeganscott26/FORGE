@@ -14,6 +14,8 @@ The script performs a clean lockfile install, typecheck, lint, tests, and produc
 
 Install the verified package with `npm run install:mac`. The installer copies the universal app to a sibling staging path, verifies its executable hash, `app.asar` hash, architectures, bundle version, embedded UI commit/build date, and runtime metadata against `build-manifest.json`, then replaces `/Applications/FORGE.app` with rollback to the Trash copy if activation fails. It atomically refreshes the architecture-independent launcher at `/usr/local/bin/forge-session` only when that launcher changed, so normal app upgrades do not request administrator authentication. The launcher always targets the canonical application location, so it remains valid when a later packaged app replaces the bundle. `forge-session --runtime-info` reports the installed version and source commit without launching the UI.
 
+For a clean `main` checkout, `npm run update:mac` performs a trusted-origin fast-forward, preserves local `.obsidian` UI state, runs the complete macOS packaging gates, installs the verified universal app, and opens it. It refuses source changes outside `.obsidian` and restores the pre-update source commit if packaging or installation fails.
+
 Platform artifacts are deliberately not byte-identical: macOS is universal Mach-O while Linux and Windows use native platform executables. Parity is established by the exact `gitCommit` embedded in each runtime plus matching app behavior and UI; each platform verifies its own executable, `app.asar`, and payload hashes. FORGE-OS records that same source commit in `/opt/forge/current/.forge-runtime.env` and launches it through its own `/usr/local/bin/forge-session` session wrapper.
 
 Signing and notarization remain controlled by the existing Electron Builder environment and release workflow. Set `CSC_IDENTITY_AUTO_DISCOVERY=false` when an unsigned development or beta package is intended.
@@ -37,6 +39,8 @@ Run in PowerShell on a Windows x64 machine or native Windows CI runner:
 ```
 
 The script performs the same lockfile install and source gate, creates the x64 NSIS installer, and verifies the installer plus unpacked Windows `node-pty`, ConPTY, and console-list modules. Its expected artifact is a versioned `FORGE-<version>-x64.exe` under `dist_electron/`.
+
+For a clean `main` checkout, `npm run update:win` performs a trusted-origin fast-forward, preserves local `.obsidian` UI state, runs the complete native Windows packaging gates, installs the NSIS package silently after confirming FORGE is closed, and verifies that the installed `app.asar` matches the package. Run it from PowerShell on Windows.
 
 The configured high-resolution FORGE PNG is converted to the Windows icon format by the installed Electron Builder during packaging; no hand-made ICO conversion is used. Windows packaging and runtime acceptance have not yet been executed.
 

@@ -60,7 +60,7 @@ FORGE shows the tool name, reason, target, working directory, predicted file dif
 Open **Settings → API integration**, enter the provider base URL and model ID, then save. Use **Refresh provider models** to load the provider’s catalog, **Validate model** to check an exact ID, and **Test saved model and API connection** before starting important work.
 
 - Remote OpenAI-compatible providers require an API key and an HTTPS base URL.
-- A loopback provider, such as Ollama at `http://127.0.0.1:11434/v1`, may run without a key. Compatible local models receive a focused file-tool catalog so they are not overwhelmed by unrelated capabilities.
+- A loopback provider, such as Ollama at `http://127.0.0.1:11434/v1`, may run without a key. Compatible local models receive every capability currently available from the FORGE registry; the same validation and approvals apply regardless of provider.
 - Changing the model changes the provider protocol and reasoning quality, not workspace ownership or tool policy. Files, Git history, tasks, conversations, durable memory, and audit evidence remain with the workspace.
 - GPT-5.6 tool-capable models use the Responses route. Other compatible providers use the Chat Completions route; either way, FORGE validates the same tool contracts.
 

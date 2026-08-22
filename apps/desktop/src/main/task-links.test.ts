@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { taskApprovalLink, taskEvidenceLink } from './task-links';
+import { reconcileTaskContext, taskApprovalLink, taskEvidenceLink } from './task-links';
 
 const linked = { taskId: 'task-1', stepId: 'inspect' };
 
@@ -20,5 +20,23 @@ describe('task tool links', () => {
     const request = { toolName: 'task.process.start', input: linked };
     expect(taskApprovalLink(request)).toEqual(linked);
     expect(taskEvidenceLink(request)).toEqual(linked);
+  });
+
+  it('preserves only task context that resolves inside the active workspace', async () => {
+    const valid = { name: 'file.read', arguments: { path: 'README.md', taskContext: linked } };
+    const lookup = async (taskId: string) => ({ workspaceId: taskId === 'task-1' ? 'workspace-1' : 'workspace-2', steps: [{ id: 'inspect' }] });
+    await expect(reconcileTaskContext(valid, 'workspace-1', lookup)).resolves.toBe(valid);
+    await expect(reconcileTaskContext({ ...valid, arguments: { ...valid.arguments, taskContext: { taskId: 'foreign', stepId: 'inspect' } } }, 'workspace-1', lookup))
+      .resolves.toEqual({ name: 'file.read', arguments: { path: 'README.md' } });
+    await expect(reconcileTaskContext({ ...valid, arguments: { ...valid.arguments, taskContext: { taskId: 'task-1', stepId: 'missing' } } }, 'workspace-1', lookup))
+      .resolves.toEqual({ name: 'file.read', arguments: { path: 'README.md' } });
+  });
+
+  it('strips malformed or unresolvable optional task context without changing tool arguments', async () => {
+    const lookup = async (): Promise<never> => { throw new Error('missing'); };
+    await expect(reconcileTaskContext({ name: 'git.status', arguments: { taskContext: { taskId: 'current', stepId: '1' } } }, 'workspace-1', lookup))
+      .resolves.toEqual({ name: 'git.status', arguments: {} });
+    await expect(reconcileTaskContext({ name: 'terminal.read', arguments: { maxCharacters: 500, taskContext: 'invalid' } }, 'workspace-1', lookup))
+      .resolves.toEqual({ name: 'terminal.read', arguments: { maxCharacters: 500 } });
   });
 });

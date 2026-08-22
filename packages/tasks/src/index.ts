@@ -171,6 +171,17 @@ export class TaskRuntime {
     return this.reconcile(taskId, await this.realitySnapshot(taskId));
   }
 
+  async recordApproval(taskId: string, stepId: string, toolRequestId: string, toolName: string, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void> {
+    await this.dependencies.storage.recordTaskApproval(taskId, stepId, {
+      toolRequestId,
+      decision,
+      scope: `${taskId}:${stepId}:${toolName}`,
+      decidedAt: decision === 'pending' ? undefined : this.now(),
+      expiresAt: decision === 'session' ? this.now() + 30 * 60_000 : undefined,
+      auditReference: decision === 'pending' ? undefined : toolRequestId
+    });
+  }
+
   async startBackground(taskId: string, stepId: string, input: ShellRunInput, toolRequestId: string): Promise<{ task: Task; process: BackgroundShellRunOutput }> {
     if (!this.dependencies.shell) throw new Error('Background shell runtime is unavailable.');
     const task = await this.get(taskId); const step = task.steps.find((candidate) => candidate.id === stepId); if (!step) throw new Error('Unknown task step.');

@@ -32,6 +32,8 @@
     "package:win": "npm run clean:dist && npm run build && electron-builder --win --x64 --publish never",
     "package:linux": "npm run clean:dist && npm run build && electron-builder --linux --x64 --publish never",
     "install:mac": "bash scripts/install-mac.sh",
+    "update:mac": "bash scripts/update-macos.sh",
+    "update:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-windows.ps1",
     "preview": "electron-vite preview apps/desktop",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify:release-version": "node scripts/verify-release-version.mjs",

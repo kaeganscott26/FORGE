@@ -22,7 +22,7 @@ Markdown files open in preview mode. Use **Edit** and **Preview** to switch view
 
 ## 📊 4. Use the dashboard
 
-The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. The context-health number is a lightweight readiness indicator, not a code-quality score.
+The dashboard reports README presence, code and note counts, recent commits, goals, and tasks. FORGE does not reduce workspace intelligence or memory to a numeric context-health score.
 
 Goals and persistent tasks are stored only in the workspace's local FORGE database.
 
@@ -36,7 +36,7 @@ Always confirm the file list and diff before a commit, pull, or push. FORGE oper
 
 Open **Settings**, enter the API base URL, model ID, and API key, then choose **Save settings**. An API key remains mandatory for remote providers. For local Ollama, use `http://127.0.0.1:11434/v1` and leave the key blank. FORGE automatically loads the provider catalog when the saved remote key or loopback endpoint is available; **Refresh provider models** repeats the request and **Validate model** checks an exact ID before saving. The model field remains editable so new provider model IDs do not require a FORGE update. **Test saved model and API connection** validates the stored configuration.
 
-Compatible local models receive a focused set of FORGE workspace file tools through the same policy router as hosted models. Read-only inspection may run automatically; file creation and writes still require explicit approval. The focused catalog avoids confusing smaller models with unrelated Git, release, shell, and task actions. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
+Compatible local models receive every capability currently available from the FORGE tool registry through the same policy router as hosted models, including workspace files, Git, terminal evidence, tasks, and configured browser/web or GitHub tools. Read-only inspection may run automatically; writes, commands, browser disclosure, commits, pushes, and other protected actions retain their normal approval requirements. A raw `ollama run` terminal chat remains Ollama's own CLI and does not receive hidden filesystem access from FORGE.
 
 ### Use an agent safely
 

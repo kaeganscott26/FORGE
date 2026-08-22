@@ -8,7 +8,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
     case 'git.status':
       return { success: true, data: null };
     case 'meta.dashboard':
-      return { success: true, data: { project: null, recentCommits: [], contextHealth: { score: 0, hasReadme: false, noteCount: 0, codeFileCount: 0 } } };
+      return { success: true, data: { project: null, recentCommits: [], contextHealth: { hasReadme: false, noteCount: 0, codeFileCount: 0 } } };
     case 'file.read':
       return { success: true, data: { content: '' } } as any;
     case 'agent.conversations.list':

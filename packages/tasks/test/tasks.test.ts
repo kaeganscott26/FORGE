@@ -76,6 +76,19 @@ describe('workspace-owned persistent tasks', () => {
     expect(resumed.status).toBe('ready'); expect(resumed.resumabilityState).toBe('resumable'); expect(resumed.assignedProvider).toBe('provider-before'); expect(resumed.assignedModel).toBe('model-before'); expect(resumed.events.some((event) => event.type === 'task.started')).toBe(true); await reopened.close();
   });
 
+  it('projects the complete tool approval lifecycle onto a linked task step', async () => {
+    const { storage, tasks } = await runtime();
+    const task = await tasks.create({ title: 'Approval lifecycle', taskType: 'build', resumeInstructions: 'Wait for exact approval.', steps: [{ id: 'build', name: 'Build', purpose: 'Run the build.', riskTier: 2, requiredTool: 'shell.run', verificationCriteria: ['Exit zero'] }] });
+    await tasks.recordApproval(task.id, 'build', 'request-1', 'shell.run', 'pending');
+    await tasks.recordApproval(task.id, 'build', 'request-1', 'shell.run', 'run-once');
+    await tasks.recordApproval(task.id, 'build', 'request-2', 'shell.run', 'rejected');
+    const recorded = await tasks.get(task.id);
+    expect(recorded.approvals.map((approval) => approval.decision)).toEqual(['pending', 'run-once', 'rejected']);
+    expect(recorded.approvals[1]).toMatchObject({ toolRequestId: 'request-1', scope: `${task.id}:build:shell.run`, auditReference: 'request-1' });
+    expect(recorded.steps[0].approvalState).toBe('rejected');
+    await storage.close();
+  });
+
   it('persists provider-neutral external evidence and artifacts during reconciliation', async () => {
     const { storage, tasks } = await runtime(); const task = await tasks.create({ title: 'Remote asset', taskType: 'release', resumeInstructions: 'Compare local and remote hashes.', assignedProvider: 'provider-a', assignedModel: 'model-a', steps: [{ id: 'asset', name: 'Verify asset', purpose: 'Verify a release asset.', riskTier: 0, requiredTool: 'web.fetch', verificationCriteria: ['Remote SHA matches'] }] });
     const reconciled = await tasks.resume(task.id, { observedAt: 2, workspaceId: task.workspaceId, processes: [], stepObservations: [{ stepId: 'asset', state: 'completed', verified: true, summary: 'Remote asset SHA matches.', evidence: { externalReference: { type: 'asset', provider: 'github', externalId: 'FORGE.dmg', url: 'https://github.com/example/FORGE.dmg', state: 'verified', verifiedAt: 2, metadata: { authorization: 'secret' } }, artifact: { kind: 'dmg', uri: 'https://github.com/example/FORGE.dmg', sha256: 'abc', verifiedAt: 2, metadata: { token: 'secret' } } } }] });

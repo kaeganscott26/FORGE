@@ -3369,7 +3369,6 @@ class StorageService {
 }
 const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const LOCAL_FILE_TOOLS = /* @__PURE__ */ new Set(["file.list", "file.read", "file.search", "file.create", "file.write", "file.patch", "file.rename", "file.move", "directory.create"]);
 function responsesCompatibleSchema(value) {
   if (Array.isArray(value)) return value.map(responsesCompatibleSchema);
   if (!value || typeof value !== "object") return value;
@@ -3383,6 +3382,23 @@ function responsesCompatibleSchema(value) {
     delete schema.maximum;
   }
   return schema;
+}
+function legacyToolAlias(name) {
+  return `forge_${name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+function providerToolNames(tools) {
+  const names = /* @__PURE__ */ new Map();
+  const legacyCandidates = /* @__PURE__ */ new Map();
+  tools.forEach((tool, index) => {
+    names.set(`forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`, tool.name);
+    names.set(tool.name, tool.name);
+    const legacy = legacyToolAlias(tool.name);
+    legacyCandidates.set(legacy, [...legacyCandidates.get(legacy) ?? [], tool.name]);
+  });
+  for (const [alias, candidates] of legacyCandidates) {
+    if (candidates.length === 1) names.set(alias, candidates[0]);
+  }
+  return names;
 }
 class OpenAIProvider {
   id = "openai";
@@ -3453,11 +3469,10 @@ class OpenAIProvider {
   }
   async chatWithTools(messages, tools, model = this.model) {
     const selectedModel = this.normalizeModel(model);
-    const providerNames = /* @__PURE__ */ new Map();
-    const availableTools = this.isLoopbackProvider() ? tools.filter((tool) => LOCAL_FILE_TOOLS.has(tool.name)) : tools;
+    const availableTools = tools;
+    const providerNames = providerToolNames(availableTools);
     const aliasedTools = availableTools.map((tool, index) => {
       const alias = `forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-      providerNames.set(alias, tool.name);
       return { alias, tool };
     });
     if (this.usesResponsesForTools(selectedModel)) {
@@ -3478,13 +3493,22 @@ class OpenAIProvider {
       parallel_tool_calls: false,
       max_completion_tokens: 1e4
     };
-    let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
-    if (!response.ok) {
+    let compatibleRequest = request;
+    let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(compatibleRequest) });
+    for (let attempt = 0; !response.ok && response.status === 400 && attempt < 2; attempt += 1) {
       const errorText = await response.clone().text();
-      if (response.status === 400 && /max_completion_tokens|unknown parameter|unsupported parameter/i.test(errorText)) {
-        const { max_completion_tokens: _ignored, ...compatibleRequest } = request;
-        response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...compatibleRequest, max_tokens: 1600 }) });
+      const next = { ...compatibleRequest };
+      if (/parallel_tool_calls/i.test(errorText) && "parallel_tool_calls" in next) {
+        delete next.parallel_tool_calls;
+      } else if (/max_completion_tokens|unknown parameter|unsupported parameter/i.test(errorText) && "max_completion_tokens" in next) {
+        const limit = next.max_completion_tokens;
+        delete next.max_completion_tokens;
+        next.max_tokens = limit;
+      } else {
+        break;
       }
+      compatibleRequest = next;
+      response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(compatibleRequest) });
     }
     if (!response.ok) throw await this.providerError(response, `AI request failed for model "${selectedModel}"`);
     const data = await response.json();
@@ -6025,7 +6049,12 @@ function safeMetadataAssetUrl(rawUrl, owner, repo, tagName, assetName) {
     return null;
   }
 }
-function selectCompatibleRelease(releases, currentVersion, channel, repository) {
+function metadataAssetName(channel, platform2) {
+  if (platform2 === "darwin") return `${channel}-mac.yml`;
+  if (platform2 === "linux") return `${channel}-linux.yml`;
+  return `${channel}.yml`;
+}
+function selectCompatibleRelease(releases, currentVersion, channel, repository, platform2 = "darwin") {
   if (!semverExports$1.valid(currentVersion)) return null;
   const candidates = [];
   for (const release2 of releases) {
@@ -6034,7 +6063,7 @@ function selectCompatibleRelease(releases, currentVersion, channel, repository) 
     if (!version || !semverExports$1.gt(version, currentVersion) || !isCompatibleVersion(version, release2.prerelease, channel)) continue;
     const isPrerelease = semverExports$1.prerelease(version) !== null;
     const feedChannel = isPrerelease ? "beta" : "latest";
-    const assetName = `${feedChannel}-mac.yml`;
+    const assetName = metadataAssetName(feedChannel, platform2);
     const asset = release2.assets.find((entry) => entry.name === assetName);
     const assetUrl = asset ? safeMetadataAssetUrl(asset.browser_download_url, repository.owner, repository.repo, release2.tag_name, assetName) : null;
     if (!assetUrl) continue;
@@ -6055,10 +6084,12 @@ class GitHubReleaseDiscovery {
   timeoutMs;
   maxResponseBytes;
   request;
+  platform;
   constructor(options) {
     if (!/^[A-Za-z0-9_.-]+$/.test(options.owner) || !/^[A-Za-z0-9_.-]+$/.test(options.repo)) throw new Error("Invalid GitHub repository coordinates.");
     this.owner = options.owner;
     this.repo = options.repo;
+    this.platform = options.platform ?? (process.platform === "win32" ? "win32" : process.platform === "linux" ? "linux" : "darwin");
     this.timeoutMs = options.timeoutMs ?? 1e4;
     this.maxResponseBytes = options.maxResponseBytes ?? 1e6;
     this.request = options.fetch ?? ((url, init) => fetch$1(url, init));
@@ -6092,7 +6123,7 @@ class GitHubReleaseDiscovery {
         throw new Error("GitHub release discovery returned malformed JSON.");
       }
       const releases = githubReleasesSchema.parse(payload);
-      return selectCompatibleRelease(releases, currentVersion, channel, { owner: this.owner, repo: this.repo });
+      return selectCompatibleRelease(releases, currentVersion, channel, { owner: this.owner, repo: this.repo }, this.platform);
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
@@ -6101,7 +6132,7 @@ class GitHubReleaseDiscovery {
 }
 const { autoUpdater } = electronUpdater;
 const releasesUrl = "https://github.com/kaeganscott26/FORGE/releases";
-const releaseDiscovery = new GitHubReleaseDiscovery({ owner: "kaeganscott26", repo: "FORGE" });
+const releaseDiscovery = new GitHubReleaseDiscovery({ owner: "kaeganscott26", repo: "FORGE", platform: process.platform === "win32" ? "win32" : process.platform === "linux" ? "linux" : "darwin" });
 class UpdaterService {
   constructor(discovery = releaseDiscovery) {
     this.discovery = discovery;
@@ -8667,6 +8698,16 @@ class TaskRuntime {
     }
     return this.reconcile(taskId, await this.realitySnapshot(taskId));
   }
+  async recordApproval(taskId, stepId, toolRequestId, toolName, decision) {
+    await this.dependencies.storage.recordTaskApproval(taskId, stepId, {
+      toolRequestId,
+      decision,
+      scope: `${taskId}:${stepId}:${toolName}`,
+      decidedAt: decision === "pending" ? void 0 : this.now(),
+      expiresAt: decision === "session" ? this.now() + 30 * 6e4 : void 0,
+      auditReference: decision === "pending" ? void 0 : toolRequestId
+    });
+  }
   async startBackground(taskId, stepId, input, toolRequestId) {
     if (!this.dependencies.shell) throw new Error("Background shell runtime is unavailable.");
     const task = await this.get(taskId);
@@ -8780,6 +8821,24 @@ function directTaskLink(input) {
 function taskEvidenceLink(request) {
   return nestedTaskLink(request.input) ?? (request.toolName === "task.process.start" ? directTaskLink(request.input) : null);
 }
+function taskApprovalLink(request) {
+  return taskEvidenceLink(request) ?? (request.toolName === "task.checkpoint" ? directTaskLink(request.input) : null);
+}
+async function reconcileTaskContext(call, workspaceId, getTask) {
+  const input = call.arguments;
+  if (!input || typeof input !== "object" || Array.isArray(input) || !Object.prototype.hasOwnProperty.call(input, "taskContext")) return call;
+  const record = input;
+  const link = nestedTaskLink(record);
+  if (link) {
+    try {
+      const task = await getTask(link.taskId);
+      if (task.workspaceId === workspaceId && task.steps.some((step) => step.id === link.stepId)) return call;
+    } catch {
+    }
+  }
+  const { taskContext: _discarded, ...argumentsWithoutTaskContext } = record;
+  return { ...call, arguments: argumentsWithoutTaskContext };
+}
 function createNativeAgentRuntime(dependencies) {
   const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2 } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 6e4, 6e4), 60 * 6e4);
@@ -8792,6 +8851,14 @@ function createNativeAgentRuntime(dependencies) {
       return null;
     } catch (error) {
       return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  };
+  const recordTaskApproval = async (request, decision) => {
+    const link = taskApprovalLink(request);
+    if (!link) return;
+    try {
+      await taskRuntime2.recordApproval(link.taskId, link.stepId, request.id, request.toolName, decision);
+    } catch {
     }
   };
   const runAgentTurn = async (conversationId, prompt) => {
@@ -8838,13 +8905,15 @@ ${evidence2}`, continuationHistory)).content;
         }
         const round = [];
         for (const call of fresh) {
-          await emitRuntimeEvent2?.("tool.requested", { toolName: call.name, conversationId: state.activeConversationId });
-          const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel });
+          const reconciledCall = await reconcileTaskContext(call, project.id, (taskId) => taskRuntime2.get(taskId));
+          await emitRuntimeEvent2?.("tool.requested", { toolName: reconciledCall.name, conversationId: state.activeConversationId });
+          const outcome = await toolRouter2.request(reconciledCall, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel });
           round.push(outcome);
           outcomes.push(outcome);
-          loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-          await emitRuntimeEvent2?.("tool.completed", { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
+          loopGuard.record(reconciledCall, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+          await emitRuntimeEvent2?.("tool.completed", { toolName: reconciledCall.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
           if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+          else await recordTaskApproval(outcome.request, "pending");
         }
         const pending = round.find((outcome) => !outcome.result);
         if (pending) {
@@ -8885,7 +8954,7 @@ ${evidence}${checkpointWarning ? `
 
 ${checkpointWarning}` : ""}`);
   };
-  return { runAgentTurn, runTaskStep, continueAfterApproval };
+  return { runAgentTurn, runTaskStep, continueAfterApproval, recordTaskApproval };
 }
 const execFileAsync = promisify(execFile);
 const FIELD_CODE = /^%[fFuUdDnNickvm]$/;
@@ -9060,8 +9129,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "19fb3ad1222557a3ea2d7b3763338e116680c60f",
-    buildDate: "2026-08-18T09:14:35.290Z",
+    commit: "10f78c5f42648a762dbc0a89b4b53cc1a36b804d",
+    buildDate: "2026-08-22T02:41:26.302Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9351,7 +9420,7 @@ function registerHandlers() {
     const project = await storage.dashboard();
     const all = (nodes) => nodes.flatMap((node) => [node, ...node.children ? all(node.children) : []]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { score: project ? files.some((file) => /^readme\.md$/i.test(file.name)) ? 65 : 35 : 0, hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
+    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
@@ -9421,11 +9490,16 @@ function registerHandlers() {
   register(IPC_CHANNELS.toolRequestApprove, async (request) => {
     const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
     const approved = toolRouter.requestById(request.requestId);
-    if (approved) void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent("agent.blocked", { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
+    if (approved) {
+      await nativeAgent.recordTaskApproval(approved, request.choice);
+      void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent("agent.blocked", { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
+    }
     return result;
   });
   register(IPC_CHANNELS.toolRequestReject, async (request) => {
+    const rejected = toolRouter.requestById(request.requestId);
     await toolRouter.reject(request.requestId, await toolContext());
+    if (rejected) await nativeAgent.recordTaskApproval(rejected, "rejected");
     return void 0;
   });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));

@@ -5,7 +5,6 @@ export interface OpenAIModelValidation { model: string; exists: boolean; availab
 
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const LOCAL_FILE_TOOLS = new Set(['file.list', 'file.read', 'file.search', 'file.create', 'file.write', 'file.patch', 'file.rename', 'file.move', 'directory.create']);
 
 interface ProviderErrorBody { error?: { message?: string; code?: string; param?: string }; message?: string; }
 
@@ -35,6 +34,25 @@ function responsesCompatibleSchema(value: unknown): unknown {
     delete schema.maximum;
   }
   return schema;
+}
+
+function legacyToolAlias(name: string): string {
+  return `forge_${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+function providerToolNames(tools: AgentToolDescriptor[]): Map<string, string> {
+  const names = new Map<string, string>();
+  const legacyCandidates = new Map<string, string[]>();
+  tools.forEach((tool, index) => {
+    names.set(`forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`, tool.name);
+    names.set(tool.name, tool.name);
+    const legacy = legacyToolAlias(tool.name);
+    legacyCandidates.set(legacy, [...(legacyCandidates.get(legacy) ?? []), tool.name]);
+  });
+  for (const [alias, candidates] of legacyCandidates) {
+    if (candidates.length === 1) names.set(alias, candidates[0]);
+  }
+  return names;
 }
 
 export class OpenAIProvider {
@@ -117,11 +135,10 @@ export class OpenAIProvider {
 
   async chatWithTools(messages: ChatMessage[], tools: AgentToolDescriptor[], model = this.model): Promise<AgentProviderResponse> {
     const selectedModel = this.normalizeModel(model);
-    const providerNames = new Map<string, string>();
-    const availableTools = this.isLoopbackProvider() ? tools.filter((tool) => LOCAL_FILE_TOOLS.has(tool.name)) : tools;
+    const availableTools = tools;
+    const providerNames = providerToolNames(availableTools);
     const aliasedTools = availableTools.map((tool, index) => {
       const alias = `forge_${index}_${tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      providerNames.set(alias, tool.name);
       return { alias, tool };
     });
     if (this.usesResponsesForTools(selectedModel)) {
@@ -142,13 +159,22 @@ export class OpenAIProvider {
       parallel_tool_calls: false,
       max_completion_tokens: 10000,
     };
-    let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
-    if (!response.ok) {
+    let compatibleRequest: Record<string, unknown> = request;
+    let response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(compatibleRequest) });
+    for (let attempt = 0; !response.ok && response.status === 400 && attempt < 2; attempt += 1) {
       const errorText = await response.clone().text();
-      if (response.status === 400 && /max_completion_tokens|unknown parameter|unsupported parameter/i.test(errorText)) {
-        const { max_completion_tokens: _ignored, ...compatibleRequest } = request;
-        response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...compatibleRequest, max_tokens: 1_600 }) });
+      const next = { ...compatibleRequest };
+      if (/parallel_tool_calls/i.test(errorText) && 'parallel_tool_calls' in next) {
+        delete next.parallel_tool_calls;
+      } else if (/max_completion_tokens|unknown parameter|unsupported parameter/i.test(errorText) && 'max_completion_tokens' in next) {
+        const limit = next.max_completion_tokens;
+        delete next.max_completion_tokens;
+        next.max_tokens = limit;
+      } else {
+        break;
       }
+      compatibleRequest = next;
+      response = await this.authorizedFetch(`${this.baseUrl}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(compatibleRequest) });
     }
     if (!response.ok) throw await this.providerError(response, `AI request failed for model "${selectedModel}"`);
     const data = await response.json() as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown[] } }> };

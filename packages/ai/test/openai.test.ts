@@ -122,11 +122,11 @@ describe('OpenAIProvider models', () => {
     const provider = new OpenAIProvider({ baseUrl: 'http://localhost:11434/v1', model: 'local-model' });
     const result = await provider.chatWithTools([{ role: 'user', content: 'read' }], [{ name: 'file.read', description: 'Read', parameters: { type: 'object' } }]);
     expect(bodies[0].max_completion_tokens).toBe(10_000);
-    expect(bodies[1].max_tokens).toBe(1_600);
+    expect(bodies[1].max_tokens).toBe(10_000);
     expect(result.toolCalls[0]?.name).toBe('file.read');
   });
 
-  it('limits loopback models to basic file tools so small models are not flooded by the full catalog', async () => {
+  it('offers loopback models every capability made available by the FORGE registry', async () => {
     let body: any;
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
       body = JSON.parse(String(init.body));
@@ -139,7 +139,34 @@ describe('OpenAIProvider models', () => {
       { name: 'git.commit', description: 'Commit', parameters: { type: 'object' } },
       { name: 'shell.run', description: 'Shell', parameters: { type: 'object' } }
     ]);
-    expect(body.tools.map((tool: any) => tool.function.name)).toEqual(['forge_0_file_read', 'forge_1_file_write']);
+    expect(body.tools.map((tool: any) => tool.function.name)).toEqual(['forge_0_file_read', 'forge_1_file_write', 'forge_2_git_commit', 'forge_3_shell_run']);
+  });
+
+  it('restores unambiguous legacy Ollama aliases without allowing unoffered tools', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '', tool_calls: [{ id: 'local-legacy', function: { name: 'forge_git_status', arguments: '{}' } }] } }] }), { status: 200 })));
+    const provider = new OpenAIProvider({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'local-model' });
+    const result = await provider.chatWithTools([{ role: 'user', content: 'status' }], [{ name: 'git.status', description: 'Status', parameters: { type: 'object' } }]);
+    expect(result.toolCalls).toEqual([{ id: 'local-legacy', name: 'git.status', arguments: {}, provider: 'openai' }]);
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"name":"forge_shell_run","parameters":{"command":"echo"}}' } }] }), { status: 200 })));
+    const rejected = await provider.chatWithTools([{ role: 'user', content: 'run' }], [{ name: 'git.status', description: 'Status', parameters: { type: 'object' } }]);
+    expect(rejected.toolCalls).toEqual([]);
+  });
+
+  it('removes only rejected compatible-provider fields and preserves the tool output limit', async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      if (bodies.length === 1) return new Response(JSON.stringify({ error: { message: 'unsupported parameter parallel_tool_calls' } }), { status: 400 });
+      if (bodies.length === 2) return new Response(JSON.stringify({ error: { message: 'unknown parameter max_completion_tokens' } }), { status: 400 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    }));
+    const provider = new OpenAIProvider({ baseUrl: 'http://localhost:11434/v1', model: 'local-model' });
+    await provider.chatWithTools([{ role: 'user', content: 'inspect' }], [{ name: 'git.status', description: 'Status', parameters: { type: 'object' } }]);
+    expect(bodies[1].parallel_tool_calls).toBeUndefined();
+    expect(bodies[1].max_completion_tokens).toBe(10_000);
+    expect(bodies[2].max_completion_tokens).toBeUndefined();
+    expect(bodies[2].max_tokens).toBe(10_000);
   });
 
   it('promotes strict plain JSON only when it names an offered local tool', async () => {
@@ -149,6 +176,10 @@ describe('OpenAIProvider models', () => {
     const result = await provider.chatWithTools([{ role: 'user', content: 'read' }], offered);
     expect(result.content).toBe('');
     expect(result.toolCalls[0]).toMatchObject({ name: 'file.read', arguments: { path: 'draft.txt' } });
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"name":"forge_file_read","parameters":{"path":"legacy.txt"}}' } }] }), { status: 200 })));
+    const legacy = await provider.chatWithTools([{ role: 'user', content: 'read' }], offered);
+    expect(legacy.toolCalls[0]).toMatchObject({ name: 'file.read', arguments: { path: 'legacy.txt' } });
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"name":"git.commit","parameters":{"message":"no"}}' } }] }), { status: 200 })));
     const rejected = await provider.chatWithTools([{ role: 'user', content: 'commit' }], offered);

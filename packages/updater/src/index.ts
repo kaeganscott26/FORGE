@@ -3,6 +3,7 @@ import { fetch } from 'undici';
 import { z } from 'zod';
 
 export type LogicalUpdateChannel = 'stable' | 'beta';
+export type UpdatePlatform = 'darwin' | 'win32' | 'linux';
 
 const supportedBetaIdentifiers = new Set(['beta', 'rc']);
 const githubAssetSchema = z.object({
@@ -41,6 +42,7 @@ export type ReleaseDiscoveryFetch = (url: string, init: { headers: Record<string
 export interface GitHubReleaseDiscoveryOptions {
   owner: string;
   repo: string;
+  platform?: UpdatePlatform;
   timeoutMs?: number;
   maxResponseBytes?: number;
   fetch?: ReleaseDiscoveryFetch;
@@ -64,11 +66,18 @@ function safeMetadataAssetUrl(rawUrl: string, owner: string, repo: string, tagNa
   }
 }
 
+function metadataAssetName(channel: 'latest' | 'beta', platform: UpdatePlatform): string {
+  if (platform === 'darwin') return `${channel}-mac.yml`;
+  if (platform === 'linux') return `${channel}-linux.yml`;
+  return `${channel}.yml`;
+}
+
 export function selectCompatibleRelease(
   releases: GitHubRelease[],
   currentVersion: string,
   channel: LogicalUpdateChannel,
-  repository: { owner: string; repo: string }
+  repository: { owner: string; repo: string },
+  platform: UpdatePlatform = 'darwin'
 ): DiscoveredUpdateRelease | null {
   if (!valid(currentVersion)) return null;
   const candidates: DiscoveredUpdateRelease[] = [];
@@ -78,7 +87,7 @@ export function selectCompatibleRelease(
     if (!version || !gt(version, currentVersion) || !isCompatibleVersion(version, release.prerelease, channel)) continue;
     const isPrerelease = prerelease(version) !== null;
     const feedChannel = isPrerelease ? 'beta' : 'latest';
-    const assetName = `${feedChannel}-mac.yml`;
+    const assetName = metadataAssetName(feedChannel, platform);
     const asset = release.assets.find((entry) => entry.name === assetName);
     const assetUrl = asset ? safeMetadataAssetUrl(asset.browser_download_url, repository.owner, repository.repo, release.tag_name, assetName) : null;
     if (!assetUrl) continue;
@@ -100,11 +109,13 @@ export class GitHubReleaseDiscovery {
   private readonly timeoutMs: number;
   private readonly maxResponseBytes: number;
   private readonly request: ReleaseDiscoveryFetch;
+  private readonly platform: UpdatePlatform;
 
   constructor(options: GitHubReleaseDiscoveryOptions) {
     if (!/^[A-Za-z0-9_.-]+$/.test(options.owner) || !/^[A-Za-z0-9_.-]+$/.test(options.repo)) throw new Error('Invalid GitHub repository coordinates.');
     this.owner = options.owner;
     this.repo = options.repo;
+    this.platform = options.platform ?? (process.platform === 'win32' ? 'win32' : process.platform === 'linux' ? 'linux' : 'darwin');
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.maxResponseBytes = options.maxResponseBytes ?? 1_000_000;
     this.request = options.fetch ?? ((url, init) => fetch(url, init) as Promise<DiscoveryResponse>);
@@ -136,7 +147,7 @@ export class GitHubReleaseDiscovery {
       try { payload = JSON.parse(new TextDecoder().decode(bytes)); }
       catch { throw new Error('GitHub release discovery returned malformed JSON.'); }
       const releases = githubReleasesSchema.parse(payload);
-      return selectCompatibleRelease(releases, currentVersion, channel, { owner: this.owner, repo: this.repo });
+      return selectCompatibleRelease(releases, currentVersion, channel, { owner: this.owner, repo: this.repo }, this.platform);
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abort);

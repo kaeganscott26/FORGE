@@ -2,12 +2,13 @@ import type { AgentMessage } from '@forge/ai';
 import type { ToolRequestOutcome } from '@forge/agent-tools';
 import { boundedToolEvidence, parseStructuredToolFallback } from '@forge/agent-tools';
 import { ProgressAwareLoopGuard } from './agent-continuation';
-import { taskEvidenceLink } from './task-links';
+import { reconcileTaskContext, taskApprovalLink, taskEvidenceLink } from './task-links';
 
 export interface NativeAgentRuntime {
   runAgentTurn(conversationId: string | undefined, prompt: string): Promise<any>;
   runTaskStep(taskId: string): Promise<any>;
   continueAfterApproval(request: any, result: any): Promise<void>;
+  recordTaskApproval(request: any, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void>;
 }
 
 /** Native chat is one optional consumer of FORGE workspace intelligence and tool runtime. */
@@ -20,6 +21,12 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     if (!link) return null;
     try { await taskRuntime.recordToolOutcome(link.taskId, link.stepId, request.id, result); return null; }
     catch (error) { return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`; }
+  };
+  const recordTaskApproval = async (request: any, decision: 'pending' | 'run-once' | 'session' | 'rejected'): Promise<void> => {
+    const link = taskApprovalLink(request);
+    if (!link) return;
+    try { await taskRuntime.recordApproval(link.taskId, link.stepId, request.id, request.toolName, decision); }
+    catch { /* Approval projection must not turn stale task metadata into execution authority or abort a valid tool lifecycle. */ }
   };
   const runAgentTurn = async (conversationId: string | undefined, prompt: string) => {
     await emitRuntimeEvent?.('agent.started', { conversationId });
@@ -58,12 +65,14 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const round: ToolRequestOutcome[] = [];
       for (const call of fresh) {
-        await emitRuntimeEvent?.('tool.requested', { toolName: call.name, conversationId: state.activeConversationId });
-        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
+        const reconciledCall = await reconcileTaskContext(call, project.id, (taskId) => taskRuntime.get(taskId));
+        await emitRuntimeEvent?.('tool.requested', { toolName: reconciledCall.name, conversationId: state.activeConversationId });
+        const outcome = await toolRouter.request(reconciledCall, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel });
         round.push(outcome); outcomes.push(outcome);
-        loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-        await emitRuntimeEvent?.('tool.completed', { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
+        loopGuard.record(reconciledCall, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+        await emitRuntimeEvent?.('tool.completed', { toolName: reconciledCall.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
         if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+        else await recordTaskApproval(outcome.request, 'pending');
       }
       const pending = round.find((outcome) => !outcome.result);
       if (pending) {
@@ -100,5 +109,5 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     await runAgentTurn(request.conversationId, `An explicitly approved FORGE tool request has completed. Continue the original work from the persisted workspace and task state. Do not repeat this call unless the workspace has changed.\n\n${evidence}${checkpointWarning ? `\n\n${checkpointWarning}` : ''}`);
   };
 
-  return { runAgentTurn, runTaskStep, continueAfterApproval };
+  return { runAgentTurn, runTaskStep, continueAfterApproval, recordTaskApproval };
 }

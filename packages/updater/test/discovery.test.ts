@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GitHubReleaseDiscovery, selectCompatibleRelease, type GitHubRelease, type LogicalUpdateChannel, type ReleaseDiscoveryFetch } from '../src';
+import { GitHubReleaseDiscovery, selectCompatibleRelease, type GitHubRelease, type LogicalUpdateChannel, type ReleaseDiscoveryFetch, type UpdatePlatform } from '../src';
 
 const publishedAt = '2026-08-06T12:00:00.000Z';
-const release = (version: string, options: { draft?: boolean; prerelease?: boolean; published?: boolean; asset?: boolean; assetUrl?: string } = {}): GitHubRelease => {
+const release = (version: string, options: { draft?: boolean; prerelease?: boolean; published?: boolean; asset?: boolean; assetUrl?: string; platform?: UpdatePlatform } = {}): GitHubRelease => {
   const prerelease = options.prerelease ?? version.includes('-');
   const channel = prerelease ? 'beta' : 'latest';
+  const platform = options.platform ?? 'darwin';
+  const assetName = platform === 'darwin' ? `${channel}-mac.yml` : platform === 'linux' ? `${channel}-linux.yml` : `${channel}.yml`;
   return {
     draft: options.draft ?? false,
     prerelease,
     tag_name: `v${version}`,
     published_at: options.published === false ? null : publishedAt,
     assets: options.asset === false ? [] : [{
-      name: `${channel}-mac.yml`,
-      browser_download_url: options.assetUrl ?? `https://github.com/kaeganscott26/FORGE/releases/download/v${version}/${channel}-mac.yml`
+      name: assetName,
+      browser_download_url: options.assetUrl ?? `https://github.com/kaeganscott26/FORGE/releases/download/v${version}/${assetName}`
     }]
   };
 };
@@ -50,6 +52,14 @@ describe('GitHub release discovery policy', () => {
 
   it('selects the highest compatible release regardless of API ordering', () => {
     expect(select('1.1.0-alpha.3', 'beta', [release('1.1.0-beta.1'), release('1.1.0-rc.1'), release('1.1.0-beta.2')])?.version).toBe('1.1.0-rc.1');
+  });
+
+  it('selects only updater metadata for the running desktop platform', () => {
+    const windows = release('1.2.0-beta.1', { platform: 'win32' });
+    const linux = release('1.2.0-beta.1', { platform: 'linux' });
+    expect(selectCompatibleRelease([windows], '1.1.0', 'beta', { owner: 'kaeganscott26', repo: 'FORGE' }, 'win32')?.metadataAssetUrl).toMatch(/beta\.yml$/);
+    expect(selectCompatibleRelease([linux], '1.1.0', 'beta', { owner: 'kaeganscott26', repo: 'FORGE' }, 'linux')?.metadataAssetUrl).toMatch(/beta-linux\.yml$/);
+    expect(selectCompatibleRelease([windows], '1.1.0', 'beta', { owner: 'kaeganscott26', repo: 'FORGE' }, 'darwin')).toBeNull();
   });
 
   it('bounds and validates the GitHub API response before selection', async () => {

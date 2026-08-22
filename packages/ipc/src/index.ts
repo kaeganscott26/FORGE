@@ -57,7 +57,7 @@ export interface TaskDraft { title: string; description?: string; taskType: stri
 export interface TaskRealitySnapshot { observedAt: number; workspaceId: string; git?: { branch?: string; commitSha?: string; workingTreeClean?: boolean }; processes: Array<{ pid: number; state: 'running' | 'exited' | 'missing'; exitCode?: number | null }>; stepObservations: Array<{ stepId: string; state: 'running' | 'waiting' | 'completed' | 'failed'; verified: boolean; summary: string; evidence?: unknown; error?: TaskStep['lastError']; auditReference?: string }>; }
 export interface TaskHandoff { taskId: string; relativePath: string; markdown: string; generatedAt: number; }
 export interface ProjectMetadata { id: string; name: string; rootPath: string; createdAt: number; updatedAt: number; goals: Goal[]; tasks: Task[]; }
-export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: { score: number; hasReadme: boolean; noteCount: number; codeFileCount: number }; }
+export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: { hasReadme: boolean; noteCount: number; codeFileCount: number }; }
 
 export interface AppUpdateStatus {
   currentVersion: string;

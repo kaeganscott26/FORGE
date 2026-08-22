@@ -323,7 +323,7 @@ function registerHandlers(): void {
     const project = await storage.dashboard();
     const all = (nodes: any[]): any[] => nodes.flatMap((node) => [node, ...(node.children ? all(node.children) : [])]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { score: project ? (files.some((file) => /^readme\.md$/i.test(file.name)) ? 65 : 35) : 0, hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
+    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaTaskCreate, async (request) => storage.createTask(request.title, request.description, request.priority));
@@ -367,10 +367,13 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.toolRequestApprove, async (request) => {
     const result = await toolRouter.approve(request.requestId, await toolContext(), request.choice);
     const approved = toolRouter.requestById(request.requestId);
-    if (approved) void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent('agent.blocked', { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
+    if (approved) {
+      await nativeAgent.recordTaskApproval(approved, request.choice);
+      void nativeAgent.continueAfterApproval(approved, result).catch(async (error) => emitRuntimeEvent('agent.blocked', { requestId: approved.id, message: error instanceof Error ? error.message : String(error) }));
+    }
     return result;
   });
-  register(IPC_CHANNELS.toolRequestReject, async (request) => { await toolRouter.reject(request.requestId, await toolContext()); return undefined; });
+  register(IPC_CHANNELS.toolRequestReject, async (request) => { const rejected = toolRouter.requestById(request.requestId); await toolRouter.reject(request.requestId, await toolContext()); if (rejected) await nativeAgent.recordTaskApproval(rejected, 'rejected'); return undefined; });
   register(IPC_CHANNELS.toolRequestCancel, async (request) => toolRouter.cancel(request.requestId, await toolContext()));
   register(IPC_CHANNELS.toolActionsList, async (request) => storage.listActions(request));
   register(IPC_CHANNELS.editorDirtyUpdate, async (request) => { dirtyEditorPaths.clear(); for (const value of request.paths) if (value && !value.split(/[\\/]/).includes('..')) dirtyEditorPaths.add(value); return undefined; });
