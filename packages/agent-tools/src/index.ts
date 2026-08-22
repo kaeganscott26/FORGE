@@ -11,8 +11,8 @@ export type { ProviderToolCall, ToolRequest, ToolResult } from '@forge/tool-poli
 
 const MAX_TEXT_BYTES = 2_000_000;
 const MAX_RANGED_TEXT_BYTES = 64_000_000;
-const MAX_SEARCH_RESULTS = 200;
-const MAX_LIST_ENTRIES = 1_000;
+const MAX_SEARCH_RESULTS = 20000;
+const MAX_LIST_ENTRIES = 10_000;
 const SKIPPED_WORKSPACE_NAMES = new Set(['.git', '.forge', '.obsidian', 'node_modules', 'dist_electron', 'out']);
 const SKIPPED_WORKSPACE_PATHS = [/(?:^|[/])\.local[/]share[/]containers(?:[/]|$)/i, /(?:^|[/])\.cache(?:[/]|$)/i];
 const textOutput = z.object({ success: z.boolean() }).passthrough();
@@ -139,7 +139,7 @@ const definition = <I, O>(value: Omit<ToolDefinition<I, O>, 'sessionScope'> & Pa
 export function createToolRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
   const base = { outputSchema: textOutput, cancellable: true };
-  const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200) }).optional() };
+  const taskContext = { taskContext: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(20000) }).optional() };
   registry.register(definition({ ...base, name: 'file.list', purpose: 'Discover workspace files from the root first; use a nested path only after it has been observed. Continue with the returned offset when truncated.', inputSchema: z.object({ path: z.string().max(4_096).default('.'), recursive: z.boolean().default(false), maxDepth: z.number().int().min(0).max(20).default(2), maxEntries: z.number().int().min(1).max(MAX_LIST_ENTRIES).default(500), offset: z.number().int().min(0).max(1_000_000).default(0) }), sideEffect: 'read', approval: 'automatic', workspaceBoundary: 'required', timeoutMs: 10_000, audit: { category: 'filesystem', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path ?? '.', describeEffect: () => 'Read a bounded workspace directory listing, beginning at the workspace root by default.' }));
   registry.register(definition({ ...base, name: 'file.read', purpose: 'Read a bounded range of a supported workspace text file. Use file.readBinary for binary content.', inputSchema: z.object({ path: relativePath, startLine: z.number().int().min(1).optional(), endLine: z.number().int().min(1).optional(), offset: z.number().int().min(0).max(MAX_RANGED_TEXT_BYTES).optional(), maxCharacters: z.number().int().min(1).max(200_000).default(12_000), ...taskContext }).refine((input) => input.endLine === undefined || input.startLine === undefined || input.endLine >= input.startLine, 'endLine must not precede startLine.').refine((input) => input.offset === undefined || (input.startLine === undefined && input.endLine === undefined), 'offset cannot be combined with line ranges.'), sideEffect: 'read', approval: 'automatic', workspaceBoundary: 'required', timeoutMs: 10_000, audit: { category: 'filesystem', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => 'Read bounded text without changing the workspace.' }));
   registry.register(definition({ ...base, name: 'file.read.binary', purpose: 'Read bounded binary content as base64 together with file metadata.', inputSchema: z.object({ path: relativePath, maxBytes: z.number().int().min(1).max(25_000_000).default(2_000_000), ...taskContext }), sideEffect: 'read', approval: 'automatic', workspaceBoundary: 'required', timeoutMs: 20_000, audit: { category: 'filesystem', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.path, describeEffect: () => 'Read binary bytes as bounded base64 without changing the workspace.' }));
