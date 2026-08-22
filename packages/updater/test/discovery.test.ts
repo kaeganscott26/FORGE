@@ -70,7 +70,7 @@ describe('GitHub release discovery policy', () => {
       headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : String(Buffer.byteLength(payload)) },
       arrayBuffer: async () => new TextEncoder().encode(payload).buffer
     }));
-    const discovery = new GitHubReleaseDiscovery({ owner: 'kaeganscott26', repo: 'FORGE', fetch: request });
+    const discovery = new GitHubReleaseDiscovery({ owner: 'kaeganscott26', repo: 'FORGE', platform: 'darwin', fetch: request });
     await expect(discovery.discover('1.1.0-alpha.3', 'beta')).resolves.toMatchObject({ version: '1.1.0-beta.1', feedChannel: 'beta' });
     expect(request).toHaveBeenCalledWith('https://api.github.com/repos/kaeganscott26/FORGE/releases?per_page=50', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(request.mock.calls[0]?.[1].headers).not.toHaveProperty('Authorization');
