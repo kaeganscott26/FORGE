@@ -20,6 +20,22 @@ $ObsidianStashed = $false
 $Succeeded = $false
 $InstalledRoot = $null
 
+function Get-Sha256([string]$Path) {
+    $Hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $Stream = [System.IO.File]::OpenRead($Path)
+        try {
+            return ([System.BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace("-", "")
+        }
+        finally {
+            $Stream.Dispose()
+        }
+    }
+    finally {
+        $Hasher.Dispose()
+    }
+}
+
 try {
     $ObsidianChanges = @(git status --porcelain -- ".obsidian")
     if ($ObsidianChanges.Count -gt 0) {
@@ -53,7 +69,7 @@ try {
     $InstalledRoot = $InstalledRoots | Where-Object { Test-Path -LiteralPath (Join-Path $_ "resources\app.asar") } | Select-Object -First 1
     if (-not $InstalledRoot) { throw "The installed FORGE runtime could not be found after the installer completed." }
     $InstalledAsar = Join-Path $InstalledRoot "resources\app.asar"
-    if ((Get-FileHash -Algorithm SHA256 $PackagedAsar).Hash -ne (Get-FileHash -Algorithm SHA256 $InstalledAsar).Hash) {
+    if ((Get-Sha256 $PackagedAsar) -ne (Get-Sha256 $InstalledAsar)) {
         throw "The installed Windows app.asar does not match the verified package."
     }
 
