@@ -188,7 +188,7 @@ export function createToolRegistry(): ToolRegistry {
   for (const name of ['task.resume', 'task.pause', 'task.cancel'] as const) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), sideEffect: 'workspace-write', approval: 'session', workspaceBoundary: 'required', timeoutMs: 20_000, audit: { category: 'memory', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.` }));
   registry.register(definition({ ...base, name: 'task.checkpoint', purpose: 'Record a task checkpoint; verified checkpoints require an audit reference.', inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4_000), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), sideEffect: 'workspace-write', approval: 'session', workspaceBoundary: 'required', timeoutMs: 10_000, audit: { category: 'memory', recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => 'Persist a structured checkpoint without executing another tool.' }));
   registry.register(definition({ ...base, name: 'task.handoff', purpose: 'Generate a Markdown projection of authoritative SQLite task state.', inputSchema: z.object({ taskId: z.string().uuid(), reason }), sideEffect: 'workspace-write', approval: 'session', workspaceBoundary: 'required', timeoutMs: 10_000, audit: { category: 'memory', recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => 'Atomically write or update a human-readable task handoff.' }));
-  registry.register(definition({ ...base, name: 'task.process.start', purpose: 'Start one approved task step as a detached workspace-owned process with file-backed output.', inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4_096), args: z.array(z.string().max(32_000)).max(500).default([]), workingDirectory: z.string().max(4_096).default('.'), timeoutMs: z.number().int().min(100).max(86_400_000).default(600_000), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(['offline', 'network', 'package-manager', 'git']).default('offline'), reason, expectedOutcome: z.string().min(1).max(2_000) }), sideEffect: 'process', approval: 'explicit', workspaceBoundary: 'required', timeoutMs: 30_000, audit: { category: 'shell', recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...(input.args ?? [])].map(quoteArgument).join(' ')}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
+  registry.register(definition({ ...base, name: 'task.process.start', purpose: 'Start one approved task step as a detached workspace-owned process with file-backed output.', inputSchema: z.object({ command: z.string().min(1).max(4_096), args: z.array(z.string().max(32_000)).max(500).default([]), workingDirectory: z.string().max(4_096).default('.'), timeoutMs: z.number().int().min(100).max(86_400_000).default(600_000), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(['offline', 'network', 'package-manager', 'git']).default('offline'), reason, expectedOutcome: z.string().min(1).max(2_000) }), sideEffect: 'process', approval: 'explicit', workspaceBoundary: 'required', timeoutMs: 30_000, audit: { category: 'shell', recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...(input.args ?? [])].map(quoteArgument).join(' '), describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
   return registry;
 }
 
@@ -205,7 +205,7 @@ export function boundedToolEvidence(result: ToolResult, limit = 12_000): string 
   return text.length > limit ? `${text.slice(0, limit)}\n[FORGE bounded the remaining tool output]` : text;
 }
 
-const INTERNAL_PROVIDER_ARGUMENTS = new Set(['reason', 'taskContext']);
+const INTERNAL_PROVIDER_ARGUMENTS = new Set(['reason', 'taskContext', 'originatingConversationId']);
 
 /** Remove runtime-owned bookkeeping from every nested provider schema branch. */
 export function modelVisibleToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
@@ -236,10 +236,10 @@ function inferExecutionReason(definition: ToolDefinition<any, any>, context: Too
     : definition.purpose.slice(0, 2_000);
 }
 
-function enrichRuntimeArguments(argumentsValue: unknown, reasonValue: string, task: ToolRouterContext['task']): unknown {
+function enrichRuntimeArguments(argumentsValue: unknown, reasonValue: string, context: ToolRouterContext, toolName: string): unknown {
   if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) return argumentsValue;
-  const { reason: _providerReason, taskContext: _providerTaskContext, ...semanticArguments } = argumentsValue as Record<string, unknown>;
-  return { ...semanticArguments, reason: reasonValue, ...(task ? { taskContext: task } : {}) };
+  const { reason: _providerReason, taskContext: _providerTaskContext, originatingConversationId: _providerConversationId, ...semanticArguments } = argumentsValue as Record<string, unknown>;
+  return { ...semanticArguments, reason: reasonValue, ...(context.task ? { taskContext: context.task } : {}), ...(toolName === 'task.create' ? { originatingConversationId: context.conversationId } : {}) };
 }
 
 export class ToolRouter {
@@ -263,7 +263,7 @@ export class ToolRouter {
   async request(call: ProviderToolCall, context: ToolRouterContext): Promise<ToolRequestOutcome> {
     const definitionForContext = this.registry.get(call.name);
     const executionReason = definitionForContext ? inferExecutionReason(definitionForContext, context) : `Request ${call.name}`;
-    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context.task) };
+    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context, call.name) };
     let parsed: ReturnType<ToolRegistry['parse']>;
     try { parsed = this.registry.parse(runtimeCall); }
     catch (error) {
@@ -496,7 +496,7 @@ export class ToolRouter {
     this.executors.set('task.cancel', async (input) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); return ok({ task: await this.dependencies.tasks.cancel(input.taskId, input.reason, input.trackingOnly) }); });
     this.executors.set('task.checkpoint', async (input) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); return ok({ task: await this.dependencies.tasks.checkpoint(input.taskId, input) }); });
     this.executors.set('task.handoff', async (input) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); const handoff = await this.dependencies.tasks.generateHandoff(input.taskId) as { relativePath?: string }; return ok({ handoff }, handoff.relativePath ? [handoff.relativePath] : []); });
-    this.executors.set('task.process.start', async (input, request) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); const processInput: ShellRunInput = { command: input.command, args: input.args, workingDirectory: input.workingDirectory, timeoutMs: input.timeoutMs, environment: input.environment, environmentAllowlist: input.environmentAllowlist, networkProfile: input.networkProfile, reason: input.reason, expectedOutcome: input.expectedOutcome }; const started = await this.dependencies.tasks.startBackground(input.taskId, input.stepId, processInput, request.id) as { process?: { outputPath?: string } }; return ok({ started }, started.process?.outputPath ? [started.process.outputPath] : []); });
+    this.executors.set('task.process.start', async (input, request) => { if (!this.dependencies.tasks) throw new Error('Persistent task runtime is unavailable.'); const { taskId, stepId } = request.executionContext; if (!taskId || !stepId) throw new Error('task.process.start requires an active persistent task step; FORGE supplies its IDs internally.'); const processInput: ShellRunInput = { command: input.command, args: input.args, workingDirectory: input.workingDirectory, timeoutMs: input.timeoutMs, environment: input.environment, environmentAllowlist: input.environmentAllowlist, networkProfile: input.networkProfile, reason: input.reason, expectedOutcome: input.expectedOutcome }; const started = await this.dependencies.tasks.startBackground(taskId, stepId, processInput, request.id) as { process?: { outputPath?: string } }; return ok({ started }, started.process?.outputPath ? [started.process.outputPath] : []); });
   }
 
   private root(request: ToolRequest): string { const root = this.workspaceRoots.get(request.workspaceId); if (!root) throw new Error('Workspace root is unavailable for this request.'); return root; }

@@ -8,6 +8,7 @@ const fakeGit = { status: async () => ({ branch: 'main', ahead: 0, behind: 0, fi
 const fakeShell = { run: async () => ({ stdout: '', stderr: '', exitCode: 0, signal: null, timedOut: false, cancelled: false, truncated: false }), cancel: () => true } as any;
 const fakeWeb = { search: async () => ({ query: '', results: [] }), fetch: async () => ({}) } as any;
 const fakeBrowser = { enabled: () => true, open: async (url: string) => ({ url, title: 'Example', canGoBack: false, canGoForward: false }), read: async () => ({ url: 'https://example.com/', title: 'Example Domain', text: 'Example Domain This domain is for use in illustrative examples in documents.', truncated: false }) };
+const fakeTasks = { get: async () => ({}), create: async () => ({}), resume: async () => ({}), pause: async () => ({}), cancel: async () => ({}), checkpoint: async () => ({}), generateHandoff: async () => ({}), startBackground: async () => ({}) } as any;
 
 describe('agent tool runtime', () => {
   it('defines every tool with schemas, timeout, audit, cancellation, and boundary metadata', () => {
@@ -44,7 +45,7 @@ describe('agent tool runtime', () => {
   });
 
   it('keeps runtime bookkeeping out of every provider-visible tool schema', () => {
-    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => true }, browser: fakeBrowser, terminal: { list: () => [] }, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+    const router = new ToolRouter({ git: fakeGit, shell: fakeShell, web: { ...fakeWeb, isEnabled: () => true }, browser: fakeBrowser, terminal: { list: () => [] }, tasks: fakeTasks, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
     const schemas = router.providerDefinitions();
     const browserRead = schemas.find((entry) => entry.name === 'browser.read');
     expect(browserRead?.parameters).toMatchObject({ type: 'object', properties: {}, additionalProperties: false });
@@ -52,7 +53,9 @@ describe('agent tool runtime', () => {
       const schema = JSON.stringify(entry.parameters);
       expect(schema).not.toContain('taskContext');
       expect(schema).not.toContain('"reason"');
+      expect(schema).not.toContain('originatingConversationId');
     }
+    expect(JSON.stringify(schemas.find((entry) => entry.name === 'task.process.start')?.parameters)).not.toMatch(/taskId|stepId/);
   });
 
   it('blocks traversal and symlink workspace escapes', async () => {

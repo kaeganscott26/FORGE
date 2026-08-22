@@ -23,7 +23,7 @@ describe('task tool links', () => {
   });
 
   it('links direct process starts to both approvals and evidence', () => {
-    const request = { toolName: 'task.process.start', input: linked };
+    const request = { toolName: 'task.process.start', input: { command: 'npm', args: ['test'] }, executionContext: linked };
     expect(taskApprovalLink(request)).toEqual(linked);
     expect(taskEvidenceLink(request)).toEqual(linked);
   });

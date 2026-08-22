@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-- Separated model-visible tool arguments from runtime execution metadata. Providers no longer see or supply `reason` or nested `taskContext`; FORGE now injects workspace, conversation, model, request, and optional task/step linkage internally and persists task/step audit columns in schema v8.
+- Separated model-visible tool arguments from runtime execution metadata. Providers no longer see or supply `reason`, nested `taskContext`, task-creation conversation identity, or task-process execution IDs; FORGE now injects workspace, conversation, model, request, and optional task/step linkage internally and persists task/step audit columns in schema v8.
 - Made enabled `browser.read({})` and `browser.find(...)` automatic bounded reads. Browser navigation, page-summary persistence, workspace changes, shell/process execution, destructive operations, Git writes, and remote mutations retain their existing approval boundaries.
 - Replaced browser-native text prompts with routed in-app dialogs for file/folder creation, rename, goals, metadata tasks, persistent tasks, release workflows, task pause, and conversation rename. New files activate the editor immediately.
 - Added an allowlisted `workspace.open.home` route and Home controls on every desktop platform. Explorer now loads folders on demand; bounded memory discovery and model `file.list`/`file.search` skip unreadable, vanished, cache, and container-storage subtrees rather than failing the entire home workspace.

@@ -6532,7 +6532,7 @@ function createToolRegistry() {
   for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task after explicit approval.`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without granting execution approval.` }));
   registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a task checkpoint; verified checkpoints require an audit reference.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().max(200).optional(), name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), auditReference: z.string().max(200).optional(), reason }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => "Persist a structured checkpoint without executing another tool." }));
   registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of authoritative SQLite task state.", inputSchema: z.object({ taskId: z.string().uuid(), reason }), sideEffect: "workspace-write", approval: "session", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => `.forge/handoffs for ${input.taskId}`, describeEffect: () => "Atomically write or update a human-readable task handoff." }));
-  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ taskId: z.string().uuid(), stepId: z.string().min(1).max(200), command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", approval: "explicit", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => `${input.taskId}/${input.stepId}: ${[input.command, ...input.args ?? []].map(quoteArgument).join(" ")}`, describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
+  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one approved task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", approval: "explicit", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
   return registry;
 }
 function quoteArgument(value) {
@@ -6548,7 +6548,7 @@ function boundedToolEvidence(result, limit = 12e3) {
   return text.length > limit ? `${text.slice(0, limit)}
 [FORGE bounded the remaining tool output]` : text;
 }
-const INTERNAL_PROVIDER_ARGUMENTS = /* @__PURE__ */ new Set(["reason", "taskContext"]);
+const INTERNAL_PROVIDER_ARGUMENTS = /* @__PURE__ */ new Set(["reason", "taskContext", "originatingConversationId"]);
 function modelVisibleToolSchema(schema) {
   const visit = (value) => {
     if (Array.isArray(value)) return value.map(visit);
@@ -6571,10 +6571,10 @@ function inferExecutionReason(definition2, context) {
   const request = context.userRequest?.trim().replace(/\s+/g, " ");
   return request ? `${definition2.purpose} Current user request: ${request}`.slice(0, 2e3) : definition2.purpose.slice(0, 2e3);
 }
-function enrichRuntimeArguments(argumentsValue, reasonValue, task) {
+function enrichRuntimeArguments(argumentsValue, reasonValue, context, toolName) {
   if (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue)) return argumentsValue;
-  const { reason: _providerReason, taskContext: _providerTaskContext, ...semanticArguments } = argumentsValue;
-  return { ...semanticArguments, reason: reasonValue, ...task ? { taskContext: task } : {} };
+  const { reason: _providerReason, taskContext: _providerTaskContext, originatingConversationId: _providerConversationId, ...semanticArguments } = argumentsValue;
+  return { ...semanticArguments, reason: reasonValue, ...context.task ? { taskContext: context.task } : {}, ...toolName === "task.create" ? { originatingConversationId: context.conversationId } : {} };
 }
 class ToolRouter {
   constructor(dependencies) {
@@ -6605,7 +6605,7 @@ class ToolRouter {
   async request(call, context) {
     const definitionForContext = this.registry.get(call.name);
     const executionReason = definitionForContext ? inferExecutionReason(definitionForContext, context) : `Request ${call.name}`;
-    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context.task) };
+    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context, call.name) };
     let parsed;
     try {
       parsed = this.registry.parse(runtimeCall);
@@ -7025,8 +7025,10 @@ class ToolRouter {
     });
     this.executors.set("task.process.start", async (input, request) => {
       if (!this.dependencies.tasks) throw new Error("Persistent task runtime is unavailable.");
+      const { taskId, stepId } = request.executionContext;
+      if (!taskId || !stepId) throw new Error("task.process.start requires an active persistent task step; FORGE supplies its IDs internally.");
       const processInput = { command: input.command, args: input.args, workingDirectory: input.workingDirectory, timeoutMs: input.timeoutMs, environment: input.environment, environmentAllowlist: input.environmentAllowlist, networkProfile: input.networkProfile, reason: input.reason, expectedOutcome: input.expectedOutcome };
-      const started = await this.dependencies.tasks.startBackground(input.taskId, input.stepId, processInput, request.id);
+      const started = await this.dependencies.tasks.startBackground(taskId, stepId, processInput, request.id);
       return ok({ started }, started.process?.outputPath ? [started.process.outputPath] : []);
     });
   }
@@ -9212,8 +9214,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "ed943becd8f32463033d3cfcb69251d08a3c7e33",
-    buildDate: "2026-08-22T04:29:23.223Z",
+    commit: "451f8fffaa70a82dd0bb610838bb50cf3b04ac8b",
+    buildDate: "2026-08-22T04:38:43.205Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
