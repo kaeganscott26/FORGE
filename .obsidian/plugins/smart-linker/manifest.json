@@ -1,0 +1,10 @@
+{
+	"id": "smart-linker",
+	"name": "Smart Linker",
+	"version": "0.1.4",
+	"minAppVersion": "1.0.0",
+	"description": "Automatically finds and inserts semantically related notes using AI embeddings from Vector Search plugin.",
+	"author": "Oleksandr Hryhor",
+	"authorUrl": "https://github.com/lemannrus",
+	"isDesktopOnly": false
+}

@@ -48,3 +48,9 @@ API_KEY.txt
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache/
+
+
+
+
+# Ignore Smart Environment folder
+.smart-env

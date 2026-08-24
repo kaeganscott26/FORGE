@@ -9232,19 +9232,31 @@ function parseDesktopEntry(contents, desktopFile) {
     if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
   }
   if (values.get("Type") !== "Application" || !values.get("Name") || !values.get("Exec")) return null;
-  const tokens = tokenizeExec(values.get("Exec"));
+  let tokens;
+  try {
+    tokens = tokenizeExec(values.get("Exec"));
+  } catch {
+    return null;
+  }
   if (!tokens.length || tokens[0].includes("\0")) return null;
   const arguments_ = [];
   for (const token of tokens.slice(1)) {
     if (token === "%%") arguments_.push("%");
-    else if (FIELD_CODE.test(token) || /%[fFuUdDnNickvm]/.test(token)) continue;
+    else if (FIELD_CODE.test(token) || /%[fFuUdDnNickvm]/.test(token) || /^@@[fFuUdDnNickvm]?$/.test(token)) continue;
     else arguments_.push(token);
   }
-  return { id: path__default.basename(desktopFile), name: values.get("Name"), description: values.get("Comment") ?? "", icon: values.get("Icon"), executable: tokens[0], arguments: arguments_, categories: (values.get("Categories") ?? "").split(";").filter(Boolean), desktopFile, terminal: values.get("Terminal") === "true", hidden: values.get("Hidden") === "true", noDisplay: values.get("NoDisplay") === "true" };
+  return { id: path__default.basename(desktopFile), name: values.get("Name"), genericName: values.get("GenericName"), description: values.get("Comment") ?? "", icon: values.get("Icon"), executable: tokens[0], arguments: arguments_, categories: (values.get("Categories") ?? "").split(";").filter(Boolean), desktopFile, terminal: values.get("Terminal") === "true", hidden: values.get("Hidden") === "true", noDisplay: values.get("NoDisplay") === "true", onlyShowIn: (values.get("OnlyShowIn") ?? "").split(";").filter(Boolean), notShowIn: (values.get("NotShowIn") ?? "").split(";").filter(Boolean), tryExec: values.get("TryExec"), startupWMClass: values.get("StartupWMClass"), dbusActivatable: values.get("DBusActivatable") === "true" };
 }
 function applicationDirectories(environment) {
   const dataHome = environment.XDG_DATA_HOME || path__default.join(homedir(), ".local/share");
   return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));
+}
+function desktopVisible(application, environment) {
+  if (application.hidden || application.noDisplay) return false;
+  const desktops = (environment.XDG_CURRENT_DESKTOP || "").split(":").filter(Boolean);
+  if (application.onlyShowIn.length && !application.onlyShowIn.some((desktop) => desktops.includes(desktop))) return false;
+  if (application.notShowIn.some((desktop) => desktops.includes(desktop))) return false;
+  return true;
 }
 function trustedInternalApplication(application) {
   if (!application.id.startsWith("forge-internal-") || application.desktopFile !== path__default.join("/usr/share/applications", application.id)) return false;
@@ -9272,7 +9284,7 @@ class ForgeOsService {
       if (parsed) discovered.set(file, parsed);
     }
     this.applications = discovered;
-    return [...discovered.values()].filter((entry) => !entry.hidden && !entry.noDisplay).sort((a, b) => a.name.localeCompare(b.name));
+    return [...discovered.values()].filter((entry) => desktopVisible(entry, this.environment)).sort((a, b) => a.name.localeCompare(b.name));
   }
   async launchApplication(id2) {
     if (!this.context().shellMode) throw new Error("Application launch is available only in FORGE-OS shell mode.");
@@ -9485,8 +9497,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "9efead26931292238228397d4a6a2fe3e8ff35d5",
-    buildDate: "2026-08-23T21:35:06.152Z",
+    commit: "1cb51c597d91a6fa10383a0d085acd22caeccb31",
+    buildDate: "2026-08-24T09:12:19.885Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
