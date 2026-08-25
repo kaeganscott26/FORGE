@@ -2,10 +2,13 @@
 
 This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.3.0-beta.2`; start with the outcome you need, then follow the narrowest relevant guide.
 
+**Current implementation authority:** start with [Current Implementation](CURRENT_IMPLEMENTATION.md). It is reconciled against `main` and supersedes stale implementation claims in point-in-time reviews, audits, verification snapshots, and archived release notes.
+
 ## 🚀 Start here
 
 | Goal | Read |
 | --- | --- |
+| See what is implemented on `main` right now | [Current Implementation](CURRENT_IMPLEMENTATION.md) |
 | Understand why FORGE exists and why the workspace outlives any model | [Workspace Philosophy](PHILOSOPHY.md) |
 | Run or contribute to the desktop application | [Contributing](CONTRIBUTING.md) |
 | Understand the service boundaries and data ownership model | [Architecture](ARCHITECTURE.md) |
@@ -16,6 +19,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 
 ## 🧱 Runtime and safety
 
+- [Current Implementation](CURRENT_IMPLEMENTATION.md) — canonical `main` behavior, including Hermes, FORGE Live, browser update status, workspace persistence, and current tool/runtime contracts.
 - [Architecture](ARCHITECTURE.md) — Electron services, renderer boundary, providers, persistence, and update discovery.
 - [Core Architecture](Architecture/Core.md) — reusable `@forge/core` contracts and future runtime adapters.
 - [Agent Tools](AGENT_TOOLS.md) — provider-neutral tool routing and bounded continuation.
@@ -47,4 +51,4 @@ Historical evidence remains available for auditability, but it does not describe
 
 ## ✍️ Documentation contract
 
-Documentation is part of the product surface. When behavior, policy, storage ownership, security posture, release identity, or a developer workflow changes, update the narrowest applicable document and add a link from this index if it creates a new entry point. Do not rewrite historical verification evidence to make it look current—archive it and label it instead.
+Documentation is part of the product surface. When behavior, policy, storage ownership, security posture, release identity, or a developer workflow changes, update the narrowest applicable document **and** reconcile [Current Implementation](CURRENT_IMPLEMENTATION.md). Do not rewrite historical verification evidence to make it look current—archive it and label it instead.
