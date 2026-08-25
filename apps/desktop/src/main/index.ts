@@ -17,6 +17,7 @@ import { SettingsService } from './settings';
 import { ToolRouter } from '@forge/agent-tools';
 import { ShellService, TerminalService } from '@forge/shell';
 import { validateExternalUrl, WebService } from '@forge/web';
+import { ForgeLiveService, isLoopbackUrl } from '@forge/forge-live';
 import { TaskRuntime } from '@forge/tasks';
 import { createNativeAgentRuntime } from './native-agent-runtime';
 import { ForgeOsService } from '@forge/os-integration';
@@ -51,6 +52,7 @@ let browserLayout: { visible: boolean; bounds?: { x: number; y: number; width: n
 let browserBookmarks: BrowserBookmark[] = [];
 let browserHistory: BrowserHistoryEntry[] = [];
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
+let forgeLive: ForgeLiveService | null = null;
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
@@ -117,12 +119,18 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
 }
 
 async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType<WorkspaceService['info']>>> {
-  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await storage.close();
+  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await forgeLive?.stop().catch(() => undefined); forgeLive = null; await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
   await refreshBrowserRecords();
   return info;
+}
+
+function liveService(): ForgeLiveService {
+  const info = workspace.info(); if (!info) throw new Error('Open a workspace before using FORGE Live.');
+  if (!forgeLive || forgeLive.status().workspaceId !== info.rootPath) forgeLive = new ForgeLiveService(info.rootPath, { onState: (state) => { for (const window of BrowserWindow.getAllWindows()) window.webContents.send('forge-live.state', state); } });
+  return forgeLive;
 }
 
 function browserState(): BrowserStateView {
@@ -162,6 +170,7 @@ function blockedBrowserNavigation(value: string): string | null {
   if (!['https:', 'http:'].includes(url.protocol)) return 'Only HTTP and HTTPS browser navigation is allowed.';
   if (url.username || url.password) return 'Credential-bearing URLs are blocked.';
   const hostname = url.hostname.toLowerCase();
+  if (isLoopbackUrl(value)) return null;
   if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return 'Local-network URLs are blocked.';
   const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname);
   if (ipv4) {
@@ -196,7 +205,7 @@ function createBrowserTab(): BrowserTab {
 }
 
 async function navigateBrowser(value: string, openInNewTab = false): Promise<BrowserStateView> {
-  const url = (await validateExternalUrl(value)).toString();
+  const url = (isLoopbackUrl(value) ? new URL(value) : await validateExternalUrl(value)).toString();
   const tab = openInNewTab ? createBrowserTab() : activeBrowserTab() ?? createBrowserTab();
   activeBrowserTabId = tab.id; tab.loading = true; tab.error = ''; setBrowserLayout(browserLayout); sendBrowserState();
   try { await tab.view.webContents.loadURL(url); }
@@ -422,6 +431,12 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
   register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
+  register(IPC_CHANNELS.forgeLiveStart, async () => liveService().start());
+  register(IPC_CHANNELS.forgeLiveStop, async () => forgeLive ? forgeLive.stop() : { workspaceId: workspace.info()?.rootPath ?? '', status: 'stopped', mode: 'static' });
+  register(IPC_CHANNELS.forgeLiveRestart, async () => liveService().restart());
+  register(IPC_CHANNELS.forgeLiveStatus, async () => forgeLive?.status() ?? { workspaceId: workspace.info()?.rootPath ?? '', status: 'stopped', mode: 'static' });
+  register(IPC_CHANNELS.forgeLiveOpenPreview, async () => { const live = await liveService().start(); if (!live.url) throw new Error('FORGE Live did not produce a preview URL.'); return navigateBrowser(live.url); });
+  register(IPC_CHANNELS.forgeLiveCopyUrl, async () => { const url = forgeLive?.status().url; if (!url) throw new Error('Start FORGE Live before copying its URL.'); clipboard.writeText(url); return { url }; });
   register(IPC_CHANNELS.forgeOsContext, async () => forgeOs.context());
   register(IPC_CHANNELS.forgeOsApplications, async () => forgeOs.discoverApplications());
   register(IPC_CHANNELS.forgeOsApplicationLaunch, async (request) => { await forgeOs.launchApplication(request.id); return undefined; });
@@ -463,5 +478,6 @@ app.whenReady().then(async () => {
   try { await settings.init(); await applyAISettings(); updater.setChannel(settings.updateChannel()); registerHandlers(); const startupWorkspace = process.argv.find((argument) => argument.startsWith('--workspace='))?.slice('--workspace='.length); if (startupWorkspace) await openWorkspaceAt(startupWorkspace); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); }
   catch (error) { dialog.showErrorBox('FORGE could not start', error instanceof Error ? error.message : String(error)); app.quit(); }
 });
-app.on('window-all-closed', async () => { terminalService.dispose(); await storage.close(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', async () => { terminalService.dispose(); await forgeLive?.stop().catch(() => undefined); forgeLive = null; await storage.close(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { void forgeLive?.stop().catch(() => undefined); });
 }

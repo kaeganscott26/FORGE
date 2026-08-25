@@ -24,6 +24,7 @@
       , "@forge/tasks": ["packages/tasks/src/index.ts"]
       , "@forge/os-integration": ["packages/os-integration/src/index.ts"]
       , "@forge/agent-runtime": ["packages/agent-runtime/src/index.ts"]
+      , "@forge/forge-live": ["packages/forge-live/src/index.ts"]
     }
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "vitest.config.ts"]

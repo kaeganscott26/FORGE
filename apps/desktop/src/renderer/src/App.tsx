@@ -3,7 +3,7 @@ import Editor, { loader, type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { DEFAULT_WORKSPACE_LAYOUT, type AppUpdateStatus, type DashboardData, type FileMetadata, type FileNode, type FilePreview, type GitDiff, type GitStatus, type WorkspaceInfo, type WorkspaceLayout } from '@forge/ipc';
+import { DEFAULT_WORKSPACE_LAYOUT, type AppUpdateStatus, type BrowserStateView, type DashboardData, type FileMetadata, type FileNode, type FilePreview, type GitDiff, type GitStatus, type WorkspaceInfo, type WorkspaceLayout } from '@forge/ipc';
 import { forgeInvoke } from './forge';
 import ChatPanel from './components/ChatPanel';
 import MemoryPanel from './components/MemoryPanel';
@@ -62,6 +62,7 @@ type AppTextPrompt =
   | { kind: 'rename-entry'; node: FileNode }
   | { kind: 'create-goal' }
   | { kind: 'create-task' };
+type ForgeLiveState = { status: 'stopped' | 'starting' | 'running' | 'stopping' | 'error'; port?: number; url?: string; error?: { message: string } };
 
 export default function App(): JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
@@ -91,6 +92,7 @@ export default function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<{ node: FileNode; x: number; y: number } | null>(null);
   const [textPrompt, setTextPrompt] = useState<AppTextPrompt | null>(null);
   const [textPromptBusy, setTextPromptBusy] = useState(false);
+  const [forgeLive, setForgeLive] = useState<ForgeLiveState>({ status: 'stopped' });
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   const refresh = useCallback(async () => {
@@ -108,6 +110,11 @@ export default function App(): JSX.Element {
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { localStorage.setItem('forge.showHiddenFiles', String(showHidden)); }, [showHidden]);
   useEffect(() => { void call<WorkspaceInfo | null>(forgeInvoke('workspace.info', undefined)).then((info) => { if (info) setWorkspace(info); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!workspace) { setForgeLive({ status: 'stopped' }); return undefined; }
+    const refreshLive = (): void => { void call<ForgeLiveState>(forgeInvoke('forge-live.status', undefined)).then(setForgeLive).catch(() => undefined); };
+    refreshLive(); const timer = window.setInterval(refreshLive, 800); return () => window.clearInterval(timer);
+  }, [workspace?.rootPath]);
   useEffect(() => { void call<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdateStatus).catch(() => undefined); }, []);
   useEffect(() => {
     if (!updateStatus || !['checking', 'available', 'downloading'].includes(updateStatus.state)) return undefined;
@@ -138,6 +145,9 @@ export default function App(): JSX.Element {
 
   const openWorkspace = async (): Promise<void> => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open', undefined)); setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setSelectedPath(undefined); setExpandedFolders(new Set()); setError(null); } catch (cause) { if ((cause as Error).message !== 'Workspace selection was cancelled.') setError((cause as Error).message); } };
   const openHomeWorkspace = async (): Promise<void> => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open.home', undefined)); setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setSelectedPath(undefined); setExpandedFolders(new Set()); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
+  const startLive = async (): Promise<void> => { try { setForgeLive(await call<ForgeLiveState>(forgeInvoke('forge-live.start', undefined))); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
+  const stopLive = async (): Promise<void> => { try { setForgeLive(await call<ForgeLiveState>(forgeInvoke('forge-live.stop', undefined))); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
+  const openLivePreview = async (): Promise<void> => { try { await call<BrowserStateView>(forgeInvoke('forge-live.open-preview', undefined)); setBrowserOpen(true); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   const openFile = async (node: FileNode): Promise<void> => { if (node.type === 'directory') return; setSelectedPath(node.relativePath); setMediaPreview(null); try { const info = await call<FileMetadata>(forgeInvoke('file.metadata', { path: node.relativePath })); setMetadata(info); if (['image', 'audio', 'video'].includes(info.kind)) { setMediaPreview(await call<FilePreview>(forgeInvoke('file.preview', { path: node.relativePath }))); setActive(node); setContent(''); setSavedContent(''); setPreview(false); return; } if (info.kind === 'binary' || (info.kind === 'executable' && !info.text)) { setActive(node); setContent(`Binary/executable file\n\n${JSON.stringify(info, null, 2)}`); setSavedContent(''); setPreview(false); return; } const file = await call<{ content: string }>(forgeInvoke('file.read', { path: node.relativePath })); setActive(node); setContent(file.content); setSavedContent(file.content); setPreview(node.extension === 'md'); setError(null); } catch (cause) { setError((cause as Error).message); } };
   const save = async (): Promise<void> => { if (!active) return; try { await call(forgeInvoke('file.write', { path: active.relativePath, content })); setSavedContent(content); await refresh(); } catch (cause) { setError((cause as Error).message); } };
   const selectedNode = (selectedPath ? findFileNode(files, selectedPath) : null) ?? active;
@@ -248,7 +258,7 @@ export default function App(): JSX.Element {
 
   return <main className="app-shell">
     <ForgeOsShell />
-    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '2.3.0-beta.1-dev'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'available', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'available' ? `Preparing v${updateStatus.availableVersion}…` : updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button className={browserOpen ? 'active-tab' : ''} onClick={() => setBrowserOpen((open) => !open)}>Browser</button><button onClick={openReleases}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button title="Open home directory as workspace" onClick={openHomeWorkspace}>Home</button><button title="Open workspace (⌘/Ctrl+O)" onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={() => createEntry('file')}>New file</button><button title="Save (⌘/Ctrl+S)" disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!selectedNode} className="danger" onClick={deleteActive}>Delete</button></div></header>
+    <header className="app-header"><div className="brand"><span>F</span> FORGE <small>v{updateStatus?.currentVersion ?? '2.3.0-beta.1-dev'} · {workspace?.name ?? 'No workspace'}</small></div><div className="toolbar">{updateStatus?.state === 'downloaded' ? <button className="update-ready" onClick={installUpdate}>Restart to update</button> : <button onClick={checkForUpdates} disabled={checkingUpdate || ['checking', 'available', 'downloading'].includes(updateStatus?.state ?? '')}>{updateStatus?.state === 'available' ? `Preparing v${updateStatus.availableVersion}…` : updateStatus?.state === 'downloading' ? 'Downloading update…' : checkingUpdate || updateStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}</button>}<button disabled={!workspace || ['starting', 'stopping'].includes(forgeLive.status)} onClick={forgeLive.status === 'running' ? stopLive : startLive}>{forgeLive.status === 'running' ? `● FORGE Live :${forgeLive.port}` : forgeLive.status === 'starting' ? '◌ Starting Live…' : '○ Go Live'}</button>{forgeLive.status === 'running' && <button onClick={openLivePreview}>Open Preview</button>}<button className={browserOpen ? 'active-tab' : ''} onClick={() => setBrowserOpen((open) => !open)}>Browser</button><button onClick={openReleases}>Releases</button><button onClick={() => setSettingsOpen('github')}>GitHub</button><button onClick={() => setSettingsOpen('api')}>Settings</button><button title="Open home directory as workspace" onClick={openHomeWorkspace}>Home</button><button title="Open workspace (⌘/Ctrl+O)" onClick={openWorkspace}>Open workspace</button><button disabled={!workspace} onClick={() => createEntry('file')}>New file</button><button title="Save (⌘/Ctrl+S)" disabled={!active || content === savedContent} onClick={save}>Save</button><button disabled={!selectedNode} className="danger" onClick={deleteActive}>Delete</button></div></header>
     {settingsOpen && <SettingsModal initialSection={settingsOpen} onClose={() => setSettingsOpen(null)} />}
     {error && <div className="notice"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
     {!workspace ? <section className="welcome"><div><p className="eyebrow">LOCAL-FIRST DEVELOPMENT WORKSPACE</p><h1>Think in files.<br />Build with context.</h1><p>FORGE keeps your notes, source code, Git history, conversations, and durable project memory in one private desktop workspace.</p><div className="welcome-actions"><button className="primary" onClick={openWorkspace}>Open a project folder</button><button onClick={openHomeWorkspace}>Open home directory</button></div></div></section> : <section className="workspace-grid" style={gridStyle}>
