@@ -55,7 +55,7 @@ Hermes is an optional agent runtime, not a replacement control plane.
 - Browser tabs, navigation, bookmarks, and history are workspace-scoped.
 - Public HTTP(S) research is isolated from direct filesystem, shell, and credential access.
 - `browser.read` and `browser.find` expose bounded visible-page text when Web Research is enabled.
-- The Browser Home **Newest updates** card no longer contains a hardcoded release description. Opening Home automatically runs the existing GitHub release check and renders the installed/newest version state returned by the updater. Manual refresh remains available.
+- The Browser Home **Newest updates** card no longer contains a hardcoded feature/release description. It renders the updater's current installed/available version state, so the card follows runtime update status instead of stale UI copy. The explicit **Check for updates** action performs GitHub release discovery; opening Browser Home itself does not silently start a download.
 
 ## FORGE Live
 
