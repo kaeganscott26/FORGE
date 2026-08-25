@@ -17,6 +17,7 @@ import * as pty from "node-pty";
 import { lookup as lookup$1 } from "node:dns/promises";
 import { lookup } from "node:dns";
 import { isIP } from "node:net";
+import { createServer } from "node:http";
 import { readdir, readFile, statfs, access } from "node:fs/promises";
 import { promisify } from "node:util";
 import __cjs_mod__ from "node:module";
@@ -2155,6 +2156,12 @@ const IPC_CHANNELS = {
   browserTabSelect: "browser.tab.select",
   browserBookmarkAdd: "browser.bookmark.add",
   browserBookmarkRemove: "browser.bookmark.remove",
+  forgeLiveStart: "forge-live.start",
+  forgeLiveStop: "forge-live.stop",
+  forgeLiveRestart: "forge-live.restart",
+  forgeLiveStatus: "forge-live.status",
+  forgeLiveOpenPreview: "forge-live.open-preview",
+  forgeLiveCopyUrl: "forge-live.copy-url",
   forgeOsContext: "forge-os.context",
   forgeOsApplications: "forge-os.applications",
   forgeOsApplicationLaunch: "forge-os.application.launch",
@@ -7609,6 +7616,250 @@ class WebService {
     return { query: normalized, results };
   }
 }
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 5500;
+const ignoredDirectories = /* @__PURE__ */ new Set([".git", "node_modules", "dist", "build", "out", ".next", ".cache", ".forge", "coverage", "vendor"]);
+const mimeTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8"
+};
+function isIgnoredPath(relativePath2) {
+  return relativePath2.replaceAll("\\", "/").split("/").some((part) => ignoredDirectories.has(part));
+}
+function isLoopbackUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return false;
+    const hostname2 = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return hostname2 === "localhost" || hostname2 === "::1" || isIP(hostname2) === 4 && hostname2 === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+async function allocateLoopbackPort(host = DEFAULT_HOST, start = DEFAULT_PORT, end = 5599) {
+  for (let port = start; port <= end; port += 1) {
+    const candidate = createServer();
+    try {
+      await new Promise((resolve, reject) => {
+        candidate.once("error", reject);
+        candidate.listen(port, host, () => resolve());
+      });
+      await new Promise((resolve) => candidate.close(() => resolve()));
+      return port;
+    } catch {
+      candidate.close();
+    }
+  }
+  throw Object.assign(new Error(`No loopback port is available in the range ${start}-${end}.`), { code: "FORGE_LIVE_PORTS_EXHAUSTED" });
+}
+function errorCode(error) {
+  return error && typeof error === "object" && "code" in error ? String(error.code) : "FORGE_LIVE_ERROR";
+}
+function safeMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function reloadClient() {
+  return `<script>(function(){try{var e=new EventSource('/__forge_live');e.onmessage=function(m){if(m.data==='reload')location.reload()};e.onerror=function(){e.close();setTimeout(arguments.callee,1000)}}catch(_){}})();<\/script>`;
+}
+function injectReloadClient(html) {
+  const client = reloadClient();
+  const closingBody = html.search(/<\/body\s*>/i);
+  return closingBody < 0 ? `${html}
+${client}` : `${html.slice(0, closingBody)}${client}${html.slice(closingBody)}`;
+}
+class ForgeLiveService {
+  constructor(rootPath, options = {}) {
+    this.rootPath = rootPath;
+    this.rootPath = path.resolve(rootPath);
+    this.realRoot = this.rootPath;
+    this.preferredPort = options.preferredPort ?? DEFAULT_PORT;
+    this.portEnd = options.portEnd ?? 5599;
+    this.debounceMs = options.debounceMs ?? 150;
+    this.options = options;
+    this.current = { workspaceId: this.rootPath, status: "stopped", mode: "static" };
+  }
+  server = null;
+  watcher = null;
+  poller = null;
+  clients = /* @__PURE__ */ new Set();
+  timer = null;
+  current;
+  startPromise = null;
+  realRoot;
+  preferredPort;
+  portEnd;
+  debounceMs;
+  options;
+  status() {
+    return { ...this.current, error: this.current.error ? { ...this.current.error } : void 0 };
+  }
+  async start() {
+    if (this.current.status === "running") return this.status();
+    if (this.startPromise) return this.startPromise;
+    this.startPromise = this.startInternal().finally(() => {
+      this.startPromise = null;
+    });
+    return this.startPromise;
+  }
+  async startInternal() {
+    this.set({ ...this.current, status: "starting", error: void 0 });
+    try {
+      const stat = await promises.stat(this.rootPath);
+      if (!stat.isDirectory()) throw new Error("The FORGE Live workspace must be a directory.");
+      this.realRoot = await promises.realpath(this.rootPath);
+      const port = await allocateLoopbackPort(DEFAULT_HOST, this.preferredPort, this.portEnd);
+      this.server = createServer((request, response) => {
+        void this.handle(request, response);
+      });
+      await new Promise((resolve, reject) => {
+        this.server.once("error", reject);
+        this.server.listen(port, DEFAULT_HOST, () => resolve());
+      });
+      this.watchFiles();
+      this.set({ workspaceId: this.rootPath, status: "running", mode: "static", host: DEFAULT_HOST, port, url: `http://${DEFAULT_HOST}:${port}`, startedAt: Date.now() });
+      return this.status();
+    } catch (error) {
+      await this.cleanup();
+      const failure = { workspaceId: this.rootPath, status: "error", mode: "static", error: { code: errorCode(error), message: safeMessage(error) } };
+      this.set(failure);
+      throw error;
+    }
+  }
+  async stop() {
+    if (this.current.status === "stopped") return this.status();
+    this.set({ ...this.current, status: "stopping" });
+    await this.cleanup();
+    this.set({ workspaceId: this.rootPath, status: "stopped", mode: "static" });
+    return this.status();
+  }
+  async restart() {
+    await this.stop();
+    return this.start();
+  }
+  async cleanup() {
+    this.watcher?.close();
+    this.watcher = null;
+    if (this.poller) clearInterval(this.poller);
+    this.poller = null;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    for (const client of this.clients) client.end();
+    this.clients.clear();
+    if (this.server) await new Promise((resolve) => this.server.close(() => resolve()));
+    this.server = null;
+  }
+  set(next) {
+    this.current = next;
+    this.options.onState?.(this.status());
+  }
+  watchFiles() {
+    const notify = () => {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        for (const client of this.clients) client.write("data: reload\\n\\n");
+        this.options.onReload?.();
+      }, this.debounceMs);
+    };
+    try {
+      this.watcher = watch(this.rootPath, { recursive: true }, (_event, filename) => {
+        if (filename && !isIgnoredPath(filename.toString())) notify();
+      });
+      this.watcher.on("error", () => void 0);
+    } catch {
+      this.poller = setInterval(notify, Math.max(500, this.debounceMs * 4));
+    }
+  }
+  async handle(request, response) {
+    if (request.url === "/__forge_live") {
+      response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive", "Access-Control-Allow-Origin": "null" });
+      response.write(": connected\\n\\n");
+      this.clients.add(response);
+      request.once("close", () => this.clients.delete(response));
+      return;
+    }
+    let requested;
+    try {
+      requested = decodeURIComponent((request.url ?? "/").split("?")[0]);
+    } catch {
+      response.writeHead(400);
+      response.end("Bad request");
+      return;
+    }
+    if (!requested.startsWith("/")) requested = `/${requested}`;
+    const relative = requested === "/" ? "index.html" : requested.replace(/^\/+/, "");
+    if (isIgnoredPath(relative) || relative.replaceAll("\\", "/").split("/").includes("..")) {
+      response.writeHead(403);
+      response.end("Forbidden");
+      return;
+    }
+    const candidate = path.resolve(this.rootPath, relative);
+    if (candidate !== this.rootPath && !candidate.startsWith(`${this.rootPath}${path.sep}`)) {
+      response.writeHead(403);
+      response.end("Forbidden");
+      return;
+    }
+    try {
+      let filePath = candidate;
+      let stat = await promises.stat(filePath);
+      const resolvedCandidate = await promises.realpath(filePath);
+      if (resolvedCandidate !== this.realRoot && !resolvedCandidate.startsWith(`${this.realRoot}${path.sep}`)) {
+        response.writeHead(403);
+        response.end("Forbidden");
+        return;
+      }
+      if (stat.isDirectory()) {
+        filePath = path.join(filePath, "index.html");
+        stat = await promises.stat(filePath);
+      }
+      if (!stat.isFile()) throw new Error("not file");
+      const extension = path.extname(filePath).toLowerCase();
+      const body = await promises.readFile(filePath);
+      const output = extension === ".html" || extension === ".htm" ? injectReloadClient(body.toString("utf8")) : body;
+      response.writeHead(200, { "Content-Type": mimeTypes[extension] ?? "application/octet-stream", "Content-Length": Buffer.byteLength(output) });
+      response.end(output);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EACCES") {
+        response.writeHead(403);
+        response.end("Forbidden");
+        return;
+      }
+      const fallback = `<!doctype html><meta charset="utf-8"><title>FORGE Live</title><h1>No index.html found</h1><p>Create an index.html in this workspace to preview it with FORGE Live.</p>`;
+      if (relative === "index.html") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Length": Buffer.byteLength(fallback) });
+        response.end(fallback);
+      } else {
+        response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        response.end("Not found");
+      }
+    }
+  }
+}
 var semver = { exports: {} };
 var hasRequiredSemver;
 function requireSemver() {
@@ -9481,6 +9732,7 @@ let browserLayout = { visible: false };
 let browserBookmarks = [];
 let browserHistory = [];
 let rendererSource = "file:// development build";
+let forgeLive = null;
 function liveMainWindow() {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
 }
@@ -9497,8 +9749,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "1cb51c597d91a6fa10383a0d085acd22caeccb31",
-    buildDate: "2026-08-24T09:12:19.885Z",
+    commit: "212b13248782996f76a0fd3baf576ed7d5ecb39c",
+    buildDate: "2026-08-25T04:10:06.792Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9550,12 +9802,22 @@ async function openWorkspaceAt(rootPath) {
   terminalService.dispose();
   dirtyEditorPaths.clear();
   disposeBrowserTabs();
+  await forgeLive?.stop().catch(() => void 0);
+  forgeLive = null;
   await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
   await refreshBrowserRecords();
   return info;
+}
+function liveService() {
+  const info = workspace.info();
+  if (!info) throw new Error("Open a workspace before using FORGE Live.");
+  if (!forgeLive || forgeLive.status().workspaceId !== info.rootPath) forgeLive = new ForgeLiveService(info.rootPath, { onState: (state) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send("forge-live.state", state);
+  } });
+  return forgeLive;
 }
 function browserState() {
   const active = activeBrowserTabId ? browserTabs.get(activeBrowserTabId) : void 0;
@@ -9609,6 +9871,7 @@ function blockedBrowserNavigation(value) {
   if (!["https:", "http:"].includes(url.protocol)) return "Only HTTP and HTTPS browser navigation is allowed.";
   if (url.username || url.password) return "Credential-bearing URLs are blocked.";
   const hostname2 = url.hostname.toLowerCase();
+  if (isLoopbackUrl(value)) return null;
   if (hostname2 === "localhost" || hostname2.endsWith(".localhost") || hostname2.endsWith(".local")) return "Local-network URLs are blocked.";
   const ipv4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(hostname2);
   if (ipv4) {
@@ -9641,8 +9904,8 @@ function createBrowserTab() {
     const url = contents.getURL();
     if (url) void storage.recordBrowserVisit(url, contents.getTitle()).then(refreshBrowserRecords).then(sendBrowserState).catch(() => void 0);
   });
-  contents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
-    if (isMainFrame && errorCode !== -3) reportBrowserError(tab, `${errorDescription} (${validatedUrl})`);
+  contents.on("did-fail-load", (_event, errorCode2, errorDescription, validatedUrl, isMainFrame) => {
+    if (isMainFrame && errorCode2 !== -3) reportBrowserError(tab, `${errorDescription} (${validatedUrl})`);
   });
   contents.on("did-navigate", sendBrowserState);
   contents.on("did-navigate-in-page", sendBrowserState);
@@ -9651,7 +9914,7 @@ function createBrowserTab() {
   return tab;
 }
 async function navigateBrowser(value, openInNewTab = false) {
-  const url = (await validateExternalUrl(value)).toString();
+  const url = (isLoopbackUrl(value) ? new URL(value) : await validateExternalUrl(value)).toString();
   const tab = openInNewTab ? createBrowserTab() : activeBrowserTab() ?? createBrowserTab();
   activeBrowserTabId = tab.id;
   tab.loading = true;
@@ -9948,6 +10211,21 @@ function registerHandlers() {
   register(IPC_CHANNELS.browserTabSelect, async (request) => selectBrowserTab(request.tabId));
   register(IPC_CHANNELS.browserBookmarkAdd, async () => addActiveBrowserBookmark());
   register(IPC_CHANNELS.browserBookmarkRemove, async (request) => removeBrowserBookmark(request.bookmarkId));
+  register(IPC_CHANNELS.forgeLiveStart, async () => liveService().start());
+  register(IPC_CHANNELS.forgeLiveStop, async () => forgeLive ? forgeLive.stop() : { workspaceId: workspace.info()?.rootPath ?? "", status: "stopped", mode: "static" });
+  register(IPC_CHANNELS.forgeLiveRestart, async () => liveService().restart());
+  register(IPC_CHANNELS.forgeLiveStatus, async () => forgeLive?.status() ?? { workspaceId: workspace.info()?.rootPath ?? "", status: "stopped", mode: "static" });
+  register(IPC_CHANNELS.forgeLiveOpenPreview, async () => {
+    const live = await liveService().start();
+    if (!live.url) throw new Error("FORGE Live did not produce a preview URL.");
+    return navigateBrowser(live.url);
+  });
+  register(IPC_CHANNELS.forgeLiveCopyUrl, async () => {
+    const url = forgeLive?.status().url;
+    if (!url) throw new Error("Start FORGE Live before copying its URL.");
+    clipboard.writeText(url);
+    return { url };
+  });
   register(IPC_CHANNELS.forgeOsContext, async () => forgeOs.context());
   register(IPC_CHANNELS.forgeOsApplications, async () => forgeOs.discoverApplications());
   register(IPC_CHANNELS.forgeOsApplicationLaunch, async (request) => {
@@ -10019,7 +10297,12 @@ if (!ownsSingleInstanceLock) {
   });
   app.on("window-all-closed", async () => {
     terminalService.dispose();
+    await forgeLive?.stop().catch(() => void 0);
+    forgeLive = null;
     await storage.close();
     if (process.platform !== "darwin") app.quit();
+  });
+  app.on("before-quit", () => {
+    void forgeLive?.stop().catch(() => void 0);
   });
 }
