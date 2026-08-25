@@ -36,7 +36,12 @@ export default function BrowserPanel(): JSX.Element {
     return () => { observer.disconnect(); window.removeEventListener('resize', layout); void forgeInvoke('browser.layout', { visible: false }); };
   }, [layout]);
   useEffect(() => window.forge.onBrowserState(applyState), [applyState]);
-  useEffect(() => { if (state.showingHome) void data<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdate).catch(() => undefined); }, [state.showingHome]);
+  useEffect(() => {
+    if (!state.showingHome) return;
+    void data<AppUpdateStatus>(forgeInvoke('app.update.check', undefined)).then(setUpdate).catch(() => {
+      void data<AppUpdateStatus>(forgeInvoke('app.update.status', undefined)).then(setUpdate).catch(() => undefined);
+    });
+  }, [state.showingHome]);
   useEffect(() => {
     if (panel) { void forgeInvoke('browser.layout', { visible: false }); return; }
     layout();
@@ -51,6 +56,9 @@ export default function BrowserPanel(): JSX.Element {
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };
   const togglePanel = (next: 'history' | 'bookmarks'): void => setPanel((current) => current === next ? null : next);
+  const newestVersion = update?.availableVersion ?? update?.currentVersion;
+  const newestUpdateTitle = newestVersion ? `FORGE ${newestVersion}` : 'FORGE updates';
+  const newestUpdateSummary = update?.message ?? 'Checking GitHub Releases for the newest FORGE build…';
   return <div className="browser-panel">
     <div className="browser-tab-strip">
       <button className={state.showingHome ? 'active' : ''} onClick={() => void invoke('browser.home')} title="FORGE Browser home">⌂ Home</button>
@@ -60,7 +68,7 @@ export default function BrowserPanel(): JSX.Element {
     <div className="browser-toolbar"><button disabled={!state.canGoBack} onClick={() => void invoke('browser.back')} aria-label="Back">←</button><button disabled={!state.canGoForward} onClick={() => void invoke('browser.forward')} aria-label="Forward">→</button><button disabled={state.showingHome} onClick={() => void invoke('browser.reload')} aria-label="Reload">↻</button><form onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Enter a public website" aria-label="Browser address" /><button className="accent" type="submit">Go</button></form><button className={panel === 'bookmarks' ? 'active' : ''} disabled={state.showingHome} onClick={() => void invoke('browser.bookmark.add')} title="Bookmark current page">★</button><button className={panel === 'bookmarks' ? 'active' : ''} onClick={() => togglePanel('bookmarks')}>Bookmarks</button><button className={panel === 'history' ? 'active' : ''} onClick={() => togglePanel('history')}>History</button></div>
     {(error || state.error) && <div className="terminal-error">{error || state.error}</div>}
     <div ref={surface} className="browser-surface">
-      {state.showingHome && <section className="browser-home"><p className="eyebrow">PRIVATE WORKSPACE BROWSER</p><h2>FORGE Browser</h2><p>Open public research alongside your project without giving websites access to your files, shell, or credentials.</p><form onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Search or enter a public website" aria-label="Home browser address" /><button className="accent" type="submit">Open site</button></form><div className="browser-home-grid"><article><strong>Latest updates</strong><span>FORGE v2.3 Beta adds capability-aware tools, bounded workspace evidence, and explicit network execution profiles.</span><small>{update?.message ?? 'Update status is ready to check.'}</small><button onClick={() => void checkForUpdates()}>Check for updates</button></article><article><strong>Project</strong><span>Follow source, releases, issues, and release notes on GitHub.</span><button onClick={() => void navigate('https://github.com/kaeganscott26/FORGE')}>Open FORGE on GitHub</button></article></div></section>}
+      {state.showingHome && <section className="browser-home"><p className="eyebrow">PRIVATE WORKSPACE BROWSER</p><h2>FORGE Browser</h2><p>Open public research alongside your project without giving websites access to your files, shell, or credentials.</p><form onSubmit={(event) => { event.preventDefault(); void navigate(); }}><input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Search or enter a public website" aria-label="Home browser address" /><button className="accent" type="submit">Open site</button></form><div className="browser-home-grid"><article><strong>Newest updates</strong><span>{newestUpdateTitle}</span><small>{newestUpdateSummary}</small><button onClick={() => void checkForUpdates()}>Refresh updates</button></article><article><strong>Project</strong><span>Follow source, releases, issues, and release notes on GitHub.</span><button onClick={() => void navigate('https://github.com/kaeganscott26/FORGE')}>Open FORGE on GitHub</button></article></div></section>}
       {panel && <aside className="browser-drawer"><header><strong>{panel === 'history' ? 'History' : 'Bookmarks'}</strong><button onClick={() => setPanel(null)}>×</button></header>{panel === 'history' ? state.history.length ? state.history.map((entry) => <button className="browser-record" key={entry.id} onClick={() => void navigate(entry.url)}><b>{entry.title || entry.url}</b><small>{entry.url} · {entry.visitCount} visit{entry.visitCount === 1 ? '' : 's'}</small></button>) : <p>No public pages visited in this workspace yet.</p> : state.bookmarks.length ? state.bookmarks.map((entry) => <div className="browser-record" key={entry.id}><button onClick={() => void navigate(entry.url)}><b>{entry.title || entry.url}</b><small>{entry.url}</small></button><button className="danger" onClick={() => void invoke('browser.bookmark.remove', { bookmarkId: entry.id })}>Remove</button></div>) : <p>Bookmark a public page to keep it with this workspace.</p>}</aside>}
     </div>
   </div>;
