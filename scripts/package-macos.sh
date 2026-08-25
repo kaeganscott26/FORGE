@@ -16,7 +16,7 @@ for command in node npm lipo; do
   fi
 done
 
-for required_file in package.json package-lock.json scripts/prepare-node-pty.mjs scripts/write-build-manifest.mjs scripts/verify-build-manifest.mjs; do
+for required_file in package.json package-lock.json scripts/prepare-node-pty.mjs scripts/stage-runtime-metadata.mjs scripts/write-build-manifest.mjs scripts/verify-build-manifest.mjs; do
   if [[ ! -f "$required_file" ]]; then
     echo "Required project file is missing: $required_file" >&2
     exit 1

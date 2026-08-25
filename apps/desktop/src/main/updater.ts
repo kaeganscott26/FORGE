@@ -40,7 +40,12 @@ export class UpdaterService {
 
   async check(): Promise<AppUpdateStatus> {
     if (!app.isPackaged) {
-      this.setStatus('development', 'Update checks run only in the packaged app. Use npm run install:mac for local builds.');
+      const localUpdateCommand = process.platform === 'win32'
+        ? 'npm run update:win'
+        : process.platform === 'darwin'
+          ? 'npm run update:mac'
+          : './scripts/package-linux.sh';
+      this.setStatus('development', `Update checks run only in the packaged app. Use ${localUpdateCommand} for this platform.`);
       return this.status();
     }
     try {

@@ -56,7 +56,7 @@ Electron main process owns privileged project operations. The renderer remains a
 
 ## 📦 Runtime identity across platforms
 
-FORGE's UI and workspace runtime are shared source, while packaged executables remain native to macOS, Linux, and Windows. Runtime parity therefore means the embedded source commit and behavior/UI match; it never means that a universal macOS Mach-O executable must hash-identically to Linux or Windows binaries. Each package records and verifies its own executable and `app.asar` hashes. FORGE-OS additionally records the FORGE source commit and payload hashes in its content-addressed runtime record; macOS carries the same commit in `forge-runtime.json` beside the canonical `/Applications/FORGE.app` bundle and exposes it through `/usr/local/bin/forge-session --runtime-info`.
+FORGE's UI and workspace runtime are shared source, while packaged executables remain native to macOS, Linux, and Windows. Runtime parity therefore means the embedded source commit and behavior/UI match; it never means that a universal macOS Mach-O executable must hash-identically to Linux or Windows binaries. Each package records and verifies its own executable and `app.asar` hashes. FORGE-OS additionally records the FORGE source commit and payload hashes in its content-addressed runtime record; macOS and Windows carry the same commit in their packaged `forge-runtime.json`, with macOS exposing it through `/usr/local/bin/forge-session --runtime-info` and Windows verifying it during `npm run update:win` installation.
 
 ## 🧩 Package responsibilities
 

@@ -37,8 +37,8 @@ export function parseDesktopEntry(contents: string, desktopFile: string): Deskto
   return { id: path.basename(desktopFile), name: values.get('Name')!, genericName: values.get('GenericName'), description: values.get('Comment') ?? '', icon: values.get('Icon'), executable: tokens[0], arguments: arguments_, categories: (values.get('Categories') ?? '').split(';').filter(Boolean), desktopFile, terminal: values.get('Terminal') === 'true', hidden: values.get('Hidden') === 'true', noDisplay: values.get('NoDisplay') === 'true', onlyShowIn: (values.get('OnlyShowIn') ?? '').split(';').filter(Boolean), notShowIn: (values.get('NotShowIn') ?? '').split(';').filter(Boolean), tryExec: values.get('TryExec'), startupWMClass: values.get('StartupWMClass'), dbusActivatable: values.get('DBusActivatable') === 'true' };
 }
 export function applicationDirectories(environment: NodeJS.ProcessEnv): string[] {
-  const dataHome = environment.XDG_DATA_HOME || path.join(homedir(), '.local/share');
-  return [dataHome, ...(environment.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':').filter(Boolean)].map((directory) => path.join(directory, 'applications'));
+  const dataHome = environment.XDG_DATA_HOME || path.posix.join(homedir(), '.local/share');
+  return [dataHome, ...(environment.XDG_DATA_DIRS || '/usr/local/share:/usr/share').split(':').filter(Boolean)].map((directory) => path.posix.join(directory, 'applications'));
 }
 function desktopVisible(application: DesktopApplication, environment: NodeJS.ProcessEnv): boolean {
   if (application.hidden || application.noDisplay) return false;
@@ -48,7 +48,7 @@ function desktopVisible(application: DesktopApplication, environment: NodeJS.Pro
   return true;
 }
 function trustedInternalApplication(application: DesktopApplication): boolean {
-  if (!application.id.startsWith('forge-internal-') || application.desktopFile !== path.join('/usr/share/applications', application.id)) return false;
+  if (!application.id.startsWith('forge-internal-') || application.desktopFile !== path.posix.join('/usr/share/applications', application.id)) return false;
   return ['/usr/local/bin/forge-system-surface', '/usr/local/bin/forge-session-control'].includes(application.executable);
 }
 export class ForgeOsService {
@@ -64,7 +64,7 @@ export class ForgeOsService {
   async discoverApplications(): Promise<DesktopApplication[]> {
     const discovered = new Map<string, DesktopApplication>();
     for (const directory of applicationDirectories(this.environment)) for (const file of (await readdir(directory).catch(() => [] as string[])).filter((entry) => entry.endsWith('.desktop')).sort()) {
-      if (discovered.has(file)) continue; const desktopFile = path.join(directory, file); const parsed = parseDesktopEntry(await readFile(desktopFile, 'utf8').catch(() => ''), desktopFile); if (parsed) discovered.set(file, parsed);
+      if (discovered.has(file)) continue; const desktopFile = path.posix.join(directory, file); const parsed = parseDesktopEntry(await readFile(desktopFile, 'utf8').catch(() => ''), desktopFile); if (parsed) discovered.set(file, parsed);
     }
     this.applications = discovered; return [...discovered.values()].filter((entry) => desktopVisible(entry, this.environment)).sort((a, b) => a.name.localeCompare(b.name));
   }

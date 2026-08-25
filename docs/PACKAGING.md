@@ -38,11 +38,11 @@ Run in PowerShell on a Windows x64 machine or native Windows CI runner:
 .\scripts\package-windows.ps1
 ```
 
-The script performs the same lockfile install and source gate, creates the x64 NSIS installer, and verifies the installer plus unpacked Windows `node-pty`, ConPTY, and console-list modules. Its expected artifact is a versioned `FORGE-<version>-x64.exe` under `dist_electron/`.
+The script performs the same lockfile install and source gate, creates the x64 NSIS installer, and verifies the installer, blockmap, channel updater YAML, embedded commit/version/build date, runtime metadata, executable and `app.asar` hashes, plus unpacked Windows `node-pty`, ConPTY, and console-list modules. Its expected artifact is a versioned `FORGE-<version>-x64.exe` under `dist_electron/`, selected through the authoritative `build-manifest.json` rather than a wildcard.
 
-For a clean `main` checkout, `npm run update:win` performs a trusted-origin fast-forward, preserves local `.obsidian` UI state, runs the complete native Windows packaging gates, installs the NSIS package silently after confirming FORGE is closed, and verifies that the installed `app.asar` matches the package. Run it from PowerShell on Windows.
+Install an already verified package with `.\scripts\install-windows.ps1`. For a clean `main` checkout, `npm run update:win` performs a trusted-origin fetch and fast-forward, preserves local `.obsidian` UI state, runs the complete native Windows packaging gates, then calls that installer. It installs the exact manifest-selected NSIS package silently after confirming FORGE is closed, resolves the registered per-user or system install location, and verifies the installed executable, `app.asar`, version, commit, build date, and runtime metadata against the package manifest. Run it from PowerShell on Windows.
 
-The configured high-resolution FORGE PNG is converted to the Windows icon format by the installed Electron Builder during packaging; no hand-made ICO conversion is used. Windows packaging and runtime acceptance have not yet been executed.
+The configured high-resolution FORGE PNG is converted to the Windows icon format by the installed Electron Builder during packaging; no hand-made ICO conversion is used.
 
 ## 🧾 Acceptance boundary
 

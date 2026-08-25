@@ -8,6 +8,12 @@ $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ExpectedOrigin = "https://github.com/kaeganscott26/FORGE"
 Set-Location -LiteralPath $RepositoryRoot
 
+foreach ($RequiredFile in @("scripts\package-windows.ps1", "scripts\install-windows.ps1")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RequiredFile) -PathType Leaf)) {
+        throw "Required Windows update procedure is missing: $RequiredFile"
+    }
+}
+
 if ((git branch --show-current) -ne "main") { throw "FORGE must be on main before updating." }
 $Origin = (git config --get remote.origin.url).TrimEnd("/")
 if ($Origin.EndsWith(".git")) { $Origin = $Origin.Substring(0, $Origin.Length - 4) }
@@ -18,24 +24,6 @@ if ($SourceChanges.Count -gt 0) { throw "FORGE has source changes outside .obsid
 $Before = (git rev-parse HEAD).Trim()
 $ObsidianStashed = $false
 $Succeeded = $false
-$InstalledRoot = $null
-
-function Get-Sha256([string]$Path) {
-    $Hasher = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $Stream = [System.IO.File]::OpenRead($Path)
-        try {
-            return ([System.BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace("-", "")
-        }
-        finally {
-            $Stream.Dispose()
-        }
-    }
-    finally {
-        $Hasher.Dispose()
-    }
-}
-
 try {
     $ObsidianChanges = @(git status --porcelain -- ".obsidian")
     if ($ObsidianChanges.Count -gt 0) {
@@ -52,26 +40,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not fast-forward FORGE to origin/main." }
 
     & (Join-Path $PSScriptRoot "package-windows.ps1")
-
-    if (Get-Process -Name "FORGE" -ErrorAction SilentlyContinue) { throw "Close FORGE before installing the verified Windows update." }
-    $Version = node -p "require('./package.json').version"
-    $Installer = Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot "dist_electron") -File -Filter "FORGE-$Version-*.exe" | Select-Object -First 1
-    if (-not $Installer) { throw "The verified NSIS installer is missing." }
-    $Install = Start-Process -FilePath $Installer.FullName -ArgumentList "/S" -Wait -PassThru
-    if ($Install.ExitCode -ne 0) { throw "The Windows installer exited with code $($Install.ExitCode)." }
-
-    $PackagedAsar = Join-Path $RepositoryRoot "dist_electron\win-unpacked\resources\app.asar"
-    $InstalledRoots = @(
-        (Join-Path $env:LOCALAPPDATA "Programs\forge"),
-        (Join-Path $env:LOCALAPPDATA "Programs\FORGE"),
-        (Join-Path $env:ProgramFiles "FORGE")
-    )
-    $InstalledRoot = $InstalledRoots | Where-Object { Test-Path -LiteralPath (Join-Path $_ "resources\app.asar") } | Select-Object -First 1
-    if (-not $InstalledRoot) { throw "The installed FORGE runtime could not be found after the installer completed." }
-    $InstalledAsar = Join-Path $InstalledRoot "resources\app.asar"
-    if ((Get-Sha256 $PackagedAsar) -ne (Get-Sha256 $InstalledAsar)) {
-        throw "The installed Windows app.asar does not match the verified package."
-    }
+    if ($LASTEXITCODE -ne 0) { throw "Windows packaging failed with exit code $LASTEXITCODE." }
+    & (Join-Path $PSScriptRoot "install-windows.ps1")
+    if ($LASTEXITCODE -ne 0) { throw "Windows installation failed with exit code $LASTEXITCODE." }
 
     git restore -- "apps/desktop/out/main/index.js"
     if ($LASTEXITCODE -ne 0) { throw "Could not restore the tracked generated bundle after packaging." }
@@ -85,4 +56,4 @@ finally {
     }
 }
 
-Write-Host "FORGE for Windows is updated, installed, and verified at $InstalledRoot."
+Write-Host "FORGE for Windows is updated, installed, and verified."

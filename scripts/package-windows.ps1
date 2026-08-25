@@ -13,7 +13,14 @@ foreach ($Command in @("node", "npm")) {
     }
 }
 
-foreach ($RequiredFile in @("package.json", "package-lock.json", "scripts\prepare-node-pty.mjs")) {
+foreach ($RequiredFile in @(
+    "package.json",
+    "package-lock.json",
+    "scripts\prepare-node-pty.mjs",
+    "scripts\stage-runtime-metadata.mjs",
+    "scripts\write-build-manifest.mjs",
+    "scripts\verify-build-manifest.mjs"
+)) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RequiredFile) -PathType Leaf)) {
         throw "Required project file is missing: $RequiredFile"
     }
@@ -31,17 +38,19 @@ Invoke-NpmChecked ci
 Invoke-NpmChecked run typecheck
 Invoke-NpmChecked run lint
 Invoke-NpmChecked test
-Invoke-NpmChecked run build
 Invoke-NpmChecked run package:win
+
+& node scripts/verify-build-manifest.mjs
+if ($LASTEXITCODE -ne 0) {
+    throw "Windows build manifest verification failed with exit code $LASTEXITCODE."
+}
 
 $Version = node -p "require('./package.json').version"
 $OutputDirectory = Join-Path $RepositoryRoot "dist_electron"
-$InstallerArtifacts = @(Get-ChildItem -LiteralPath $OutputDirectory -File -Filter "FORGE-$Version-*.exe")
-if ($InstallerArtifacts.Count -eq 0) {
-    Write-Error "Expected NSIS installer for FORGE $Version was not produced."
-    Get-ChildItem -LiteralPath $OutputDirectory -File | Select-Object -ExpandProperty FullName | Write-Host
-    throw "Windows artifact verification failed."
-}
+$BuildManifest = Get-Content -LiteralPath (Join-Path $OutputDirectory "build-manifest.json") -Raw | ConvertFrom-Json
+$InstallerArtifact = $BuildManifest.artifacts | Where-Object { $_.kind -eq "nsis" } | Select-Object -First 1
+if (-not $InstallerArtifact) { throw "The verified Windows build manifest does not contain an NSIS installer." }
+$InstallerPath = Join-Path $RepositoryRoot $InstallerArtifact.path
 
 $PtyRoot = Join-Path $OutputDirectory "win-unpacked\resources\app.asar.unpacked\node_modules\node-pty"
 $RequiredPtyResources = @("pty.node", "conpty.node", "conpty_console_list.node")
@@ -52,6 +61,7 @@ foreach ($Resource in $RequiredPtyResources) {
 }
 
 Write-Host "Windows packaging succeeded for FORGE ${Version}:"
-$InstallerArtifacts | ForEach-Object { Write-Host "  $($_.FullName)" }
+Write-Host "  $InstallerPath"
+Write-Host "  Verified NSIS installer, blockmap, updater metadata, runtime provenance, and build manifest"
 Write-Host "  Verified Windows node-pty resources in $PtyRoot"
 

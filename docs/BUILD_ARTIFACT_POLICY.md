@@ -12,7 +12,7 @@ Git history preserves source development. GitHub Releases contain only currently
 - byte sizes and SHA-256 hashes;
 - packaged executable and `app.asar` hashes.
 
-`npm run install:mac` and the serial release uploader read this manifest. They do not use wildcard-first-match selection. The verifier rejects a missing, malformed, stale, path-escaping, size-mismatched, or hash-mismatched record. The macOS installer verifies both the packaged source bundle and its `/Applications` staging copy before it activates the canonical app, then verifies the activated bundle again.
+`npm run install:mac`, `npm run update:win`, and the serial release uploader read this manifest. They do not use wildcard-first-match selection. The verifier rejects a missing, malformed, stale, path-escaping, topology-mismatched, size-mismatched, or hash-mismatched record. The macOS installer verifies both the packaged source bundle and its `/Applications` staging copy before it activates the canonical app, then verifies the activated bundle again. The Windows updater selects the exact NSIS record, installs it, and verifies the installed executable, `app.asar`, version, build provenance, and runtime metadata against the same manifest.
 
 The installer treats system and user Applications directories as distinct installation locations while respecting the default case-insensitive macOS filesystem. A capitalization alias of `/Applications/FORGE.app` is not misclassified as a second bundle.
 
