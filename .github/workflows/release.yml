@@ -81,7 +81,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.4.0-beta') }}
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.4.0-beta')) || github.event_name == 'workflow_dispatch' }}
     needs: [package-linux, package-macos, package-windows]
     runs-on: ubuntu-latest
     steps:
@@ -91,8 +91,8 @@ jobs:
       - name: Verify tag and publish complete release
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
-          test "$GITHUB_REF_NAME" = "v2.4.0-beta"
+          release_tag='v2.4.0-beta'
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
           test "${#assets[@]}" -gt 0
           (cd release-assets && sha256sum "${assets[@]#release-assets/}" > SHA256SUMS.all)
-          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.4.0-beta" --notes-file RELEASE_NOTES.md --prerelease
+          gh release create "$release_tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.4.0-beta" --notes-file RELEASE_NOTES.md --prerelease
