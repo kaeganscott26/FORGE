@@ -6367,7 +6367,8 @@ class UpdaterService {
   }
   async check() {
     if (!app.isPackaged) {
-      this.setStatus("development", "Update checks run only in the packaged app. Use npm run install:mac for local builds.");
+      const localUpdateCommand = process.platform === "win32" ? "npm run update:win" : process.platform === "darwin" ? "npm run update:mac" : "./scripts/package-linux.sh";
+      this.setStatus("development", `Update checks run only in the packaged app. Use ${localUpdateCommand} for this platform.`);
       return this.status();
     }
     try {
@@ -6644,7 +6645,7 @@ function createToolRegistry() {
   for (const name of ["git.stage", "git.unstage"]) registry.register(definition({ ...base, name, purpose: `${name === "git.stage" ? "Stage" : "Unstage"} selected Git paths.`, inputSchema: z.object({ files: z.array(relativePath).min(1).max(200), reason }), sideEffect: "workspace-write", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.files.join(", "), describeEffect: () => `${name === "git.stage" ? "Stage" : "Unstage"} only the listed paths.` }));
   registry.register(definition({ ...base, name: "git.commit", purpose: "Commit the exact staged Git paths.", inputSchema: z.object({ message: z.string().min(1).max(5e3), reason }), sideEffect: "repository-write", workspaceBoundary: "required", timeoutMs: 6e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "current branch and staged files", describeEffect: (input) => `Create a commit with message ${JSON.stringify(input.message)}.` }));
   for (const name of ["git.pull", "git.push"]) registry.register(definition({ ...base, name, purpose: `${name === "git.pull" ? "Pull from" : "Push to"} the configured remote.`, inputSchema: z.object({ reason }), sideEffect: "write-network", workspaceBoundary: "required", timeoutMs: 12e4, audit: { category: "git", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: () => "origin and current branch", describeEffect: () => `${name === "git.pull" ? "Receive remote changes" : "Send local commits"} using protected Git credentials.` }));
-  registry.register(definition({ ...base, name: "shell.run", purpose: "Run an executable with an argument array and an explicit network execution profile.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Network profile: ${input.networkProfile}.` }));
+  registry.register(definition({ ...base, name: "shell.run", purpose: "Run one executable with a separate argument array. Use bash -lc for shell operators, pipes, redirects, globbing, or substitutions.", inputSchema: z.object({ command: z.string().min(1).max(4096).describe("Executable name only, such as hermes, sha256sum, or bash. Do not include arguments in this field."), args: z.array(z.string().max(32e3)).max(500).default([]).describe('Arguments as separate array entries. For shell syntax use ["-lc", "<script>"] with command "bash".'), workingDirectory: z.string().max(4096).optional().describe("Workspace-relative cwd. Omit to use the validated active workspace root."), timeoutMs: z.number().int().min(100).max(6e5).default(12e4), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", workspaceBoundary: "required", timeoutMs: 6e5, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Network profile: ${input.networkProfile}.` }));
   registry.register(definition({ ...base, name: "web.search", purpose: "Search the public web when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ query: z.string().min(1).max(1e3), reason, projectDataSent: z.literal("None").default("None") }), sideEffect: "read-network", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.query, describeEffect: () => "Send the exact public query to an external search service and return cited results." }));
   registry.register(definition({ ...base, name: "web.fetch", purpose: "Retrieve a public HTTP(S) resource when external research is enabled. Workspace content is never sent automatically.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None") }), sideEffect: "read-network", workspaceBoundary: "not-applicable", timeoutMs: 3e4, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Retrieve bounded public web evidence without browser automation." }));
   registry.register(definition({ ...base, name: "browser.open", purpose: "Open a validated public HTTP(S) URL in the user-visible FORGE Browser.", inputSchema: z.object({ url: z.string().url().max(8e3), reason, projectDataSent: z.literal("None").default("None") }), sideEffect: "read-network", workspaceBoundary: "not-applicable", timeoutMs: 45e3, audit: { category: "web", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: true }, networkAccess: true, describeTarget: (input) => input.url, describeEffect: () => "Navigate the visible FORGE Browser to this public URL. The destination and any rendered content remain external data." }));
@@ -6676,11 +6677,103 @@ function createToolRegistry() {
   for (const name of ["task.resume", "task.pause", "task.cancel"]) registry.register(definition({ ...base, name, purpose: `${name.slice(5)} a workspace-owned task .`, inputSchema: z.object({ taskId: z.string().uuid(), reason, trackingOnly: z.boolean().default(true) }), sideEffect: "workspace-write", workspaceBoundary: "required", timeoutMs: 2e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: (input) => input.taskId, describeEffect: () => `${name.slice(5)} task tracking without changing execution policy.` }));
   registry.register(definition({ ...base, name: "task.checkpoint", purpose: "Record a checkpoint for the active task step; FORGE supplies task and audit identities internally.", inputSchema: z.object({ name: z.string().min(1).max(300), summary: z.string().min(1).max(4e3), verified: z.boolean().default(false), evidence: z.unknown().optional(), reason }), sideEffect: "workspace-write", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: false, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => "the active workspace task step", describeEffect: () => "Persist a structured checkpoint without executing another tool." }));
   registry.register(definition({ ...base, name: "task.handoff", purpose: "Generate a Markdown projection of the active workspace task.", inputSchema: z.object({ reason }), sideEffect: "workspace-write", workspaceBoundary: "required", timeoutMs: 1e4, audit: { category: "memory", recordsAffectedPaths: true, recordsExitCode: false, externalDataTransfer: false }, networkAccess: false, describeTarget: () => ".forge/handoffs for the active task", describeEffect: () => "Atomically write or update a human-readable task handoff." }));
-  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ command: z.string().min(1).max(4096), args: z.array(z.string().max(32e3)).max(500).default([]), workingDirectory: z.string().max(4096).default("."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
+  registry.register(definition({ ...base, name: "task.process.start", purpose: "Start one task step as a detached workspace-owned process with file-backed output.", inputSchema: z.object({ command: z.string().min(1).max(4096).describe("Executable name only; put every argument in args."), args: z.array(z.string().max(32e3)).max(500).default([]).describe('Arguments as separate array entries; use bash with ["-lc", "<script>"] for shell syntax.'), workingDirectory: z.string().max(4096).optional().describe("Workspace-relative cwd. Omit to use the validated active workspace root."), timeoutMs: z.number().int().min(100).max(864e5).default(6e5), environment: z.record(z.string()).optional(), environmentAllowlist: z.array(z.string()).max(100).default([]), networkProfile: z.enum(["offline", "network", "package-manager", "git"]).default("offline"), reason, expectedOutcome: z.string().min(1).max(2e3) }), sideEffect: "process", workspaceBoundary: "required", timeoutMs: 3e4, audit: { category: "shell", recordsAffectedPaths: true, recordsExitCode: true, externalDataTransfer: false }, networkAccess: true, describeTarget: (input) => [input.command, ...input.args ?? []].map(quoteArgument).join(" "), describeEffect: (input) => `${input.expectedOutcome} Output will be stored under .forge/task-output and execution may outlive the current conversation. Network profile: ${input.networkProfile}.` }));
   return registry;
 }
 function quoteArgument(value) {
   return /^[A-Za-z0-9_./:=+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+const SHELL_TOOL_NAMES = /* @__PURE__ */ new Set(["shell.run", "task.process.start"]);
+const EXECUTABLE_ARGUMENT_ERROR = 'Executable and arguments must be separate: set command to the executable only and put each argument in args (for example, command: "hermes", args: ["acp", "--help"]). Use command: "bash", args: ["-lc", "<script>"] for shell operators, pipes, redirects, globbing, or substitutions.';
+function normalizeCommandLine(commandLine) {
+  const script = commandLine.trim();
+  if (!script) throw new ToolValidationError("MALFORMED_ARGUMENTS", "A non-empty executable or command line is required.");
+  const args = [];
+  let token = "";
+  let tokenStarted = false;
+  let quote = null;
+  let requiresShell = false;
+  const finishToken = () => {
+    if (!tokenStarted) return;
+    args.push(token);
+    token = "";
+    tokenStarted = false;
+  };
+  for (let index = 0; index < script.length; index += 1) {
+    const character = script[index];
+    if (quote === "single") {
+      if (character === "'") quote = null;
+      else token += character;
+      continue;
+    }
+    if (quote === "double") {
+      if (character === '"') {
+        quote = null;
+        continue;
+      }
+      if (character === "$" || character === "`") {
+        requiresShell = true;
+        break;
+      }
+      if (character === "\\" && index + 1 < script.length) {
+        const next = script[++index];
+        token += ["$", "`", '"', "\\"].includes(next) ? next : `\\${next}`;
+      } else token += character;
+      continue;
+    }
+    if (character === "\n" || character === "\r") {
+      requiresShell = true;
+      break;
+    }
+    if (/\s/.test(character)) {
+      finishToken();
+      continue;
+    }
+    if (character === "'") {
+      quote = "single";
+      tokenStarted = true;
+      continue;
+    }
+    if (character === '"') {
+      quote = "double";
+      tokenStarted = true;
+      continue;
+    }
+    if (character === "\\") {
+      if (index + 1 >= script.length) throw new ToolValidationError("MALFORMED_ARGUMENTS", "Command line ends with an incomplete escape.");
+      token += script[++index];
+      tokenStarted = true;
+      continue;
+    }
+    if (";&|<>`$(){}".includes(character) || character === "*" || character === "?" || character === "[" || character === "#" && !tokenStarted || character === "~" && !tokenStarted) {
+      requiresShell = true;
+      break;
+    }
+    token += character;
+    tokenStarted = true;
+  }
+  if (requiresShell) return { command: "bash", args: ["-lc", script] };
+  if (quote) throw new ToolValidationError("MALFORMED_ARGUMENTS", `Command line contains an unterminated ${quote}-quoted argument.`);
+  finishToken();
+  if (!args.length) throw new ToolValidationError("MALFORMED_ARGUMENTS", "A non-empty executable is required.");
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0])) return { command: "bash", args: ["-lc", script] };
+  return { command: args[0], args: args.slice(1) };
+}
+function normalizeShellToolCall(call) {
+  if (!SHELL_TOOL_NAMES.has(call.name)) return call;
+  if (Array.isArray(call.arguments)) throw new ToolValidationError("MALFORMED_ARGUMENTS", `${EXECUTABLE_ARGUMENT_ERROR} Received a command array instead of the shell tool object.`);
+  if (!call.arguments || typeof call.arguments !== "object") return call;
+  const argumentsValue = call.arguments;
+  if (Array.isArray(argumentsValue.command)) throw new ToolValidationError("MALFORMED_ARGUMENTS", `${EXECUTABLE_ARGUMENT_ERROR} The command field must be a string, not an array.`);
+  if (typeof argumentsValue.command !== "string") return call;
+  const suppliedArgs = argumentsValue.args;
+  if (suppliedArgs !== void 0 && !Array.isArray(suppliedArgs)) return call;
+  if (Array.isArray(suppliedArgs) && suppliedArgs.length > 0) {
+    if (/\s/.test(argumentsValue.command)) throw new ToolValidationError("MALFORMED_ARGUMENTS", EXECUTABLE_ARGUMENT_ERROR);
+    return call;
+  }
+  const normalized = normalizeCommandLine(argumentsValue.command);
+  return { ...call, arguments: { ...argumentsValue, ...normalized } };
 }
 function sanitizeToolData(value) {
   if (Array.isArray(value)) return value.map(sanitizeToolData);
@@ -6691,6 +6784,24 @@ function boundedToolEvidence(result, limit = 12e3) {
   const text = JSON.stringify(sanitizeToolData({ toolName: result.toolName, success: result.success, output: result.output, error: result.error, affectedPaths: result.affectedPaths, exitCode: result.exitCode, warnings: result.warnings, truncated: result.truncated }), null, 2);
   return text.length > limit ? `${text.slice(0, limit)}
 [FORGE bounded the remaining tool output]` : text;
+}
+function boundedShellAuditOutput(output, limit = 64e3) {
+  if (!output || typeof output !== "object") return void 0;
+  const value = output;
+  const bound = (entry) => typeof entry === "string" && entry.length > limit ? `${entry.slice(0, limit)}
+[FORGE bounded the remaining audited output]` : entry;
+  return sanitizeToolData({
+    executable: value.executable,
+    argv: value.argv,
+    cwd: value.cwd,
+    stdout: bound(value.stdout),
+    stderr: bound(value.stderr),
+    exitCode: value.exitCode,
+    signal: value.signal,
+    timedOut: value.timedOut,
+    cancelled: value.cancelled,
+    truncated: value.truncated
+  });
 }
 const INTERNAL_PROVIDER_ARGUMENTS = /* @__PURE__ */ new Set(["reason", "taskContext", "originatingConversationId", "auditId", "stepId"]);
 function modelVisibleToolSchema(schema) {
@@ -6747,9 +6858,10 @@ class ToolRouter {
   async request(call, context) {
     const definitionForContext = this.registry.get(call.name);
     const executionReason = definitionForContext ? inferExecutionReason(definitionForContext, context) : `Request ${call.name}`;
-    const runtimeCall = { ...call, arguments: enrichRuntimeArguments(call.arguments, executionReason, context, call.name) };
     let parsed;
     try {
+      const normalizedCall = normalizeShellToolCall(call);
+      const runtimeCall = { ...normalizedCall, arguments: enrichRuntimeArguments(normalizedCall.arguments, executionReason, context, normalizedCall.name) };
       parsed = this.registry.parse(runtimeCall);
     } catch (error) {
       await this.auditValidationFailure(call, context, error);
@@ -6820,7 +6932,7 @@ class ToolRouter {
       const result = { ...partial, output, requestId: request.id, toolName: request.toolName, durationMs: Date.now() - started };
       request.state = result.success ? "succeeded" : result.cancelled ? "cancelled" : "failed";
       request.updatedAt = Date.now();
-      await this.dependencies.audit.appendAction(this.record(request, result.success ? "succeeded" : result.cancelled ? "cancelled" : "failed", result.success, result.durationMs, result.success ? "Tool completed successfully." : result.error?.message ?? "Tool failed.", result.affectedPaths, result.exitCode, result.rollback));
+      await this.dependencies.audit.appendAction(this.record(request, result.success ? "succeeded" : result.cancelled ? "cancelled" : "failed", result.success, result.durationMs, result.success ? "Tool completed successfully." : result.error?.message ?? "Tool failed.", result.affectedPaths, result.exitCode, result.rollback, result.output));
       return result;
     } catch (error) {
       const durationMs = Date.now() - started;
@@ -6834,8 +6946,9 @@ class ToolRouter {
       this.controllers.delete(request.id);
     }
   }
-  record(request, executionState, success, executionDurationMs, resultSummary, affectedPaths, exitCode, rollback) {
-    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, taskId: request.executionContext.taskId, stepId: request.executionContext.stepId, sanitizedInputs: sanitizeToolData(request.input), executionState, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false }, resultSummary, affectedPaths, exitCode, rollback };
+  record(request, executionState, success, executionDurationMs, resultSummary, affectedPaths, exitCode, rollback, output) {
+    const auditedOutput = request.toolName === "shell.run" ? boundedShellAuditOutput(output) : void 0;
+    return { id: request.id, timestamp: Date.now(), workspaceId: request.workspaceId, conversationId: request.conversationId, modelId: request.modelId, toolName: request.toolName, taskId: request.executionContext.taskId, stepId: request.executionContext.stepId, sanitizedInputs: sanitizeToolData(request.input), executionState, executionDurationMs, success, result: { success, summary: resultSummary, exitCode: exitCode ?? null, affectedPathCount: affectedPaths.length, rollbackAvailable: rollback?.available ?? false, ...auditedOutput === void 0 ? {} : { output: auditedOutput } }, resultSummary, affectedPaths, exitCode, rollback };
   }
   async auditValidationFailure(call, context, error) {
     const summary = error instanceof Error ? error.message : String(error);
@@ -7266,15 +7379,33 @@ function assertNetworkProfile(input) {
   if (required2 === "package-manager" && !["package-manager", "network"].includes(profile)) throw new Error(`${executable} requires the package-manager or network profile.`);
   if (required2 === "git" && !["git", "network"].includes(profile)) throw new Error("git requires the git or network profile.");
 }
-async function resolveWorkspacePath(workspaceRoot, requested = ".") {
-  if (path__default.isAbsolute(requested)) throw new Error("Absolute paths require a separate, explicitly approved policy.");
-  const root = await promises.realpath(workspaceRoot);
-  const candidate = path__default.resolve(root, requested);
-  const resolved = await promises.realpath(candidate);
+async function resolveWorkspacePath(workspaceRoot, requested) {
+  const selected = requested?.trim() || ".";
+  if (path__default.isAbsolute(selected)) throw new Error("Absolute paths require a separate, explicitly approved policy.");
+  let root;
+  try {
+    root = await promises.realpath(workspaceRoot);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") throw new Error(`Workspace root does not exist: ${workspaceRoot}`);
+    throw error;
+  }
+  const candidate = path__default.resolve(root, selected);
+  let resolved;
+  try {
+    resolved = await promises.realpath(candidate);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") throw new Error(`cwd does not exist: ${selected}`);
+    throw error;
+  }
   if (resolved !== root && !resolved.startsWith(`${root}${path__default.sep}`)) throw new Error("Working directory escapes the active workspace.");
   const stat = await promises.stat(resolved);
   if (!stat.isDirectory()) throw new Error("Working directory must be a directory.");
   return resolved;
+}
+function assertCanonicalExecutable(command, args) {
+  if (!command.trim() || command.includes("\0")) throw new Error("A valid executable is required.");
+  if (/\s/.test(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
+  if (args.some((argument) => argument.includes("\0"))) throw new Error("Shell arguments may not contain null bytes.");
 }
 function filteredEnvironment(requested = {}, allowlist = []) {
   const allowed = new Set(allowlist);
@@ -7330,10 +7461,9 @@ class ShellService {
   async run(input, requestId = randomUUID()) {
     const root = this.workspaceRoot();
     if (!root) throw new Error("Open a workspace before running a shell tool.");
-    if (!input.command.trim() || input.command.includes("\0")) throw new Error("A valid executable is required.");
-    if (input.args.some((argument) => argument.includes("\0"))) throw new Error("Shell arguments may not contain null bytes.");
+    assertCanonicalExecutable(input.command, input.args);
     assertNetworkProfile(input);
-    const cwd = await resolveWorkspacePath(root, input.workingDirectory || ".");
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory);
     const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 10 * 6e4);
     const environment = filteredEnvironment(input.environment, input.environmentAllowlist);
     return new Promise((resolve, reject) => {
@@ -7391,7 +7521,7 @@ class ShellService {
         this.cancelled.delete(requestId);
         if (!settled) {
           settled = true;
-          resolve({ stdout, stderr, exitCode: code, signal, timedOut, cancelled, truncated });
+          resolve({ executable: input.command, argv: [...input.args], cwd, stdout, stderr, exitCode: code, signal, timedOut, cancelled, truncated });
         }
       });
     });
@@ -7399,10 +7529,10 @@ class ShellService {
   async startBackground(input, outputPath, requestId = randomUUID()) {
     const root = this.workspaceRoot();
     if (!root) throw new Error("Open a workspace before running a background shell task.");
-    if (!input.command.trim() || input.command.includes("\0") || input.args.some((argument) => argument.includes("\0"))) throw new Error("A valid executable and null-free arguments are required.");
+    assertCanonicalExecutable(input.command, input.args);
     assertNetworkProfile(input);
     if (!outputPath || path__default.isAbsolute(outputPath) || outputPath.split(/[\\/]/).includes("..")) throw new Error("Background output path must be workspace-relative.");
-    const cwd = await resolveWorkspacePath(root, input.workingDirectory || ".");
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory);
     const realRoot = await promises.realpath(root);
     const requestedOutput = path__default.resolve(root, outputPath);
     if (requestedOutput === path__default.resolve(root) || !requestedOutput.startsWith(`${path__default.resolve(root)}${path__default.sep}`)) throw new Error("Background output path escapes the active workspace.");
@@ -9499,8 +9629,8 @@ function parseDesktopEntry(contents, desktopFile) {
   return { id: path__default.basename(desktopFile), name: values.get("Name"), genericName: values.get("GenericName"), description: values.get("Comment") ?? "", icon: values.get("Icon"), executable: tokens[0], arguments: arguments_, categories: (values.get("Categories") ?? "").split(";").filter(Boolean), desktopFile, terminal: values.get("Terminal") === "true", hidden: values.get("Hidden") === "true", noDisplay: values.get("NoDisplay") === "true", onlyShowIn: (values.get("OnlyShowIn") ?? "").split(";").filter(Boolean), notShowIn: (values.get("NotShowIn") ?? "").split(";").filter(Boolean), tryExec: values.get("TryExec"), startupWMClass: values.get("StartupWMClass"), dbusActivatable: values.get("DBusActivatable") === "true" };
 }
 function applicationDirectories(environment) {
-  const dataHome = environment.XDG_DATA_HOME || path__default.join(homedir(), ".local/share");
-  return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.join(directory, "applications"));
+  const dataHome = environment.XDG_DATA_HOME || path__default.posix.join(homedir(), ".local/share");
+  return [dataHome, ...(environment.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":").filter(Boolean)].map((directory) => path__default.posix.join(directory, "applications"));
 }
 function desktopVisible(application, environment) {
   if (application.hidden || application.noDisplay) return false;
@@ -9510,7 +9640,7 @@ function desktopVisible(application, environment) {
   return true;
 }
 function trustedInternalApplication(application) {
-  if (!application.id.startsWith("forge-internal-") || application.desktopFile !== path__default.join("/usr/share/applications", application.id)) return false;
+  if (!application.id.startsWith("forge-internal-") || application.desktopFile !== path__default.posix.join("/usr/share/applications", application.id)) return false;
   return ["/usr/local/bin/forge-system-surface", "/usr/local/bin/forge-session-control"].includes(application.executable);
 }
 class ForgeOsService {
@@ -9530,7 +9660,7 @@ class ForgeOsService {
     const discovered = /* @__PURE__ */ new Map();
     for (const directory of applicationDirectories(this.environment)) for (const file of (await readdir(directory).catch(() => [])).filter((entry) => entry.endsWith(".desktop")).sort()) {
       if (discovered.has(file)) continue;
-      const desktopFile = path__default.join(directory, file);
+      const desktopFile = path__default.posix.join(directory, file);
       const parsed = parseDesktopEntry(await readFile(desktopFile, "utf8").catch(() => ""), desktopFile);
       if (parsed) discovered.set(file, parsed);
     }
@@ -9749,8 +9879,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "212b13248782996f76a0fd3baf576ed7d5ecb39c",
-    buildDate: "2026-08-25T04:10:06.792Z",
+    commit: "8f55c75fdeff9e2b7229d3a89cad067ea6c24508",
+    buildDate: "2026-08-26T02:25:22.749Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,

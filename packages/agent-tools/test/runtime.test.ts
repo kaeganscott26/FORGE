@@ -2,7 +2,7 @@ import { chmod, mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/pro
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { boundedToolEvidence, ToolRouter, createToolRegistry, parseStructuredToolFallback, resolveContainedPath, unifiedDiff, type AuditRecord, type ProviderToolCall } from '../src';
+import { boundedToolEvidence, ToolRouter, createToolRegistry, normalizeCommandLine, parseStructuredToolFallback, resolveContainedPath, unifiedDiff, type AuditRecord, type ProviderToolCall } from '../src';
 
 const fakeGit = { status: async () => ({ branch: 'main', ahead: 0, behind: 0, files: [], head: null }), branches: async () => [], log: async () => [], diff: async () => ({ files: [] }), stage: async () => undefined, unstage: async () => undefined, commit: async () => ({ hash: '1' }), pull: async () => undefined, push: async () => undefined } as any;
 const fakeShell = { run: async () => ({ stdout: '', stderr: '', exitCode: 0, signal: null, timedOut: false, cancelled: false, truncated: false }), cancel: () => true } as any;
@@ -11,6 +11,51 @@ const fakeBrowser = { enabled: () => true, open: async (url: string) => ({ url, 
 const fakeTasks = { get: async () => ({}), create: async () => ({}), resume: async () => ({}), pause: async () => ({}), cancel: async () => ({}), checkpoint: async () => ({}), generateHandoff: async () => ({}), startBackground: async () => ({}) } as any;
 
 describe('agent tool runtime', () => {
+  describe('shell command normalization', () => {
+    it('normalizes a single executable with no arguments', () => {
+      expect(normalizeCommandLine('hermes')).toEqual({ command: 'hermes', args: [] });
+    });
+
+    it('normalizes an executable with multiple arguments', () => {
+      expect(normalizeCommandLine('hermes acp --help')).toEqual({ command: 'hermes', args: ['acp', '--help'] });
+    });
+
+    it('passes normalized executable and argv separately through ToolRouter and the audit record', async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'forge-normalized-shell-'));
+      const records: AuditRecord[] = [];
+      let received: unknown;
+      const shell = { ...fakeShell, run: async (input: unknown) => { received = input; return { executable: 'hermes', argv: ['acp', '--help'], cwd: root, stdout: 'usage: hermes acp', stderr: '', exitCode: 0, signal: null, timedOut: false, cancelled: false, truncated: false }; } };
+      const router = new ToolRouter({ git: fakeGit, shell, web: fakeWeb, audit: { appendAction: async (record) => { records.push(record); }, listActions: async () => records }, dirtyPaths: () => new Set() });
+      const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+      const outcome = await router.request({ id: 'normalized-shell', name: 'shell.run', provider: 'test', arguments: { command: 'hermes acp --help', expectedOutcome: 'help output' } }, context);
+      expect(received).toMatchObject({ command: 'hermes', args: ['acp', '--help'] });
+      expect(outcome.request.input).toMatchObject({ command: 'hermes', args: ['acp', '--help'] });
+      expect(records.at(-1)).toMatchObject({ sanitizedInputs: { command: 'hermes', args: ['acp', '--help'] }, exitCode: 0, result: { output: { executable: 'hermes', argv: ['acp', '--help'], cwd: root, stdout: 'usage: hermes acp', exitCode: 0 } } });
+    });
+
+    it('preserves a quoted argument containing spaces as one argv entry', () => {
+      expect(normalizeCommandLine('printf "%s\\n" "hello world"')).toEqual({ command: 'printf', args: ['%s\\n', 'hello world'] });
+    });
+
+    it.each([
+      ['an && chain', 'which hermes && hermes --version'],
+      ['a pipe', 'printf shell-ok | cat'],
+      ['a redirect', 'printf shell-ok > result.txt'],
+      ['an unquoted glob', 'sha256sum *.iso']
+    ])('routes %s through bash -lc', (_name, script) => {
+      expect(normalizeCommandLine(script)).toEqual({ command: 'bash', args: ['-lc', script] });
+    });
+
+    it('rejects a malformed one-entry command array before the shell executor runs', async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'forge-malformed-shell-'));
+      let executed = false;
+      const router = new ToolRouter({ git: fakeGit, shell: { ...fakeShell, run: async () => { executed = true; return fakeShell.run(); } }, web: fakeWeb, audit: { appendAction: async () => undefined, listActions: async () => [] }, dirtyPaths: () => new Set() });
+      const context = { workspaceId: 'workspace-1', workspaceRoot: root, conversationId: 'conversation-1', modelId: 'test-model' };
+      await expect(router.request({ id: 'malformed-shell', name: 'shell.run', provider: 'test', arguments: ['hermes acp --help'] }, context)).rejects.toThrow(/Executable and arguments must be separate/);
+      expect(executed).toBe(false);
+    });
+  });
+
   it('defines every tool with schemas, timeout, audit, cancellation, and boundary metadata', () => {
     const registry = createToolRegistry(); const definitions = registry.list();
     expect(definitions.map((entry) => entry.name)).toContain('shell.run');

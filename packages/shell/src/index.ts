@@ -28,7 +28,7 @@ function validSessionVariable(name: string, value: string): boolean {
 export interface ShellRunInput {
   command: string;
   args: string[];
-  workingDirectory: string;
+  workingDirectory?: string;
   timeoutMs: number;
   environment?: Record<string, string>;
   environmentAllowlist?: string[];
@@ -57,6 +57,9 @@ function assertNetworkProfile(input: ShellRunInput): void {
 }
 
 export interface ShellRunOutput {
+  executable: string;
+  argv: string[];
+  cwd: string;
   stdout: string;
   stderr: string;
   exitCode: number | null;
@@ -68,15 +71,32 @@ export interface ShellRunOutput {
 
 export interface BackgroundShellRunOutput { requestId: string; pid: number; outputPath: string; startedAt: number; }
 
-export async function resolveWorkspacePath(workspaceRoot: string, requested = '.'): Promise<string> {
-  if (path.isAbsolute(requested)) throw new Error('Absolute paths require a separate, explicitly approved policy.');
-  const root = await fs.realpath(workspaceRoot);
-  const candidate = path.resolve(root, requested);
-  const resolved = await fs.realpath(candidate);
+export async function resolveWorkspacePath(workspaceRoot: string, requested?: string): Promise<string> {
+  const selected = requested?.trim() || '.';
+  if (path.isAbsolute(selected)) throw new Error('Absolute paths require a separate, explicitly approved policy.');
+  let root: string;
+  try { root = await fs.realpath(workspaceRoot); }
+  catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new Error(`Workspace root does not exist: ${workspaceRoot}`);
+    throw error;
+  }
+  const candidate = path.resolve(root, selected);
+  let resolved: string;
+  try { resolved = await fs.realpath(candidate); }
+  catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new Error(`cwd does not exist: ${selected}`);
+    throw error;
+  }
   if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw new Error('Working directory escapes the active workspace.');
   const stat = await fs.stat(resolved);
   if (!stat.isDirectory()) throw new Error('Working directory must be a directory.');
   return resolved;
+}
+
+function assertCanonicalExecutable(command: string, args: readonly string[]): void {
+  if (!command.trim() || command.includes('\0')) throw new Error('A valid executable is required.');
+  if (/\s/.test(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
+  if (args.some((argument) => argument.includes('\0'))) throw new Error('Shell arguments may not contain null bytes.');
 }
 
 export function filteredEnvironment(requested: Record<string, string> = {}, allowlist: string[] = []): NodeJS.ProcessEnv {
@@ -139,10 +159,9 @@ export class ShellService {
   async run(input: ShellRunInput, requestId: string = randomUUID()): Promise<ShellRunOutput> {
     const root = this.workspaceRoot();
     if (!root) throw new Error('Open a workspace before running a shell tool.');
-    if (!input.command.trim() || input.command.includes('\0')) throw new Error('A valid executable is required.');
-    if (input.args.some((argument) => argument.includes('\0'))) throw new Error('Shell arguments may not contain null bytes.');
+    assertCanonicalExecutable(input.command, input.args);
     assertNetworkProfile(input);
-    const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.');
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory);
     const timeoutMs = Math.min(Math.max(input.timeoutMs, 100), 10 * 60_000);
     const environment = filteredEnvironment(input.environment, input.environmentAllowlist);
 
@@ -175,17 +194,17 @@ export class ShellService {
       child.once('close', (code, signal) => {
         clearTimeout(timer); this.running.delete(requestId);
         cancelled = cancelled || this.cancelled.has(requestId); this.cancelled.delete(requestId);
-        if (!settled) { settled = true; resolve({ stdout, stderr, exitCode: code, signal, timedOut, cancelled, truncated }); }
+        if (!settled) { settled = true; resolve({ executable: input.command, argv: [...input.args], cwd, stdout, stderr, exitCode: code, signal, timedOut, cancelled, truncated }); }
       });
     });
   }
 
   async startBackground(input: ShellRunInput, outputPath: string, requestId: string = randomUUID()): Promise<BackgroundShellRunOutput> {
     const root = this.workspaceRoot(); if (!root) throw new Error('Open a workspace before running a background shell task.');
-    if (!input.command.trim() || input.command.includes('\0') || input.args.some((argument) => argument.includes('\0'))) throw new Error('A valid executable and null-free arguments are required.');
+    assertCanonicalExecutable(input.command, input.args);
     assertNetworkProfile(input);
     if (!outputPath || path.isAbsolute(outputPath) || outputPath.split(/[\\/]/).includes('..')) throw new Error('Background output path must be workspace-relative.');
-    const cwd = await resolveWorkspacePath(root, input.workingDirectory || '.'); const realRoot = await fs.realpath(root); const requestedOutput = path.resolve(root, outputPath);
+    const cwd = await resolveWorkspacePath(root, input.workingDirectory); const realRoot = await fs.realpath(root); const requestedOutput = path.resolve(root, outputPath);
     if (requestedOutput === path.resolve(root) || !requestedOutput.startsWith(`${path.resolve(root)}${path.sep}`)) throw new Error('Background output path escapes the active workspace.');
     await fs.mkdir(path.dirname(requestedOutput), { recursive: true }); const realParent = await fs.realpath(path.dirname(requestedOutput));
     if (realParent !== realRoot && !realParent.startsWith(`${realRoot}${path.sep}`)) throw new Error('Background output path resolves outside the active workspace.');

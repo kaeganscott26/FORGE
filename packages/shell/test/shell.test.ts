@@ -65,6 +65,29 @@ describe('shell and terminal services', () => {
     expect(timeout.timedOut).toBe(true);
   });
 
+  it('uses a validated workspace root as the default cwd', async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'forge-default-cwd-'))); const service = new ShellService(() => root);
+    const output = await service.run({ command: process.execPath, args: ['-e', 'process.stdout.write(process.cwd())'], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'default cwd' });
+    expect(output).toMatchObject({ executable: process.execPath, argv: ['-e', 'process.stdout.write(process.cwd())'], cwd: root, stdout: root, exitCode: 0 });
+  });
+
+  it('reports a missing explicitly requested cwd before spawn', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-missing-cwd-')); const service = new ShellService(() => root);
+    await expect(service.run({ command: 'definitely-missing-executable', args: [], workingDirectory: 'missing-directory', timeoutMs: 2_000, reason: 'test', expectedOutcome: 'missing cwd' })).rejects.toThrow('cwd does not exist: missing-directory');
+  });
+
+  it('rejects a collapsed executable and argument string before spawn', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-collapsed-executable-')); const service = new ShellService(() => root);
+    await expect(service.run({ command: 'hermes acp --help', args: [], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'rejected input' })).rejects.toThrow(/Executable and arguments must be separate/);
+  });
+
+  it('executes an explicitly valid bash -lc command', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-bash-lc-')); const service = new ShellService(() => root);
+    const script = 'echo shell-ok && printf "%s\\n" verified';
+    const output = await service.run({ command: 'bash', args: ['-lc', script], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'verified shell output' });
+    expect(output).toMatchObject({ executable: 'bash', argv: ['-lc', script], cwd: await realpath(root), stdout: 'shell-ok\nverified\n', stderr: '', exitCode: 0 });
+  });
+
   it('requires an explicit network profile for known network-capable executables', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-shell-profile-')); const service = new ShellService(() => root);
     await expect(service.run({ command: 'npm', args: ['install'], workingDirectory: '.', timeoutMs: 2_000, reason: 'test', expectedOutcome: 'dependencies' })).rejects.toThrow(/network profile/);
