@@ -25,10 +25,12 @@ import {
 } from '@forge/ipc';
 
 type Row = Record<string, unknown>;
+type SqlJs = Awaited<ReturnType<typeof initSqlJs>>;
 const id = (): string => randomUUID();
 const CURRENT_SCHEMA_VERSION = 11;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
+const MAX_PROJECT_OBSERVATIONS = 2_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
 const STEP_STATUSES = new Set<TaskStepStatus>(['pending', 'running', 'waiting', 'blocked', 'failed', 'skipped', 'completed']);
 
@@ -132,6 +134,7 @@ export function normalizeWorkspaceLayout(value?: Partial<WorkspaceLayout> | null
 
 export class StorageService {
   private db: Database | null = null;
+  private sql: SqlJs | null = null;
   private filePath: string | null = null;
   private rootPath: string | null = null;
   private persistQueue: Promise<void> = Promise.resolve();
@@ -142,12 +145,34 @@ export class StorageService {
     this.filePath = path.join(directory, 'metadata.sqlite');
     this.rootPath = rootPath;
     const SQL = await initSqlJs();
+    this.sql = SQL;
     const bytes = await fs.readFile(this.filePath).catch(() => null);
-    this.db = bytes ? new SQL.Database(bytes) : new SQL.Database();
+    if (bytes) {
+      try { this.db = openHealthyDatabase(SQL, bytes); }
+      catch (primaryError) {
+        const backupPath = `${this.filePath}.backup`;
+        const backupBytes = await fs.readFile(backupPath).catch(() => null);
+        if (!backupBytes) throw malformedDatabaseError(this.filePath, primaryError);
+        try { this.db = openHealthyDatabase(SQL, backupBytes); }
+        catch (backupError) { throw malformedDatabaseError(this.filePath, primaryError, backupError); }
+        const preservedPath = `${this.filePath}.corrupt-${Date.now()}`;
+        const recoveryTemporary = `${this.filePath}.${id()}.tmp`;
+        await fs.copyFile(this.filePath, preservedPath);
+        try {
+          await writeSyncedFile(recoveryTemporary, backupBytes);
+          await fs.rename(recoveryTemporary, this.filePath);
+        } catch (error) {
+          await fs.rm(recoveryTemporary, { force: true }).catch(() => undefined);
+          throw error;
+        }
+        console.warn(`Recovered malformed workspace database from ${backupPath}; preserved original at ${preservedPath}.`);
+      }
+    } else this.db = new SQL.Database();
     this.db.run('PRAGMA foreign_keys = ON');
     this.createSchema();
     await this.ensureProject();
     await this.migrateLegacyConversations();
+    if (this.pruneProjectObservations()) this.db.run('VACUUM');
     this.db.run(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     await this.persist();
   }
@@ -156,6 +181,7 @@ export class StorageService {
     await this.persist();
     this.db?.close();
     this.db = null;
+    this.sql = null;
     this.filePath = null;
     this.rootPath = null;
   }
@@ -593,6 +619,9 @@ export class StorageService {
     this.ready().run('BEGIN');
     try {
       this.ready().run('INSERT INTO project_observations (id, project_id, kind, timestamp, payload) VALUES (?, ?, ?, ?, ?)', [observation.id, workspaceId, kind, timestamp, JSON.stringify(observation.payload)]);
+      this.ready().run(`DELETE FROM project_observations WHERE project_id = ? AND id NOT IN (
+        SELECT id FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+      )`, [workspaceId, workspaceId, MAX_PROJECT_OBSERVATIONS]);
       this.ready().run(`INSERT INTO project_context_state (project_id, invalidated_at, invalidation_reasons, updated_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(project_id) DO UPDATE SET invalidated_at = excluded.invalidated_at, invalidation_reasons = excluded.invalidation_reasons, updated_at = excluded.updated_at`, [workspaceId, timestamp, JSON.stringify([kind]), timestamp]);
       this.ready().run('UPDATE projects SET updated_at = ? WHERE id = ?', [timestamp, workspaceId]);
@@ -942,14 +971,72 @@ export class StorageService {
 
   private one(sql: string, params: SqlValue[] = []): Row | undefined { return this.all(sql, params)[0]; }
   private ready(): Database { if (!this.db) throw new Error('Storage is not initialized.'); return this.db; }
+  private pruneProjectObservations(): boolean {
+    const projectId = this.one('SELECT id FROM projects WHERE root_path = ?', [this.rootPath])?.id;
+    if (!projectId) return false;
+    const count = Number(this.one('SELECT COUNT(*) AS count FROM project_observations WHERE project_id = ?', [String(projectId)])?.count ?? 0);
+    if (count <= MAX_PROJECT_OBSERVATIONS) return false;
+    this.ready().run(`DELETE FROM project_observations WHERE project_id = ? AND id NOT IN (
+      SELECT id FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+    )`, [String(projectId), String(projectId), MAX_PROJECT_OBSERVATIONS]);
+    return true;
+  }
   private async persist(): Promise<void> {
-    if (!this.db || !this.filePath) return;
+    if (!this.db || !this.filePath || !this.sql) return;
     const destination = this.filePath; const bytes = this.db.export(); const temporary = `${destination}.${id()}.tmp`;
+    const backup = `${destination}.backup`; const backupTemporary = `${backup}.${id()}.tmp`; const SQL = this.sql;
     const operation = this.persistQueue.then(async () => {
-      try { await fs.writeFile(temporary, bytes, { flag: 'wx' }); await fs.rename(temporary, destination); }
-      catch (error) { await fs.rm(temporary, { force: true }).catch(() => undefined); throw error; }
+      try {
+        await writeSyncedFile(temporary, bytes);
+        const written = await fs.readFile(temporary);
+        const verification = openHealthyDatabase(SQL, written);
+        verification.close();
+        if (await fs.stat(destination).then(() => true).catch(() => false)) {
+          await fs.link(destination, backupTemporary).catch(() => fs.copyFile(destination, backupTemporary));
+          await fs.rm(backup, { force: true });
+          await fs.rename(backupTemporary, backup);
+        }
+        await fs.rename(temporary, destination);
+        await syncDirectory(path.dirname(destination));
+      }
+      catch (error) {
+        await Promise.all([temporary, backupTemporary].map((entry) => fs.rm(entry, { force: true }).catch(() => undefined)));
+        throw error;
+      }
     });
     this.persistQueue = operation.catch(() => undefined);
     await operation;
   }
+}
+
+function openHealthyDatabase(SQL: SqlJs, bytes: Uint8Array): Database {
+  const database = new SQL.Database(bytes);
+  try {
+    const result = database.exec('PRAGMA quick_check');
+    const messages = result[0]?.values.flat().map(String) ?? [];
+    if (messages.length !== 1 || messages[0] !== 'ok') throw new Error(messages[0] || 'SQLite quick check returned no result.');
+    return database;
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+}
+
+function malformedDatabaseError(filePath: string, primaryError: unknown, backupError?: unknown): Error {
+  const detail = primaryError instanceof Error ? primaryError.message : String(primaryError);
+  const backupDetail = backupError === undefined ? 'No last-known-good backup exists.' : `The backup is also invalid: ${backupError instanceof Error ? backupError.message : String(backupError)}`;
+  return new Error(`Workspace database is malformed: ${filePath}. ${backupDetail} The original was not changed. SQLite reported: ${detail}`);
+}
+
+async function writeSyncedFile(filePath: string, bytes: Uint8Array): Promise<void> {
+  const handle = await fs.open(filePath, 'wx');
+  try { await handle.writeFile(bytes); await handle.sync(); }
+  finally { await handle.close(); }
+}
+
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await fs.open(directory, 'r').catch(() => null);
+  if (!handle) return;
+  try { await handle.sync().catch(() => undefined); }
+  finally { await handle.close(); }
 }

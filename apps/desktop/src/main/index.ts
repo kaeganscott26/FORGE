@@ -20,6 +20,7 @@ import { validateExternalUrl, WebService } from '@forge/web';
 import { ForgeLiveService, isLoopbackUrl } from '@forge/forge-live';
 import { TaskRuntime } from '@forge/tasks';
 import { createNativeAgentRuntime } from './native-agent-runtime';
+import { eventForChannel } from './runtime-events';
 import { ForgeOsService } from '@forge/os-integration';
 import { HermesRuntimeDetector, discoverSkills, platformCapabilities, resolveAgentRuntime, skillRootsForWorkspace } from '@forge/agent-runtime';
 
@@ -114,16 +115,6 @@ async function emitRuntimeEvent(type: RuntimeEventType, payload?: Record<string,
   if (!workspaceId) return;
   const event = { type, workspaceId, occurredAt: Date.now(), payload };
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send('runtime.event', event);
-}
-
-function eventForChannel(channel: IPCChannel): RuntimeEventType | null {
-  if (['file.write', 'file.create', 'file.delete', 'file.rename', 'file.copy'].includes(channel)) return 'file.changed';
-  if (['git.stage', 'git.unstage', 'git.commit', 'git.pull', 'git.push'].includes(channel)) return 'git.changed';
-  if (channel.startsWith('tasks.')) return 'task.changed';
-  if (channel.startsWith('agent.memories')) return 'memory.changed';
-  if (channel.startsWith('terminal.')) return 'terminal.changed';
-  if (channel === IPC_CHANNELS.workspaceOpen || channel === IPC_CHANNELS.workspaceOpenHome) return 'workspace.changed';
-  return null;
 }
 
 function register<C extends IPCChannel>(channel: C, action: (request: IPCRequestMap[C]) => Promise<IPCResponseMap[C]>): void {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StorageService } from '../src';
@@ -201,6 +201,29 @@ describe('workspace-owned conversation storage', () => {
     expect(observation.payload).toEqual({ paths: ['src/app.ts'], authorization: '[REDACTED]' });
     expect((await service.listProjectObservations())[0]).toMatchObject({ id: observation.id, kind: 'file.changed' });
     await service.close();
+  });
+
+  it('bounds durable project observations to prevent unbounded database rewrites', async () => {
+    const service = await storage(); const workspaceId = await service.workspaceId(); const database = (service as any).ready();
+    database.run('BEGIN');
+    for (let index = 0; index < 2_100; index += 1) database.run('INSERT INTO project_observations VALUES (?, ?, ?, ?, ?)', [`observation-${index}`, workspaceId, 'terminal.input', index, '{}']);
+    database.run('COMMIT');
+    const latest = await service.recordProjectObservation('file.changed', { path: 'src/app.ts' });
+    expect(database.exec('SELECT COUNT(*) FROM project_observations')[0].values[0][0]).toBe(2_000);
+    expect(database.exec('SELECT COUNT(*) FROM project_observations WHERE id = ?', [latest.id])[0].values[0][0]).toBe(1);
+    await service.close();
+  });
+
+  it('restores a malformed primary database from its verified last-known-good backup', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-storage-recovery-')); temporaryDirectories.push(directory);
+    const first = new StorageService(); await first.init(directory); await first.createMemory('note', 'Retained', 'Recovered content'); await first.close();
+    const databasePath = join(directory, '.forge', 'metadata.sqlite');
+    expect((await readFile(`${databasePath}.backup`)).byteLength).toBeGreaterThan(0);
+    await writeFile(databasePath, 'not a sqlite database');
+    const recovered = new StorageService(); await recovered.init(directory);
+    expect(await recovered.listMemories()).toMatchObject([{ title: 'Retained', content: 'Recovered content' }]);
+    expect((await readdir(join(directory, '.forge'))).some((name) => name.startsWith('metadata.sqlite.corrupt-'))).toBe(true);
+    await recovered.close();
   });
 
   it('migrates, deduplicates, supersedes, and reopens semantic records without mixing dimensions', async () => {

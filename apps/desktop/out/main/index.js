@@ -2104,7 +2104,13 @@ const IPC_CHANNELS = {
   settingsTestGithub: "settings.test.github",
   settingsModelsList: "settings.models.list",
   settingsModelValidate: "settings.model.validate",
+  settingsEmbeddingModelsList: "settings.embedding.models.list",
+  settingsEmbeddingModelValidate: "settings.embedding.model.validate",
   settingsRuntimeStatus: "settings.runtime.status",
+  settingsPlatformCapabilities: "settings.platform.capabilities",
+  semanticIndexStatus: "semantic.index.status",
+  semanticIndexRebuild: "semantic.index.rebuild",
+  contextHealthGet: "context.health.get",
   agentSkillsList: "agent.skills.list",
   agentAsk: "agent.ask",
   agentExplainProject: "agent.explainProject",
@@ -2458,7 +2464,7 @@ class WorkspaceService extends EventEmitter {
     return candidate;
   }
 }
-const bounded = (value) => JSON.parse(JSON.stringify(value).slice(0, 15e5));
+const bounded$1 = (value) => JSON.parse(JSON.stringify(value).slice(0, 15e5));
 class GitHubService {
   constructor(origin, credentials, requestImpl = fetch) {
     this.origin = origin;
@@ -2547,7 +2553,7 @@ class GitHubService {
     const response = await this.requestImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}${path2}`, { method, headers: { Accept: "application/vnd.github+json", "User-Agent": "FORGE-desktop", ...credentials ? { Authorization: `Bearer ${credentials.token}` } : {}, ...body === void 0 ? {} : { "Content-Type": "application/json" } }, body: body === void 0 ? void 0 : JSON.stringify(body) });
     if (!response.ok) throw new Error(`GitHub API request failed (${response.status}).`);
     if (response.status === 204) return { success: true };
-    return bounded(await response.json());
+    return bounded$1(await response.json());
   }
   async repository() {
     const origin = await this.origin();
@@ -2704,9 +2710,10 @@ function parseDiff(text) {
   return { files };
 }
 const id = () => randomUUID();
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 const MAX_MEMORY_CONTENT_CHARS = 2e5;
 const MAX_MEMORY_METADATA_CHARS = 1e5;
+const MAX_PROJECT_OBSERVATIONS = 2e3;
 const TASK_STATUSES = /* @__PURE__ */ new Set(["draft", "ready", "running", "waiting", "blocked", "paused", "failed", "cancelled", "completed"]);
 const STEP_STATUSES = /* @__PURE__ */ new Set(["pending", "running", "waiting", "blocked", "failed", "skipped", "completed"]);
 function normalizeTaskDraft(input) {
@@ -2749,6 +2756,7 @@ function normalizeWorkspaceLayout(value) {
 }
 class StorageService {
   db = null;
+  sql = null;
   filePath = null;
   rootPath = null;
   persistQueue = Promise.resolve();
@@ -2758,12 +2766,38 @@ class StorageService {
     this.filePath = path.join(directory, "metadata.sqlite");
     this.rootPath = rootPath;
     const SQL = await initSqlJs();
+    this.sql = SQL;
     const bytes = await promises.readFile(this.filePath).catch(() => null);
-    this.db = bytes ? new SQL.Database(bytes) : new SQL.Database();
+    if (bytes) {
+      try {
+        this.db = openHealthyDatabase(SQL, bytes);
+      } catch (primaryError) {
+        const backupPath2 = `${this.filePath}.backup`;
+        const backupBytes = await promises.readFile(backupPath2).catch(() => null);
+        if (!backupBytes) throw malformedDatabaseError(this.filePath, primaryError);
+        try {
+          this.db = openHealthyDatabase(SQL, backupBytes);
+        } catch (backupError) {
+          throw malformedDatabaseError(this.filePath, primaryError, backupError);
+        }
+        const preservedPath = `${this.filePath}.corrupt-${Date.now()}`;
+        const recoveryTemporary = `${this.filePath}.${id()}.tmp`;
+        await promises.copyFile(this.filePath, preservedPath);
+        try {
+          await writeSyncedFile(recoveryTemporary, backupBytes);
+          await promises.rename(recoveryTemporary, this.filePath);
+        } catch (error) {
+          await promises.rm(recoveryTemporary, { force: true }).catch(() => void 0);
+          throw error;
+        }
+        console.warn(`Recovered malformed workspace database from ${backupPath2}; preserved original at ${preservedPath}.`);
+      }
+    } else this.db = new SQL.Database();
     this.db.run("PRAGMA foreign_keys = ON");
     this.createSchema();
     await this.ensureProject();
     await this.migrateLegacyConversations();
+    if (this.pruneProjectObservations()) this.db.run("VACUUM");
     this.db.run(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
     await this.persist();
   }
@@ -2771,6 +2805,7 @@ class StorageService {
     await this.persist();
     this.db?.close();
     this.db = null;
+    this.sql = null;
     this.filePath = null;
     this.rootPath = null;
   }
@@ -3209,6 +3244,9 @@ class StorageService {
     this.ready().run("BEGIN");
     try {
       this.ready().run("INSERT INTO project_observations (id, project_id, kind, timestamp, payload) VALUES (?, ?, ?, ?, ?)", [observation.id, workspaceId, kind, timestamp, JSON.stringify(observation.payload)]);
+      this.ready().run(`DELETE FROM project_observations WHERE project_id = ? AND id NOT IN (
+        SELECT id FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+      )`, [workspaceId, workspaceId, MAX_PROJECT_OBSERVATIONS]);
       this.ready().run(`INSERT INTO project_context_state (project_id, invalidated_at, invalidation_reasons, updated_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(project_id) DO UPDATE SET invalidated_at = excluded.invalidated_at, invalidation_reasons = excluded.invalidation_reasons, updated_at = excluded.updated_at`, [workspaceId, timestamp, JSON.stringify([kind]), timestamp]);
       this.ready().run("UPDATE projects SET updated_at = ? WHERE id = ?", [timestamp, workspaceId]);
@@ -3223,6 +3261,83 @@ class StorageService {
   async listProjectObservations(limit = 40) {
     const workspaceId = await this.projectId();
     return this.all("SELECT * FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?", [workspaceId, Math.min(Math.max(limit, 1), 200)]).map((row) => ({ id: String(row.id), workspaceId: String(row.project_id), kind: String(row.kind), timestamp: Number(row.timestamp), payload: parseJson(row.payload, null) }));
+  }
+  async semanticRecords(options = {}) {
+    const clauses = ["project_id = ?"];
+    const params = [await this.projectId()];
+    if (options.sourceType) {
+      clauses.push("source_type = ?");
+      params.push(options.sourceType);
+    }
+    if (options.sourceId) {
+      clauses.push("source_id = ?");
+      params.push(options.sourceId);
+    }
+    if (options.embeddingModel) {
+      clauses.push("embedding_model = ?");
+      params.push(options.embeddingModel);
+    }
+    if (!options.includeSuperseded) clauses.push("lifecycle != 'superseded'");
+    params.push(Math.min(Math.max(options.limit ?? 2e4, 1), 5e4));
+    return this.all(`SELECT * FROM semantic_records WHERE ${clauses.join(" AND ")} ORDER BY updated_at DESC LIMIT ?`, params).map((row) => this.semanticRecordFromRow(row));
+  }
+  async upsertSemanticRecord(input) {
+    const projectId = await this.projectId();
+    const now = Date.now();
+    const identical = this.one("SELECT * FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND chunk_index = ? AND content_hash = ? AND embedding_model = ?", [projectId, input.sourceType, input.sourceId, input.chunkIndex, input.contentHash, input.embeddingModel]);
+    if (identical) {
+      this.ready().run("UPDATE semantic_records SET source_uri = ?, source_revision = ?, line_start = ?, line_end = ?, last_verified_at = ?, authority_score = ?, lifecycle = CASE WHEN lifecycle = 'superseded' THEN 'active' ELSE lifecycle END, metadata_json = ? WHERE id = ?", [input.sourceUri ?? null, input.sourceRevision, input.lineStart ?? null, input.lineEnd ?? null, now, input.authorityScore, JSON.stringify(sanitizeTaskData(input.metadata)), String(identical.id)]);
+      await this.persist();
+      return { record: this.semanticRecordFromRow(this.one("SELECT * FROM semantic_records WHERE id = ?", [String(identical.id)])), embedded: false };
+    }
+    const recordId = input.id || id();
+    this.ready().run(`INSERT INTO semantic_records (id, project_id, source_type, source_id, source_uri, source_revision, chunk_index, line_start, line_end, content_hash, text, embedding_json, embedding_model, embedding_dimensions, created_at, updated_at, last_verified_at, last_used_at, usage_count, authority_score, lifecycle, superseded_by, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [recordId, projectId, input.sourceType, input.sourceId, input.sourceUri ?? null, input.sourceRevision, input.chunkIndex, input.lineStart ?? null, input.lineEnd ?? null, input.contentHash, input.text, JSON.stringify(input.embedding), input.embeddingModel, input.embeddingDimensions, input.createdAt ?? now, input.updatedAt ?? now, input.lastVerifiedAt ?? now, input.lastUsedAt ?? null, input.usageCount ?? 0, input.authorityScore, input.lifecycle, input.supersededBy ?? null, JSON.stringify(sanitizeTaskData(input.metadata))]);
+    await this.persist();
+    return { record: this.semanticRecordFromRow(this.one("SELECT * FROM semantic_records WHERE id = ?", [recordId])), embedded: true };
+  }
+  async supersedeSemanticSource(sourceType, sourceId, sourceRevision, replacementIds) {
+    const projectId = await this.projectId();
+    const current = this.all("SELECT id FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND source_revision != ? AND lifecycle != 'superseded'", [projectId, sourceType, sourceId, sourceRevision]);
+    for (const row of current) this.ready().run("UPDATE semantic_records SET lifecycle = 'superseded', superseded_by = ?, updated_at = ? WHERE id = ?", [replacementIds[0] ?? null, Date.now(), String(row.id)]);
+    if (current.length) await this.persist();
+    return current.length;
+  }
+  async updateSemanticLifecycle(now = Date.now()) {
+    const projectId = await this.projectId();
+    this.ready().run("UPDATE semantic_records SET lifecycle = CASE WHEN lifecycle IN ('superseded','archived') THEN lifecycle WHEN ? - last_verified_at > 15552000000 THEN 'stale' WHEN ? - last_verified_at > 5184000000 THEN 'aging' ELSE 'active' END WHERE project_id = ?", [now, now, projectId]);
+    const changed = this.ready().getRowsModified();
+    if (changed) await this.persist();
+    return changed;
+  }
+  async markSemanticRecordsUsed(ids, successful = false) {
+    if (!ids.length) return;
+    const projectId = await this.projectId();
+    const increment = successful ? 2 : 1;
+    for (const recordId of [...new Set(ids)]) this.ready().run("UPDATE semantic_records SET last_used_at = ?, usage_count = MIN(1000, usage_count + ?) WHERE id = ? AND project_id = ?", [Date.now(), increment, recordId, projectId]);
+    await this.persist();
+  }
+  async clearSemanticIndex() {
+    const projectId = await this.projectId();
+    const count = Number(this.one("SELECT COUNT(*) AS count FROM semantic_records WHERE project_id = ?", [projectId])?.count ?? 0);
+    this.ready().run("DELETE FROM semantic_records WHERE project_id = ?", [projectId]);
+    this.ready().run("INSERT INTO semantic_index_state (project_id, state, indexed_records, active_records, stale_records, updated_at) VALUES (?, 'empty', 0, 0, 0, ?) ON CONFLICT(project_id) DO UPDATE SET state = 'empty', embedding_model = NULL, embedding_dimensions = NULL, indexed_records = 0, active_records = 0, stale_records = 0, last_indexed_at = NULL, last_error = NULL, updated_at = excluded.updated_at", [projectId, Date.now()]);
+    await this.persist();
+    return { deleted: count };
+  }
+  async setSemanticIndexState(update) {
+    const projectId = await this.projectId();
+    const counts = this.one("SELECT COUNT(*) AS total, SUM(CASE WHEN lifecycle IN ('active','aging') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN lifecycle = 'stale' THEN 1 ELSE 0 END) AS stale FROM semantic_records WHERE project_id = ?", [projectId]);
+    this.ready().run(`INSERT INTO semantic_index_state (project_id, state, embedding_model, embedding_dimensions, indexed_records, active_records, stale_records, last_indexed_at, last_error, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET state = excluded.state, embedding_model = COALESCE(excluded.embedding_model, embedding_model), embedding_dimensions = COALESCE(excluded.embedding_dimensions, embedding_dimensions), indexed_records = excluded.indexed_records, active_records = excluded.active_records, stale_records = excluded.stale_records, last_indexed_at = COALESCE(excluded.last_indexed_at, last_indexed_at), last_error = excluded.last_error, updated_at = excluded.updated_at`, [projectId, update.state, update.embeddingModel ?? null, update.embeddingDimensions ?? null, Number(counts?.total ?? 0), Number(counts?.active ?? 0), Number(counts?.stale ?? 0), update.lastIndexedAt ?? null, update.lastError ?? null, Date.now()]);
+    await this.persist();
+    return this.semanticIndexStatus();
+  }
+  async semanticIndexStatus() {
+    const projectId = await this.projectId();
+    const row = this.one("SELECT * FROM semantic_index_state WHERE project_id = ?", [projectId]);
+    if (!row) return { schemaVersion: CURRENT_SCHEMA_VERSION, state: "empty", indexedRecords: 0, activeRecords: 0, staleRecords: 0 };
+    return { schemaVersion: CURRENT_SCHEMA_VERSION, state: String(row.state), embeddingModel: row.embedding_model ? String(row.embedding_model) : void 0, embeddingDimensions: row.embedding_dimensions === null ? void 0 : Number(row.embedding_dimensions), indexedRecords: Number(row.indexed_records), activeRecords: Number(row.active_records), staleRecords: Number(row.stale_records), lastIndexedAt: row.last_indexed_at === null ? void 0 : Number(row.last_indexed_at), lastError: row.last_error ? String(row.last_error) : void 0 };
   }
   async appendAction(record) {
     const projectId = await this.projectId();
@@ -3294,6 +3409,8 @@ class StorageService {
       CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS semantic_records (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_uri TEXT, source_revision TEXT NOT NULL, chunk_index INTEGER NOT NULL, line_start INTEGER, line_end INTEGER, content_hash TEXT NOT NULL, text TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_model TEXT NOT NULL, embedding_dimensions INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER NOT NULL, last_used_at INTEGER, usage_count INTEGER NOT NULL DEFAULT 0, authority_score REAL NOT NULL DEFAULT 0.5, lifecycle TEXT NOT NULL DEFAULT 'active', superseded_by TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE, FOREIGN KEY(superseded_by) REFERENCES semantic_records(id) ON DELETE SET NULL, UNIQUE(project_id, source_type, source_id, chunk_index, content_hash, embedding_model));
+      CREATE TABLE IF NOT EXISTS semantic_index_state (project_id TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'empty', embedding_model TEXT, embedding_dimensions INTEGER, indexed_records INTEGER NOT NULL DEFAULT 0, active_records INTEGER NOT NULL DEFAULT 0, stale_records INTEGER NOT NULL DEFAULT 0, last_indexed_at INTEGER, last_error TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
     const columns = this.all("PRAGMA table_info(conversations)").map((row) => String(row.name));
     if (!columns.includes("thread_id")) this.ready().run("ALTER TABLE conversations ADD COLUMN thread_id TEXT");
@@ -3372,7 +3489,14 @@ class StorageService {
       CREATE INDEX IF NOT EXISTS idx_task_external_project_type ON task_external_references(project_id, type, external_id);
       CREATE INDEX IF NOT EXISTS idx_browser_bookmarks_project_created ON browser_bookmarks(project_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_browser_history_project_visited ON browser_history(project_id, visited_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_project_model ON semantic_records(project_id, embedding_model, embedding_dimensions);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_source_revision ON semantic_records(project_id, source_type, source_id, source_revision);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_lifecycle ON semantic_records(project_id, lifecycle, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_content_hash ON semantic_records(project_id, content_hash, embedding_model);
     `);
+  }
+  semanticRecordFromRow(row) {
+    return { id: String(row.id), workspaceId: String(row.project_id), sourceType: String(row.source_type), sourceId: String(row.source_id), sourceUri: row.source_uri ? String(row.source_uri) : void 0, sourceRevision: String(row.source_revision), chunkIndex: Number(row.chunk_index), lineStart: row.line_start === null ? void 0 : Number(row.line_start), lineEnd: row.line_end === null ? void 0 : Number(row.line_end), contentHash: String(row.content_hash), text: String(row.text), embedding: parseJson(row.embedding_json, []), embeddingModel: String(row.embedding_model), embeddingDimensions: Number(row.embedding_dimensions), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastVerifiedAt: Number(row.last_verified_at), lastUsedAt: row.last_used_at === null ? void 0 : Number(row.last_used_at), usageCount: Number(row.usage_count), authorityScore: Number(row.authority_score), lifecycle: String(row.lifecycle), supersededBy: row.superseded_by ? String(row.superseded_by) : void 0, metadata: parseJson(row.metadata_json, {}) };
   }
   async ensureProject() {
     if (!this.rootPath) throw new Error("Storage is not initialized.");
@@ -3554,22 +3678,79 @@ class StorageService {
     if (!this.db) throw new Error("Storage is not initialized.");
     return this.db;
   }
+  pruneProjectObservations() {
+    const projectId = this.one("SELECT id FROM projects WHERE root_path = ?", [this.rootPath])?.id;
+    if (!projectId) return false;
+    const count = Number(this.one("SELECT COUNT(*) AS count FROM project_observations WHERE project_id = ?", [String(projectId)])?.count ?? 0);
+    if (count <= MAX_PROJECT_OBSERVATIONS) return false;
+    this.ready().run(`DELETE FROM project_observations WHERE project_id = ? AND id NOT IN (
+      SELECT id FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?
+    )`, [String(projectId), String(projectId), MAX_PROJECT_OBSERVATIONS]);
+    return true;
+  }
   async persist() {
-    if (!this.db || !this.filePath) return;
+    if (!this.db || !this.filePath || !this.sql) return;
     const destination = this.filePath;
     const bytes = this.db.export();
     const temporary = `${destination}.${id()}.tmp`;
+    const backup = `${destination}.backup`;
+    const backupTemporary = `${backup}.${id()}.tmp`;
+    const SQL = this.sql;
     const operation = this.persistQueue.then(async () => {
       try {
-        await promises.writeFile(temporary, bytes, { flag: "wx" });
+        await writeSyncedFile(temporary, bytes);
+        const written = await promises.readFile(temporary);
+        const verification = openHealthyDatabase(SQL, written);
+        verification.close();
+        if (await promises.stat(destination).then(() => true).catch(() => false)) {
+          await promises.link(destination, backupTemporary).catch(() => promises.copyFile(destination, backupTemporary));
+          await promises.rm(backup, { force: true });
+          await promises.rename(backupTemporary, backup);
+        }
         await promises.rename(temporary, destination);
+        await syncDirectory(path.dirname(destination));
       } catch (error) {
-        await promises.rm(temporary, { force: true }).catch(() => void 0);
+        await Promise.all([temporary, backupTemporary].map((entry) => promises.rm(entry, { force: true }).catch(() => void 0)));
         throw error;
       }
     });
     this.persistQueue = operation.catch(() => void 0);
     await operation;
+  }
+}
+function openHealthyDatabase(SQL, bytes) {
+  const database = new SQL.Database(bytes);
+  try {
+    const result = database.exec("PRAGMA quick_check");
+    const messages = result[0]?.values.flat().map(String) ?? [];
+    if (messages.length !== 1 || messages[0] !== "ok") throw new Error(messages[0] || "SQLite quick check returned no result.");
+    return database;
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+}
+function malformedDatabaseError(filePath, primaryError, backupError) {
+  const detail = primaryError instanceof Error ? primaryError.message : String(primaryError);
+  const backupDetail = backupError === void 0 ? "No last-known-good backup exists." : `The backup is also invalid: ${backupError instanceof Error ? backupError.message : String(backupError)}`;
+  return new Error(`Workspace database is malformed: ${filePath}. ${backupDetail} The original was not changed. SQLite reported: ${detail}`);
+}
+async function writeSyncedFile(filePath, bytes) {
+  const handle = await promises.open(filePath, "wx");
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function syncDirectory(directory) {
+  const handle = await promises.open(directory, "r").catch(() => null);
+  if (!handle) return;
+  try {
+    await handle.sync().catch(() => void 0);
+  } finally {
+    await handle.close();
   }
 }
 const DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
@@ -3884,7 +4065,362 @@ class Agent {
     return this.ask("Review the current repository changes against its documented architecture and project goals.", history);
   }
 }
-const DEFAULT_CONTEXT_BUDGET = 28e3;
+const DEFAULT_EMBEDDING_BASE_URL = "http://127.0.0.1:11434/v1";
+const DEFAULT_EMBEDDING_MODEL = "qwen3-embedding:0.6b";
+const SEMANTIC_SCHEMA_VERSION = 1;
+const DEFAULT_CONTEXT_TOKEN_BUDGET = 32e3;
+const SOURCE_AUTHORITY = Object.freeze({
+  runtime: 1,
+  configuration: 0.96,
+  source: 0.94,
+  git: 0.9,
+  documentation: 0.82,
+  architecture: 0.86,
+  task: 0.78,
+  decision: 0.8,
+  memory: 0.72,
+  tool: 0.7,
+  event: 0.66,
+  conversation: 0.48
+});
+const GOVERNOR_WEIGHTS = Object.freeze({
+  semanticRelevance: 0.45,
+  taskRelationship: 0.12,
+  authority: 0.16,
+  freshness: 0.12,
+  priorUsefulness: 0.05,
+  stalenessPenalty: 0.08,
+  redundancyPenalty: 0.08,
+  supersessionPenalty: 0.2
+});
+const SENSITIVE_SEGMENTS = /* @__PURE__ */ new Set([".env", ".ssh", ".gnupg", "credentials", "secrets", "private", "keychain", "keystore"]);
+const GENERATED_SEGMENTS = /* @__PURE__ */ new Set([".git", ".forge", "node_modules", "dist", "dist_electron", "out", "build", "release", "coverage", ".cache", "__pycache__", "archiso-work", "archiso-profile", "airootfs"]);
+const INDEXABLE_EXTENSIONS = /* @__PURE__ */ new Set(["md", "markdown", "txt", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "rs", "go", "java", "kt", "swift", "c", "h", "cpp", "hpp", "css", "scss", "html", "json", "jsonc", "yaml", "yml", "toml", "ini", "conf", "sh", "bash", "zsh", "fish", "ps1", "sql", "graphql"]);
+function normalizePortablePath(value) {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+function isSensitiveOrGeneratedPath(value) {
+  const normalized = normalizePortablePath(value).toLowerCase();
+  const parts = normalized.split("/");
+  const name = parts.at(-1) ?? "";
+  return parts.some((part) => GENERATED_SEGMENTS.has(part) || SENSITIVE_SEGMENTS.has(part)) || /^\.env(?:\.|$)/i.test(name) || /(?:^|[._-])(?:secrets?|credentials?|passwords?|private[_-]?key|api[_-]?key)(?:[._-]|$)/i.test(name) || /\.(?:pem|p12|pfx|key|kdbx)$/i.test(name);
+}
+function containsLikelySecret(text) {
+  return /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-|github_pat_|gh[oprsu]_)[A-Za-z0-9_-]{16,}|\b(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"]?[^\s'"]{8,}/i.test(text);
+}
+function hash(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+function bounded(value) {
+  return Math.max(0, Math.min(1, value));
+}
+function estimateTokens(value) {
+  return Math.max(1, Math.ceil(value.length / 4));
+}
+function chunkText(text, options = {}) {
+  const normalized = text.replace(/\r\n?/g, "\n").trim();
+  if (!normalized) return [];
+  const maximum = Math.max(400, options.maxChars ?? 2400);
+  const overlapLines = Math.max(0, Math.min(12, options.overlapLines ?? 3));
+  const lines = normalized.split("\n");
+  const chunks = [];
+  let start = 0;
+  while (start < lines.length) {
+    let end = start;
+    let characters = 0;
+    let preferredEnd = -1;
+    while (end < lines.length) {
+      const addition = lines[end].length + (end > start ? 1 : 0);
+      if (characters + addition > maximum && end > start) break;
+      characters += addition;
+      end += 1;
+      if (end < lines.length && (/^#{1,6}\s/.test(lines[end]) || lines[end - 1].trim() === "" && characters >= maximum * 0.55)) preferredEnd = end;
+    }
+    if (preferredEnd > start && end < lines.length) end = preferredEnd;
+    const value = lines.slice(start, end).join("\n").trim();
+    if (value) chunks.push({ index: chunks.length, text: value, lineStart: start + 1, lineEnd: end, contentHash: hash(value) });
+    if (end >= lines.length) break;
+    start = Math.max(start + 1, end - overlapLines);
+  }
+  return chunks;
+}
+function cosineSimilarity(left, right) {
+  if (!left.length || left.length !== right.length) return -1;
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    dot += left[index] * right[index];
+    leftNorm += left[index] ** 2;
+    rightNorm += right[index] ** 2;
+  }
+  return leftNorm && rightNorm ? dot / Math.sqrt(leftNorm * rightNorm) : -1;
+}
+class OpenAICompatibleEmbeddingClient {
+  constructor(configuration, events) {
+    this.configuration = configuration;
+    this.events = events;
+  }
+  async listModels(overrides = {}) {
+    const config = { ...await this.configuration(), ...overrides };
+    const response = await this.request(`${normalizeBaseUrl(config.baseUrl)}/models`, config);
+    if (!response.ok) throw new Error(`Embedding provider model discovery failed (${response.status}).`);
+    const payload = await response.json();
+    const models = payload.data ?? payload.models?.map((entry) => ({ id: entry.id ?? entry.name, owned_by: entry.owned_by })) ?? [];
+    return models.filter((entry) => typeof entry.id === "string").map((entry) => ({ id: entry.id, ownedBy: typeof entry.owned_by === "string" ? entry.owned_by : void 0 })).sort((a, b) => a.id.localeCompare(b.id));
+  }
+  async validateModel(model, overrides = {}) {
+    const config = { ...await this.configuration(), ...overrides };
+    const selected = (model || config.model).trim();
+    const models = await this.listModels(config);
+    const exists2 = models.some((entry) => entry.id === selected);
+    const dimensions = exists2 ? (await this.embed(["FORGE semantic context model validation"], { ...config, model: selected }))[0]?.length : void 0;
+    return { model: selected, exists: exists2, availableCount: models.length, dimensions };
+  }
+  async embed(input, overrides = {}) {
+    if (!input.length) return [];
+    const config = { ...await this.configuration(), ...overrides };
+    if (!config.enabled && overrides.enabled === void 0) throw new Error("Semantic context is disabled.");
+    await this.events?.({ type: "semantic.embedding.request", payload: { model: config.model, batchSize: input.length } });
+    const response = await this.request(`${normalizeBaseUrl(config.baseUrl)}/embeddings`, config, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: config.model, input, encoding_format: "float" }) });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500).replace(/[\r\n]+/g, " ");
+      throw new Error(`Embedding request failed (${response.status}): ${detail || response.statusText}`);
+    }
+    const payload = await response.json();
+    if (!Array.isArray(payload.data)) throw new Error("Embedding provider returned an invalid response.");
+    const ordered = [...payload.data].sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+    const vectors = ordered.map((entry) => Array.isArray(entry.embedding) ? entry.embedding.map(Number) : []);
+    if (vectors.length !== input.length || vectors.some((vector) => !vector.length || vector.some((value) => !Number.isFinite(value)))) throw new Error("Embedding provider returned malformed or incomplete vectors.");
+    const dimensions = vectors[0].length;
+    if (vectors.some((vector) => vector.length !== dimensions)) throw new Error("Embedding provider returned inconsistent vector dimensions.");
+    return vectors;
+  }
+  async request(url, configuration, init = {}) {
+    const parsed = new URL(url);
+    const loopback = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase());
+    if (parsed.protocol === "http:" && !loopback) throw new Error("Remote embedding endpoints must use HTTPS.");
+    if (!configuration.apiKey && !loopback) throw new Error("A securely stored API key is required for remote embedding endpoints.");
+    return fetch(url, { ...init, signal: AbortSignal.timeout(2e4), headers: configuration.apiKey ? { ...init.headers, Authorization: `Bearer ${configuration.apiKey}` } : init.headers });
+  }
+}
+function normalizeBaseUrl(value) {
+  const parsed = new URL(value.trim());
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Embedding API base URL is invalid.");
+  const loopback = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname.toLowerCase());
+  if (parsed.protocol === "http:" && !loopback) throw new Error("Remote embedding endpoints must use HTTPS.");
+  return parsed.toString().replace(/\/$/, "");
+}
+function flattenFiles(nodes) {
+  return nodes.flatMap((node) => [...node.type === "file" ? [{ path: normalizePortablePath(node.relativePath || node.path), extension: node.extension }] : [], ...flattenFiles(node.children ?? [])]);
+}
+function authorityFor(sourceType) {
+  return SOURCE_AUTHORITY[sourceType] ?? 0.6;
+}
+class SemanticIndexer {
+  constructor(workspace2, storage2, embeddings, configuration, events) {
+    this.workspace = workspace2;
+    this.storage = storage2;
+    this.embeddings = embeddings;
+    this.configuration = configuration;
+    this.events = events;
+  }
+  running = null;
+  incremental() {
+    return this.run(false);
+  }
+  rebuild() {
+    return this.run(true);
+  }
+  async indexSource(source) {
+    if (!source.text.trim() || containsLikelySecret(source.text)) return { records: [], embedded: 0 };
+    const config = await this.configuration();
+    const chunks = chunkText(source.text);
+    const existing = await this.storage.semanticRecords({ sourceType: source.sourceType, sourceId: source.sourceId, embeddingModel: config.model, includeSuperseded: true });
+    const existingByHash = new Map(existing.map((record) => [`${record.chunkIndex}:${record.contentHash}`, record]));
+    const missing = chunks.filter((chunk) => !existingByHash.has(`${chunk.index}:${chunk.contentHash}`));
+    const vectors = [];
+    for (let offset = 0; offset < missing.length; offset += 16) vectors.push(...await this.embeddings.embed(missing.slice(offset, offset + 16).map((chunk) => chunk.text)));
+    let vectorIndex = 0;
+    const records = [];
+    for (const chunk of chunks) {
+      const prior = existingByHash.get(`${chunk.index}:${chunk.contentHash}`);
+      const embedding = prior?.embedding ?? vectors[vectorIndex++];
+      const result = await this.storage.upsertSemanticRecord({ id: prior?.id ?? randomUUID(), sourceType: source.sourceType, sourceId: source.sourceId, sourceUri: source.sourceUri, sourceRevision: source.revision, chunkIndex: chunk.index, lineStart: chunk.lineStart, lineEnd: chunk.lineEnd, contentHash: chunk.contentHash, text: chunk.text, embedding, embeddingModel: config.model, embeddingDimensions: embedding.length, authorityScore: source.authority ?? authorityFor(source.sourceType), lifecycle: "active", metadata: { schemaVersion: SEMANTIC_SCHEMA_VERSION, ...source.metadata } });
+      records.push(result.record);
+    }
+    await this.storage.supersedeSemanticSource(source.sourceType, source.sourceId, source.revision, records.map((record) => record.id));
+    return { records, embedded: missing.length };
+  }
+  run(rebuild) {
+    if (this.running) return this.running;
+    this.running = this.execute(rebuild).finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
+  async execute(rebuild) {
+    const config = await this.configuration();
+    if (!config.enabled) return this.storage.setSemanticIndexState({ state: "degraded", lastError: "Semantic context is disabled." });
+    const prior = await this.storage.semanticIndexStatus();
+    if (!rebuild && prior.embeddingModel && prior.embeddingModel !== config.model) return this.storage.setSemanticIndexState({ state: "rebuild-required", lastError: `Embedding model changed from ${prior.embeddingModel} to ${config.model}. Rebuild the semantic index before retrieval.` });
+    await this.events?.({ type: "semantic.index.start", payload: { rebuild, model: config.model } });
+    await this.storage.setSemanticIndexState({ state: "indexing", embeddingModel: config.model });
+    try {
+      if (rebuild) await this.storage.clearSemanticIndex();
+      const files = flattenFiles(await this.workspace.list("", { recursive: true, maxEntries: 2e4, showHidden: false })).filter((file) => !isSensitiveOrGeneratedPath(file.path) && INDEXABLE_EXTENSIONS.has((file.extension ?? path.extname(file.path).slice(1)).toLowerCase()));
+      let embedded = 0;
+      for (const file of files) {
+        const metadata = await this.workspace.metadata(file.path).catch(() => null);
+        if (!metadata?.text || metadata.size > 1e6) continue;
+        const content = await this.workspace.readFile(file.path).catch(() => null);
+        if (!content || content.binary || containsLikelySecret(content.content)) continue;
+        const result = await this.indexSource({ sourceType: classifySource(file.path), sourceId: file.path, sourceUri: file.path, revision: `${metadata.modifiedAt}:${metadata.size}:${hash(content.content)}`, text: content.content, metadata: { path: file.path, modifiedAt: metadata.modifiedAt } });
+        embedded += result.embedded;
+      }
+      embedded += await this.indexDurableState();
+      await this.storage.updateSemanticLifecycle();
+      const records = await this.storage.semanticRecords({ embeddingModel: config.model });
+      const dimensions = records[0]?.embeddingDimensions;
+      if (records.some((record) => record.embeddingDimensions !== dimensions)) return this.storage.setSemanticIndexState({ state: "rebuild-required", embeddingModel: config.model, lastError: "The semantic index contains incompatible embedding dimensions." });
+      const status = await this.storage.setSemanticIndexState({ state: "ready", embeddingModel: config.model, embeddingDimensions: dimensions, lastIndexedAt: Date.now() });
+      await this.events?.({ type: "semantic.index.complete", payload: { indexedRecords: status.indexedRecords, newlyEmbedded: embedded, model: config.model, dimensions } });
+      return status;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.events?.({ type: "semantic.index.error", payload: { message } });
+      return this.storage.setSemanticIndexState({ state: "degraded", embeddingModel: config.model, lastError: message });
+    }
+  }
+  async indexDurableState() {
+    let embedded = 0;
+    const project = await this.storage.dashboard();
+    for (const task of project?.tasks ?? []) {
+      const text = [task.title, task.description, task.progressSummary, task.resumeInstructions, ...task.steps.map((step) => `${step.name}: ${step.purpose}`), ...task.events.map((event) => event.summary), ...task.checkpoints.map((checkpoint) => checkpoint.summary)].filter(Boolean).join("\n");
+      embedded += (await this.indexSource({ sourceType: "task", sourceId: task.id, revision: String(task.updatedAt), text, authority: 0.78, metadata: { taskId: task.id, branch: task.associatedBranch, status: task.status } })).embedded;
+    }
+    for (const memory of await this.storage.listMemories(500, 2e5)) embedded += (await this.indexSource({ sourceType: memory.type, sourceId: memory.id, revision: String(memory.updatedAt), text: `${memory.title ?? ""}
+${memory.content}`, metadata: { memoryId: memory.id } })).embedded;
+    for (const thread of await this.storage.listConversationThreads()) {
+      const messages = await this.storage.listConversationMessages(thread.id);
+      const text = messages.slice(-20).map((message) => `${message.role}: ${message.content}`).join("\n\n");
+      embedded += (await this.indexSource({ sourceType: "conversation", sourceId: thread.id, revision: String(thread.updatedAt), text, metadata: { conversationId: thread.id } })).embedded;
+    }
+    for (const action of await this.storage.listActions()) {
+      const text = `${action.toolName}: ${action.resultSummary}`;
+      embedded += (await this.indexSource({ sourceType: "tool", sourceId: action.id, revision: String(action.timestamp), text, metadata: { taskId: action.taskId, success: action.success, toolName: action.toolName } })).embedded;
+    }
+    return embedded;
+  }
+}
+function classifySource(filePath) {
+  const normalized = filePath.toLowerCase();
+  const extension = path.extname(normalized);
+  if (/\.(?:json|jsonc|ya?ml|toml|ini|conf)$/.test(extension) || /(?:^|\/)package\.json$/.test(normalized)) return "configuration";
+  if (/\.(?:md|markdown|txt)$/.test(extension)) return /(?:architecture|decision|adr)/.test(normalized) ? "architecture" : "documentation";
+  return "source";
+}
+function lexicalSimilarity(query, text) {
+  const tokens = new Set(query.toLowerCase().split(/[^a-z0-9_]+/).filter((token) => token.length > 2));
+  if (!tokens.size) return 0;
+  const haystack = text.toLowerCase();
+  let matched = 0;
+  for (const token of tokens) if (haystack.includes(token)) matched += 1;
+  return matched / tokens.size;
+}
+function relationship(record, options) {
+  const metadata = record.metadata;
+  if (options.taskId && metadata.taskId === options.taskId) return 1;
+  if (options.paths?.some((candidate) => normalizePortablePath(String(metadata.path ?? record.sourceUri ?? "")) === normalizePortablePath(candidate))) return 0.9;
+  if (options.branch && metadata.branch === options.branch) return 0.75;
+  return 0.35;
+}
+function freshness(record, now) {
+  const ageDays = Math.max(0, now - record.lastVerifiedAt) / 864e5;
+  return Math.exp(-ageDays / 120);
+}
+function lifecyclePenalty(lifecycle, relevance) {
+  if (lifecycle === "superseded") return relevance >= 0.92 ? 0.25 : 1;
+  if (lifecycle === "archived") return relevance >= 0.9 ? 0.18 : 0.55;
+  if (lifecycle === "stale") return relevance >= 0.88 ? 0.04 : 0.32;
+  if (lifecycle === "aging") return 0.08;
+  return 0;
+}
+class SemanticContextService {
+  constructor(storage2, embeddings, configuration, events) {
+    this.storage = storage2;
+    this.embeddings = embeddings;
+    this.configuration = configuration;
+    this.events = events;
+  }
+  lastHealth = { tokensUsed: 0, tokenBudget: DEFAULT_CONTEXT_TOKEN_BUDGET, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true, fallbackReason: "No context packet has been assembled." };
+  health() {
+    return structuredClone(this.lastHealth);
+  }
+  async searchSemanticContext(query, options = {}) {
+    const config = await this.configuration();
+    const records = await this.storage.semanticRecords({ embeddingModel: config.model, includeSuperseded: true, limit: 5e4 });
+    const filtered = options.sourceTypes?.length ? records.filter((record) => options.sourceTypes.includes(record.sourceType)) : records;
+    let queryVector;
+    let fallbackReason;
+    if (config.enabled) {
+      try {
+        queryVector = (await this.embeddings.embed([query]))[0];
+      } catch (error) {
+        fallbackReason = error instanceof Error ? error.message : String(error);
+        await this.events?.({ type: "semantic.fallback", payload: { reason: fallbackReason } });
+      }
+    } else fallbackReason = "Semantic context is disabled.";
+    const compatible = queryVector ? filtered.filter((record) => record.embeddingDimensions === queryVector.length) : filtered;
+    if (queryVector && compatible.length !== filtered.length) fallbackReason = "Incompatible vector dimensions were excluded; rebuild the semantic index.";
+    const now = Date.now();
+    const candidates = compatible.map((record) => {
+      const semanticRelevance = bounded(queryVector ? (cosineSimilarity(queryVector, record.embedding) + 1) / 2 : lexicalSimilarity(query, `${record.sourceId} ${record.text}`));
+      const taskRelationship = relationship(record, options);
+      const authority = bounded(record.authorityScore);
+      const fresh = freshness(record, now);
+      const priorUsefulness = Math.min(1, Math.log1p(record.usageCount) / Math.log(16));
+      const stalenessPenalty = lifecyclePenalty(record.lifecycle, semanticRelevance);
+      const supersessionPenalty = record.lifecycle === "superseded" && semanticRelevance < 0.92 ? 1 : 0;
+      const raw = semanticRelevance * GOVERNOR_WEIGHTS.semanticRelevance + taskRelationship * GOVERNOR_WEIGHTS.taskRelationship + authority * GOVERNOR_WEIGHTS.authority * (options.authorityPreference ?? 1) + fresh * GOVERNOR_WEIGHTS.freshness * (options.freshnessPreference ?? 1) + priorUsefulness * GOVERNOR_WEIGHTS.priorUsefulness - stalenessPenalty * GOVERNOR_WEIGHTS.stalenessPenalty - supersessionPenalty * GOVERNOR_WEIGHTS.supersessionPenalty;
+      return { record, score: { semanticRelevance, taskRelationship, authority, freshness: fresh, priorUsefulness, stalenessPenalty, redundancyPenalty: 0, supersessionPenalty, finalScore: bounded(raw) }, estimatedTokens: estimateTokens(record.text), retrievalMode: queryVector ? "semantic" : "lexical" };
+    }).filter((candidate) => candidate.score.finalScore >= (options.minimumScore ?? 0.2) && candidate.score.supersessionPenalty < 1).sort((a, b) => b.score.finalScore - a.score.finalScore || b.record.lastVerifiedAt - a.record.lastVerifiedAt);
+    const deduplicated = [];
+    let redundant = 0;
+    for (const candidate of candidates) {
+      const duplicate = deduplicated.some((selected2) => selected2.record.contentHash === candidate.record.contentHash || selected2.record.sourceId === candidate.record.sourceId && rangesOverlap(selected2.record, candidate.record) || selected2.record.embeddingDimensions === candidate.record.embeddingDimensions && cosineSimilarity(selected2.record.embedding, candidate.record.embedding) > 0.985);
+      if (duplicate) {
+        candidate.score.redundancyPenalty = 1;
+        redundant += 1;
+        continue;
+      }
+      deduplicated.push(candidate);
+    }
+    const tokenBudget = options.tokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
+    const selected = [];
+    let used = 0;
+    for (const candidate of deduplicated) {
+      if (selected.length >= (options.limit ?? 20) || used + candidate.estimatedTokens > tokenBudget) continue;
+      selected.push(candidate);
+      used += candidate.estimatedTokens;
+    }
+    this.lastHealth = metricsFor(selected, filtered.length, tokenBudget, redundant, Boolean(fallbackReason), fallbackReason);
+    await this.events?.({ type: "semantic.retrieval", payload: { candidateCount: filtered.length, selectedCount: selected.length, tokensUsed: used, fallback: Boolean(fallbackReason) } });
+    return { candidates: selected, considered: filtered.length, degraded: Boolean(fallbackReason), fallbackReason };
+  }
+}
+function rangesOverlap(left, right) {
+  if (left.lineStart === void 0 || left.lineEnd === void 0 || right.lineStart === void 0 || right.lineEnd === void 0) return false;
+  const intersection = Math.max(0, Math.min(left.lineEnd, right.lineEnd) - Math.max(left.lineStart, right.lineStart) + 1);
+  return intersection / Math.max(1, Math.min(left.lineEnd - left.lineStart + 1, right.lineEnd - right.lineStart + 1)) > 0.6;
+}
+function metricsFor(selected, considered, tokenBudget, redundant, degraded, fallbackReason) {
+  const average = (selector) => selected.length ? selected.reduce((sum, candidate) => sum + selector(candidate), 0) / selected.length : 0;
+  const sourceDistribution = {};
+  for (const candidate of selected) sourceDistribution[candidate.record.sourceType] = (sourceDistribution[candidate.record.sourceType] ?? 0) + 1;
+  return { tokensUsed: selected.reduce((sum, candidate) => sum + candidate.estimatedTokens, 0), tokenBudget, relevance: average((candidate) => candidate.score.semanticRelevance), freshness: average((candidate) => candidate.score.freshness), authority: average((candidate) => candidate.score.authority), redundancy: considered ? redundant / considered : 0, staleRatio: selected.length ? selected.filter((candidate) => ["stale", "archived", "superseded"].includes(candidate.record.lifecycle)).length / selected.length : 0, recordsConsidered: considered, recordsSelected: selected.length, sourceDistribution, degraded, fallbackReason };
+}
+const DEFAULT_CONTEXT_BUDGET = DEFAULT_CONTEXT_TOKEN_BUDGET * 4;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 class PriorityContextBudgetPolicy {
   select(artifacts, characterBudget) {
@@ -3911,11 +4447,19 @@ class PriorityContextBudgetPolicy {
   }
 }
 class WorkspaceContextEngine {
-  constructor(workspace2, git2, storage2, budgetPolicy = new PriorityContextBudgetPolicy()) {
+  constructor(workspace2, git2, storage2, budgetPolicy = new PriorityContextBudgetPolicy(), semantic) {
     this.workspace = workspace2;
     this.git = git2;
     this.storage = storage2;
     this.budgetPolicy = budgetPolicy;
+    this.semantic = semantic;
+  }
+  tokenBudget = DEFAULT_CONTEXT_TOKEN_BUDGET;
+  useSemanticContext(service) {
+    this.semantic = service;
+  }
+  setTokenBudget(value) {
+    this.tokenBudget = Math.min(128e3, Math.max(4e3, Math.round(value)));
   }
   flattenFiles(nodes) {
     const out = [];
@@ -3994,6 +4538,15 @@ ${context.files.slice(0, 180).map((file) => `${file.type === "directory" ? "dir"
     if (context.recentCommits?.length) add({ id: "git-history", kind: "git", title: "Recent Git history", content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}`).join("\n"), priority: 86 });
     if (context.metadata) add({ id: "project-metadata", kind: "metadata", title: "Project goals and metadata", content: JSON.stringify(context.metadata, null, 2), priority: 94 });
     for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: "memory", title: memory.title || memory.type, content: memory.content, priority: memory.type === "decision" ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)), updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(" · ") ?? "Relevant durable workspace knowledge." } });
+    let metrics = this.semantic?.health() ?? { tokensUsed: 0, tokenBudget: DEFAULT_CONTEXT_TOKEN_BUDGET, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true, fallbackReason: "Semantic context has not been initialized." };
+    if (this.semantic) {
+      const retrieval = await this.semantic.searchSemanticContext(query, { limit: 24, tokenBudget: Math.floor(this.tokenBudget * 0.7) });
+      metrics = this.semantic.health();
+      for (const candidate of retrieval.candidates) {
+        const record = candidate.record;
+        add({ id: `semantic:${record.id}`, kind: semanticArtifactKind(record.sourceType), title: record.sourceUri ?? record.sourceId, path: record.sourceUri, content: record.text, priority: Math.round(candidate.score.finalScore * 100), updatedAt: record.updatedAt, metadata: { semanticRecordId: record.id, sourceType: record.sourceType, sourceRevision: record.sourceRevision, lineStart: record.lineStart, lineEnd: record.lineEnd, lifecycle: record.lifecycle, relevance: Math.round(candidate.score.semanticRelevance * 100), authority: candidate.score.authority, freshness: candidate.score.freshness, finalScore: candidate.score.finalScore, retrievalMode: candidate.retrievalMode, reason: `${candidate.retrievalMode} retrieval; governed for authority, freshness, task relationship, usefulness, staleness, supersession, and redundancy.` } });
+      }
+    }
     const budgeted = this.budgetPolicy.select(artifacts, characterBudget);
     const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ""}
 ${artifact.content}`).join("\n\n");
@@ -4004,12 +4557,22 @@ FORGE owns workspace intelligence: project evidence, durable memory, task state,
 
 Workspace evidence for this turn:
 ${evidence || "No workspace evidence was available."}`;
-    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length };
+    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: { ...metrics, tokensUsed: estimateTokens(systemPrompt), tokenBudget: this.tokenBudget } };
   }
   async envelope(query, memories, characterBudget) {
     const compiled = await this.assemble(query, memories, characterBudget);
     return { ...compiled, query, generatedAt: Date.now() };
   }
+}
+function semanticArtifactKind(sourceType) {
+  if (["source"].includes(sourceType)) return "source";
+  if (["configuration"].includes(sourceType)) return "configuration";
+  if (["documentation"].includes(sourceType)) return "documentation";
+  if (["architecture", "decision"].includes(sourceType)) return "architecture";
+  if (sourceType === "conversation") return "conversation";
+  if (sourceType === "git") return "git";
+  if (["memory", "note"].includes(sourceType)) return "memory";
+  return "metadata";
 }
 class WorkspaceIntelligenceService {
   constructor(context, observations) {
@@ -4035,7 +4598,7 @@ class WorkspaceIntelligenceService {
 
 ## ${artifact.title}
 ${artifact.content}` : compiled.systemPrompt;
-    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
   }
 }
 const EXCLUDED_PATH_PARTS = /* @__PURE__ */ new Set([".git", ".forge", ".obsidian", "node_modules", "dist_electron", "out", "coverage", "build", ".next", "__pycache__"]);
@@ -6436,7 +6999,13 @@ class SettingsService {
       updateChannel: normalizeUpdateChannel(this.data.updateChannel),
       agentRuntime: this.data.agentRuntime === "hermes" ? "hermes" : "native",
       hermesCommand: this.data.hermesCommand ?? "",
-      hermesEndpoint: this.data.hermesEndpoint ?? ""
+      hermesEndpoint: this.data.hermesEndpoint ?? "",
+      embeddingEnabled: this.data.embeddingEnabled !== false,
+      embeddingProvider: "openai-compatible",
+      embeddingBaseUrl: this.data.embeddingBaseUrl ?? process.env.FORGE_EMBEDDING_BASE_URL ?? DEFAULT_EMBEDDING_BASE_URL,
+      embeddingModel: this.data.embeddingModel ?? process.env.FORGE_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL,
+      embeddingApiKeyConfigured: Boolean(this.data.embeddingApiKey || process.env.FORGE_EMBEDDING_API_KEY),
+      contextTokenBudget: Math.min(128e3, Math.max(4e3, this.data.contextTokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET))
     };
   }
   async save(request) {
@@ -6452,10 +7021,17 @@ class SettingsService {
     const hermesEndpoint = request.hermesEndpoint?.trim();
     if (hermesEndpoint) this.data.hermesEndpoint = this.validateUrl(hermesEndpoint);
     else delete this.data.hermesEndpoint;
+    this.data.embeddingEnabled = request.embeddingEnabled !== false;
+    this.data.embeddingProvider = "openai-compatible";
+    this.data.embeddingBaseUrl = this.validateUrl(request.embeddingBaseUrl || DEFAULT_EMBEDDING_BASE_URL);
+    this.data.embeddingModel = request.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    this.data.contextTokenBudget = Math.min(128e3, Math.max(4e3, Math.round(request.contextTokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET)));
     if (request.clearApiKey) delete this.data.apiKey;
     else if (request.apiKey?.trim()) this.data.apiKey = await this.encrypt(request.apiKey.trim());
     if (request.clearGithubToken) delete this.data.githubToken;
     else if (request.githubToken?.trim()) this.data.githubToken = await this.encrypt(request.githubToken.trim());
+    if (request.clearEmbeddingApiKey) delete this.data.embeddingApiKey;
+    else if (request.embeddingApiKey?.trim()) this.data.embeddingApiKey = await this.encrypt(request.embeddingApiKey.trim());
     const temporaryPath = `${this.settingsPath}.tmp`;
     await promises.writeFile(temporaryPath, `${JSON.stringify(this.data, null, 2)}
 `, { mode: 384 });
@@ -6468,6 +7044,15 @@ class SettingsService {
       apiKey: overrides.apiKey?.trim() || (this.data.apiKey ? await this.decrypt(this.data.apiKey) : process.env.OPENAI_API_KEY),
       baseUrl: this.validateUrl(overrides.baseUrl || this.data.apiBaseUrl || process.env.OPENAI_BASE_URL || defaultBaseUrl),
       model: overrides.model?.trim() || this.data.apiModel || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
+    };
+  }
+  async embeddingConfiguration(overrides = {}) {
+    return {
+      enabled: overrides.enabled ?? this.data.embeddingEnabled !== false,
+      provider: "openai-compatible",
+      apiKey: overrides.apiKey?.trim() || (this.data.embeddingApiKey ? await this.decrypt(this.data.embeddingApiKey) : process.env.FORGE_EMBEDDING_API_KEY),
+      baseUrl: this.validateUrl(overrides.baseUrl || this.data.embeddingBaseUrl || process.env.FORGE_EMBEDDING_BASE_URL || DEFAULT_EMBEDDING_BASE_URL),
+      model: overrides.model?.trim() || this.data.embeddingModel || process.env.FORGE_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL
     };
   }
   async githubCredentials() {
@@ -6617,8 +7202,8 @@ async function atomicWrite(absolute, content, encoding = "utf8", mode) {
   }
 }
 async function backupPath(root, relative) {
-  const hash = createHash("sha256").update(`${Date.now()}\0${relative}`).digest("hex").slice(0, 12);
-  const destination = path__default.join(root, ".forge", "backups", `${Date.now()}-${hash}`, relative);
+  const hash2 = createHash("sha256").update(`${Date.now()}\0${relative}`).digest("hex").slice(0, 12);
+  const destination = path__default.join(root, ".forge", "backups", `${Date.now()}-${hash2}`, relative);
   await promises.mkdir(path__default.dirname(destination), { recursive: true });
   return destination;
 }
@@ -9468,7 +10053,7 @@ function taskEvidenceLink(request) {
   return directTaskLink(request.executionContext) ?? (request.toolName === "task.process.start" ? directTaskLink(request.input) : null);
 }
 function createNativeAgentRuntime(dependencies) {
-  const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2 } = dependencies;
+  const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2, resolveReasoningRuntime: resolveReasoningRuntime2 } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 6e4, 6e4), 60 * 6e4);
   const historyFor = async (conversationId) => (await storage2.listConversationMessages(conversationId)).map((entry) => ({ role: entry.role, content: entry.content }));
   const recordTaskOutcome = async (request, result) => {
@@ -9484,6 +10069,9 @@ function createNativeAgentRuntime(dependencies) {
   const runAgentTurn = async (conversationId, prompt, executionTask) => {
     await emitRuntimeEvent2?.("agent.started", { conversationId });
     try {
+      const selectedRuntime = resolveReasoningRuntime2 ? await resolveReasoningRuntime2() : { agent: agent2, provider: aiProvider2, kind: "native" };
+      const activeAgent = selectedRuntime.agent;
+      const activeProvider = selectedRuntime.provider;
       const state = await storage2.conversationState(conversationId);
       const history = await historyFor(state.activeConversationId);
       await storage2.appendConversation(state.activeConversationId, "user", prompt);
@@ -9491,7 +10079,7 @@ function createNativeAgentRuntime(dependencies) {
       const info = workspace2.info();
       if (!project || !info) throw new Error("Open a workspace before requesting agent tools.");
       const definitions = toolRouter2.providerDefinitions();
-      let turn = await agent2.askWithTools(prompt, history, definitions);
+      let turn = await activeAgent.askWithTools(prompt, history, definitions);
       const outcomes = [];
       const continuationHistory = [...history, { role: "user", content: prompt }];
       const loopGuard = new ProgressAwareLoopGuard();
@@ -9508,7 +10096,7 @@ function createNativeAgentRuntime(dependencies) {
       while (true) {
         if (Date.now() - startedAt > maxRuntimeMs) throw new Error(`Agent execution exceeded the configured ${Math.round(maxRuntimeMs / 6e4)} minute runtime budget. Progress and tool evidence were preserved for task resumption.`);
         const calls = [...turn.toolCalls];
-        const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider2.id, turn.content);
+        const fallback = calls.length ? null : parseStructuredToolFallback(activeProvider.id, turn.content);
         if (fallback) calls.push(fallback);
         if (!calls.length) {
           modelContent = turn.content;
@@ -9518,7 +10106,7 @@ function createNativeAgentRuntime(dependencies) {
         const fresh = calls.filter((call) => loopGuard.shouldRun(call, revision));
         if (!fresh.length) {
           const evidence2 = loopGuard.observedResults().join("\n\n");
-          modelContent = (await agent2.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:
+          modelContent = (await activeAgent.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:
 
 ${evidence2}`, continuationHistory)).content;
           break;
@@ -9535,15 +10123,17 @@ ${evidence2}`, continuationHistory)).content;
         }
         const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
         continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
-        turn = await agent2.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.
+        turn = await activeAgent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.
 
 ${evidence}`, continuationHistory, definitions);
       }
       const summary = outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? "succeeded" : "failed"}${result?.error ? `: ${result.error.message}` : ""}.`).join("\n");
       const content = [modelContent, summary].filter(Boolean).join("\n\n") || "FORGE received no response from the model.";
       await storage2.appendConversation(state.activeConversationId, "assistant", content);
-      await emitRuntimeEvent2?.("agent.completed", { conversationId: state.activeConversationId, toolCount: outcomes.length });
-      return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path })) };
+      const semanticRecordIds = turn.context.artifacts.map((artifact) => artifact.metadata?.semanticRecordId).filter((value) => typeof value === "string");
+      await storage2.markSemanticRecordsUsed(semanticRecordIds, outcomes.length === 0 || outcomes.every((outcome) => outcome.result?.success));
+      await emitRuntimeEvent2?.("agent.completed", { conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
+      return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: artifact.metadata?.relevance, reason: artifact.metadata?.reason })), contextHealth: turn.context.metrics };
     } catch (error) {
       await emitRuntimeEvent2?.("agent.blocked", { conversationId, message: error instanceof Error ? error.message : String(error) });
       throw error;
@@ -9560,6 +10150,37 @@ ${evidence}`, continuationHistory, definitions);
     return updated;
   };
   return { runAgentTurn, runTaskStep };
+}
+const TASK_MUTATIONS = [
+  IPC_CHANNELS.tasksCreate,
+  IPC_CHANNELS.tasksUpdate,
+  IPC_CHANNELS.tasksCreateRelease,
+  IPC_CHANNELS.tasksDelete,
+  IPC_CHANNELS.tasksPause,
+  IPC_CHANNELS.tasksResume,
+  IPC_CHANNELS.tasksCancel,
+  IPC_CHANNELS.tasksRetryStep,
+  IPC_CHANNELS.tasksHandoff
+];
+const MEMORY_MUTATIONS = [
+  IPC_CHANNELS.agentMemoriesDelete,
+  IPC_CHANNELS.agentMemoriesClear,
+  IPC_CHANNELS.agentMemoriesReindex
+];
+const TERMINAL_LIFECYCLE_MUTATIONS = [
+  IPC_CHANNELS.terminalCreate,
+  IPC_CHANNELS.terminalTerminate,
+  IPC_CHANNELS.terminalRestart,
+  IPC_CHANNELS.terminalRemove
+];
+function eventForChannel(channel) {
+  if (["file.write", "file.create", "file.delete", "file.rename", "file.copy"].includes(channel)) return "file.changed";
+  if (["git.stage", "git.unstage", "git.commit", "git.pull", "git.push"].includes(channel)) return "git.changed";
+  if (TASK_MUTATIONS.includes(channel)) return "task.changed";
+  if (MEMORY_MUTATIONS.includes(channel)) return "memory.changed";
+  if (TERMINAL_LIFECYCLE_MUTATIONS.includes(channel)) return "terminal.changed";
+  if (channel === IPC_CHANNELS.workspaceOpen || channel === IPC_CHANNELS.workspaceOpenHome) return "workspace.changed";
+  return null;
 }
 const execFileAsync = promisify(execFile$1);
 const FIELD_CODE = /^%[fFuUdDnNickvm]$/;
@@ -9706,6 +10327,18 @@ class ForgeOsService {
   }
 }
 const execFile = promisify(execFile$1);
+function normalizePlatform(value) {
+  return ["linux", "darwin", "win32"].includes(value) ? value : "other";
+}
+function hermesIntegrationMode(platform2, status) {
+  if (status?.availability !== "available") return "unavailable";
+  return normalizePlatform(platform2) === "linux" ? "acp" : status.endpointReachable ? "headless-http" : "unavailable";
+}
+function platformCapabilities(input) {
+  const platform2 = normalizePlatform(input.platform ?? process.platform);
+  const mode = hermesIntegrationMode(platform2, input.hermesStatus);
+  return { platform: platform2, nativeRuntimeAvailable: true, hermesAvailable: mode !== "unavailable", hermesIntegrationMode: mode, embeddingProviderAvailable: input.embeddingProviderAvailable, embeddingModelAvailable: input.embeddingModelAvailable, semanticIndexHealthy: input.semanticIndexHealthy, toolRouterAvailable: input.toolRouterAvailable !== false, workspaceDatabaseHealthy: input.workspaceDatabaseHealthy, appDataPath: path__default.resolve(input.appDataPath), packagedResourcePath: path__default.resolve(input.resourcePath) };
+}
 const exists = async (value) => access(value).then(() => true).catch(() => false);
 class HermesRuntimeDetector {
   async status(options = {}) {
@@ -9879,8 +10512,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "8f55c75fdeff9e2b7229d3a89cad067ea6c24508",
-    buildDate: "2026-08-26T02:25:22.749Z",
+    commit: "430eef836ac3243aa1659fb4b784a078f2ff171f",
+    buildDate: "2026-08-26T10:40:49.359Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -9890,12 +10523,30 @@ function appBuildInfo() {
 const aiProvider = new OpenAIProvider();
 const contextBuilder = new WorkspaceContextEngine(workspace, git, storage);
 const intelligence = new WorkspaceIntelligenceService(contextBuilder, storage);
+const embeddingClient = new OpenAICompatibleEmbeddingClient(() => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+const semanticContext = new SemanticContextService(storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+const semanticIndexer = new SemanticIndexer(workspace, storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+contextBuilder.useSemanticContext(semanticContext);
 const memoryService = new MemoryService(storage);
 const memoryRetriever = new MemoryRetriever(memoryService);
 const memoryIndexer = new MemoryIndexer(memoryService, workspace);
 const agent = new Agent(aiProvider, intelligence, memoryRetriever);
+const hermesProvider = new OpenAIProvider();
+hermesProvider.id = "hermes";
+const hermesAgent = new Agent(hermesProvider, intelligence, memoryRetriever);
 async function applyAISettings() {
-  aiProvider.configure(await settings.apiConfiguration());
+  const inference = await settings.apiConfiguration();
+  aiProvider.configure(inference);
+  contextBuilder.setTokenBudget(settings.publicSettings().contextTokenBudget);
+  const endpoint = settings.hermesConfiguration().endpoint;
+  if (endpoint) hermesProvider.configure({ baseUrl: endpoint, model: inference.model });
+}
+async function resolveReasoningRuntime() {
+  const publicSettings = settings.publicSettings();
+  if (publicSettings.agentRuntime !== "hermes" || !publicSettings.hermesEndpoint) return { agent, provider: aiProvider, kind: "native" };
+  const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+  const profile = resolveAgentRuntime("hermes", status, status.endpointReachable === true);
+  return profile.active === "hermes" ? { agent: hermesAgent, provider: hermesProvider, kind: "hermes" } : { agent, provider: aiProvider, kind: "native" };
 }
 async function emitRuntimeEvent(type, payload) {
   if (type === "context.invalidated") await intelligence.invalidate(String(payload?.channel ?? "runtime-event"), payload);
@@ -9903,15 +10554,6 @@ async function emitRuntimeEvent(type, payload) {
   if (!workspaceId) return;
   const event = { type, workspaceId, occurredAt: Date.now(), payload };
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send("runtime.event", event);
-}
-function eventForChannel(channel) {
-  if (["file.write", "file.create", "file.delete", "file.rename", "file.copy"].includes(channel)) return "file.changed";
-  if (["git.stage", "git.unstage", "git.commit", "git.pull", "git.push"].includes(channel)) return "git.changed";
-  if (channel.startsWith("tasks.")) return "task.changed";
-  if (channel.startsWith("agent.memories")) return "memory.changed";
-  if (channel.startsWith("terminal.")) return "terminal.changed";
-  if (channel === IPC_CHANNELS.workspaceOpen || channel === IPC_CHANNELS.workspaceOpenHome) return "workspace.changed";
-  return null;
 }
 function register(channel, action) {
   ipcMain.handle(channel, async (_event, request) => {
@@ -9921,6 +10563,7 @@ function register(channel, action) {
       if (event) {
         await emitRuntimeEvent(event, { channel });
         await emitRuntimeEvent("context.invalidated", { channel });
+        if (["file.changed", "git.changed", "task.changed", "memory.changed"].includes(event)) void semanticIndexer.incremental().then(() => emitRuntimeEvent("context.updated", { channel })).catch(() => void 0);
       }
       return { success: true, data };
     } catch (error) {
@@ -9938,9 +10581,14 @@ async function openWorkspaceAt(rootPath) {
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
+  workspace.watch();
   await refreshBrowserRecords();
+  void semanticIndexer.incremental().then(() => emitRuntimeEvent("context.updated", { reason: "workspace-indexed" })).catch(() => void 0);
   return info;
 }
+workspace.on("changed", (relativePath2) => {
+  void emitRuntimeEvent("file.changed", { path: relativePath2 }).then(() => semanticIndexer.incremental()).then(() => emitRuntimeEvent("context.updated", { path: relativePath2 })).catch(() => void 0);
+});
 function liveService() {
   const info = workspace.info();
   if (!info) throw new Error("Open a workspace before using FORGE Live.");
@@ -10192,7 +10840,7 @@ function registerHandlers() {
     const project = await storage.dashboard();
     const all = (nodes) => nodes.flatMap((node) => [node, ...node.children ? all(node.children) : []]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
+    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { ...semanticContext.health(), hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
@@ -10218,19 +10866,30 @@ function registerHandlers() {
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
   register(IPC_CHANNELS.settingsModelsList, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl })).listModels());
   register(IPC_CHANNELS.settingsModelValidate, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel })).validateModel(request.apiModel));
+  register(IPC_CHANNELS.settingsEmbeddingModelsList, async (request) => embeddingClient.listModels({ baseUrl: request.embeddingBaseUrl, apiKey: request.embeddingApiKey }));
+  register(IPC_CHANNELS.settingsEmbeddingModelValidate, async (request) => embeddingClient.validateModel(request.embeddingModel, { baseUrl: request.embeddingBaseUrl, model: request.embeddingModel, apiKey: request.embeddingApiKey, enabled: true }));
   register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
   register(IPC_CHANNELS.settingsRuntimeStatus, async () => {
     const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
-    const profile = resolveAgentRuntime(settings.publicSettings().agentRuntime, status);
+    const profile = resolveAgentRuntime(settings.publicSettings().agentRuntime, status, status.endpointReachable === true);
     return { ...status, requested: profile.requested, active: profile.active };
   });
+  register(IPC_CHANNELS.settingsPlatformCapabilities, async () => {
+    const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+    const semantic = await storage.semanticIndexStatus().catch(() => null);
+    const config = await settings.embeddingConfiguration();
+    return platformCapabilities({ platform: process.platform, appDataPath: app.getPath("userData"), resourcePath: process.resourcesPath, hermesStatus: status, embeddingProviderAvailable: config.enabled && (!semantic?.lastError || semantic.state === "ready"), embeddingModelAvailable: semantic?.state === "ready" && semantic.embeddingModel === config.model, semanticIndexHealthy: semantic?.state === "ready", workspaceDatabaseHealthy: Boolean(await storage.dashboard().catch(() => null)), toolRouterAvailable: true });
+  });
+  register(IPC_CHANNELS.semanticIndexStatus, async () => storage.semanticIndexStatus());
+  register(IPC_CHANNELS.semanticIndexRebuild, async () => semanticIndexer.rebuild());
+  register(IPC_CHANNELS.contextHealthGet, async () => semanticContext.health());
   register(IPC_CHANNELS.agentSkillsList, async () => {
     const info = workspace.info();
     if (!info) throw new Error("Open a workspace before listing skills.");
     const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
     return discoverSkills(skillRootsForWorkspace(info.rootPath, { hermesRoots: status.skillRoots }));
   });
-  const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent });
+  const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent, resolveReasoningRuntime });
   register(IPC_CHANNELS.agentAsk, async (request) => {
     if (!request.prompt.trim()) throw new Error("A prompt is required.");
     return nativeAgent.runAgentTurn(request.conversationId, request.prompt.trim());
