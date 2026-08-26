@@ -192,7 +192,7 @@ describe('workspace-owned conversation storage', () => {
     legacy.run('INSERT INTO projects VALUES (?, ?, ?, ?, ?)', ['v3-project', 'forge-v3', directory, now, now]); legacy.run('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ['legacy-task', 'v3-project', 'Legacy task', null, 'in-progress', 'high', now, now]); legacy.run('PRAGMA user_version = 3');
     await writeFile(join(directory, '.forge', 'metadata.sqlite'), legacy.export()); legacy.close();
     const service = new StorageService(); await service.init(directory); const migrated = await service.getPersistentTask('legacy-task'); expect(migrated.status).toBe('running'); expect(migrated.taskType).toBe('general'); expect(migrated.events).toEqual([]); await service.close();
-    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(10); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); verify.close();
+    const bytes = await (await import('node:fs/promises')).readFile(join(directory, '.forge', 'metadata.sqlite')); const verify = new SQL.Database(bytes); expect(verify.exec('PRAGMA user_version')[0].values[0][0]).toBe(11); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='task_events'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='browser_history'")[0].values).toHaveLength(1); expect(verify.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='semantic_records'")[0].values).toHaveLength(1); verify.close();
   });
 
   it('persists scoped project observations used to invalidate cached context', async () => {
@@ -201,6 +201,24 @@ describe('workspace-owned conversation storage', () => {
     expect(observation.payload).toEqual({ paths: ['src/app.ts'], authorization: '[REDACTED]' });
     expect((await service.listProjectObservations())[0]).toMatchObject({ id: observation.id, kind: 'file.changed' });
     await service.close();
+  });
+
+  it('migrates, deduplicates, supersedes, and reopens semantic records without mixing dimensions', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-semantic-reopen-')); temporaryDirectories.push(directory);
+    const first = new StorageService(); await first.init(directory);
+    const input = { id: 'semantic-one', sourceType: 'source', sourceId: 'src/app.ts', sourceUri: 'src/app.ts', sourceRevision: 'r1', chunkIndex: 0, lineStart: 1, lineEnd: 2, contentHash: 'hash-one', text: 'semantic context', embedding: [1, 0], embeddingModel: 'embed-a', embeddingDimensions: 2, authorityScore: 0.94, lifecycle: 'active' as const, metadata: { path: 'src/app.ts' } };
+    expect((await first.upsertSemanticRecord(input)).embedded).toBe(true);
+    expect((await first.upsertSemanticRecord(input)).embedded).toBe(false);
+    await first.setSemanticIndexState({ state: 'ready', embeddingModel: 'embed-a', embeddingDimensions: 2, lastIndexedAt: 100 });
+    await first.close();
+
+    const reopened = new StorageService(); await reopened.init(directory);
+    expect(await reopened.semanticIndexStatus()).toMatchObject({ schemaVersion: 11, state: 'ready', embeddingModel: 'embed-a', embeddingDimensions: 2, indexedRecords: 1 });
+    expect(await reopened.semanticRecords({ embeddingModel: 'embed-a' })).toMatchObject([{ id: 'semantic-one', embedding: [1, 0], sourceRevision: 'r1' }]);
+    await reopened.upsertSemanticRecord({ ...input, id: 'semantic-two', sourceRevision: 'r2', contentHash: 'hash-two', text: 'new semantic context', embedding: [0, 1] });
+    expect(await reopened.supersedeSemanticSource('source', 'src/app.ts', 'r2', ['semantic-two'])).toBe(1);
+    expect((await reopened.semanticRecords({ includeSuperseded: true })).find((entry) => entry.id === 'semantic-one')).toMatchObject({ lifecycle: 'superseded', supersededBy: 'semantic-two' });
+    await reopened.close();
   });
 
   it('isolates tasks by workspace and redacts secret-like structured fields', async () => {

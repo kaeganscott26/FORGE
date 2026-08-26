@@ -57,3 +57,4 @@ fi
 echo "Linux packaging succeeded for FORGE $version:"
 printf '  %s\n' "${appimage_artifacts[@]}" "${deb_artifacts[@]}"
 echo "  Verified node-pty: $pty_node"
+sha256sum "${appimage_artifacts[@]}" "${deb_artifacts[@]}" > "$output_directory/SHA256SUMS"

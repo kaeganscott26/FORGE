@@ -26,7 +26,7 @@ import {
 
 type Row = Record<string, unknown>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
 const TASK_STATUSES = new Set<TaskStatus>(['draft', 'ready', 'running', 'waiting', 'blocked', 'paused', 'failed', 'cancelled', 'completed']);
@@ -54,6 +54,46 @@ export interface ProjectObservation {
   kind: string;
   timestamp: number;
   payload: unknown;
+}
+
+export type SemanticLifecycle = 'active' | 'aging' | 'stale' | 'archived' | 'superseded';
+
+export interface SemanticRecord {
+  id: string;
+  workspaceId: string;
+  sourceType: string;
+  sourceId: string;
+  sourceUri?: string;
+  sourceRevision: string;
+  chunkIndex: number;
+  lineStart?: number;
+  lineEnd?: number;
+  contentHash: string;
+  text: string;
+  embedding: number[];
+  embeddingModel: string;
+  embeddingDimensions: number;
+  createdAt: number;
+  updatedAt: number;
+  lastVerifiedAt: number;
+  lastUsedAt?: number;
+  usageCount: number;
+  authorityScore: number;
+  lifecycle: SemanticLifecycle;
+  supersededBy?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SemanticIndexStatus {
+  schemaVersion: number;
+  state: 'empty' | 'ready' | 'indexing' | 'degraded' | 'rebuild-required';
+  embeddingModel?: string;
+  embeddingDimensions?: number;
+  indexedRecords: number;
+  activeRecords: number;
+  staleRecords: number;
+  lastIndexedAt?: number;
+  lastError?: string;
 }
 
 function normalizeTitle(value?: string): string {
@@ -567,6 +607,75 @@ export class StorageService {
     return this.all('SELECT * FROM project_observations WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?', [workspaceId, Math.min(Math.max(limit, 1), 200)]).map((row) => ({ id: String(row.id), workspaceId: String(row.project_id), kind: String(row.kind), timestamp: Number(row.timestamp), payload: parseJson(row.payload, null) }));
   }
 
+  async semanticRecords(options: { sourceType?: string; sourceId?: string; embeddingModel?: string; includeSuperseded?: boolean; limit?: number } = {}): Promise<SemanticRecord[]> {
+    const clauses = ['project_id = ?']; const params: SqlValue[] = [await this.projectId()];
+    if (options.sourceType) { clauses.push('source_type = ?'); params.push(options.sourceType); }
+    if (options.sourceId) { clauses.push('source_id = ?'); params.push(options.sourceId); }
+    if (options.embeddingModel) { clauses.push('embedding_model = ?'); params.push(options.embeddingModel); }
+    if (!options.includeSuperseded) clauses.push("lifecycle != 'superseded'");
+    params.push(Math.min(Math.max(options.limit ?? 20_000, 1), 50_000));
+    return this.all(`SELECT * FROM semantic_records WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC LIMIT ?`, params).map((row) => this.semanticRecordFromRow(row));
+  }
+
+  async upsertSemanticRecord(input: Omit<SemanticRecord, 'workspaceId' | 'createdAt' | 'updatedAt' | 'lastVerifiedAt' | 'lastUsedAt' | 'usageCount'> & Partial<Pick<SemanticRecord, 'createdAt' | 'updatedAt' | 'lastVerifiedAt' | 'lastUsedAt' | 'usageCount'>>): Promise<{ record: SemanticRecord; embedded: boolean }> {
+    const projectId = await this.projectId(); const now = Date.now();
+    const identical = this.one('SELECT * FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND chunk_index = ? AND content_hash = ? AND embedding_model = ?', [projectId, input.sourceType, input.sourceId, input.chunkIndex, input.contentHash, input.embeddingModel]);
+    if (identical) {
+      this.ready().run("UPDATE semantic_records SET source_uri = ?, source_revision = ?, line_start = ?, line_end = ?, last_verified_at = ?, authority_score = ?, lifecycle = CASE WHEN lifecycle = 'superseded' THEN 'active' ELSE lifecycle END, metadata_json = ? WHERE id = ?", [input.sourceUri ?? null, input.sourceRevision, input.lineStart ?? null, input.lineEnd ?? null, now, input.authorityScore, JSON.stringify(sanitizeTaskData(input.metadata)), String(identical.id)]);
+      await this.persist();
+      return { record: this.semanticRecordFromRow(this.one('SELECT * FROM semantic_records WHERE id = ?', [String(identical.id)])!), embedded: false };
+    }
+    const recordId = input.id || id();
+    this.ready().run(`INSERT INTO semantic_records (id, project_id, source_type, source_id, source_uri, source_revision, chunk_index, line_start, line_end, content_hash, text, embedding_json, embedding_model, embedding_dimensions, created_at, updated_at, last_verified_at, last_used_at, usage_count, authority_score, lifecycle, superseded_by, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [recordId, projectId, input.sourceType, input.sourceId, input.sourceUri ?? null, input.sourceRevision, input.chunkIndex, input.lineStart ?? null, input.lineEnd ?? null, input.contentHash, input.text, JSON.stringify(input.embedding), input.embeddingModel, input.embeddingDimensions, input.createdAt ?? now, input.updatedAt ?? now, input.lastVerifiedAt ?? now, input.lastUsedAt ?? null, input.usageCount ?? 0, input.authorityScore, input.lifecycle, input.supersededBy ?? null, JSON.stringify(sanitizeTaskData(input.metadata))]);
+    await this.persist();
+    return { record: this.semanticRecordFromRow(this.one('SELECT * FROM semantic_records WHERE id = ?', [recordId])!), embedded: true };
+  }
+
+  async supersedeSemanticSource(sourceType: string, sourceId: string, sourceRevision: string, replacementIds: string[]): Promise<number> {
+    const projectId = await this.projectId();
+    const current = this.all("SELECT id FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND source_revision != ? AND lifecycle != 'superseded'", [projectId, sourceType, sourceId, sourceRevision]);
+    for (const row of current) this.ready().run("UPDATE semantic_records SET lifecycle = 'superseded', superseded_by = ?, updated_at = ? WHERE id = ?", [replacementIds[0] ?? null, Date.now(), String(row.id)]);
+    if (current.length) await this.persist();
+    return current.length;
+  }
+
+  async updateSemanticLifecycle(now = Date.now()): Promise<number> {
+    const projectId = await this.projectId();
+    this.ready().run("UPDATE semantic_records SET lifecycle = CASE WHEN lifecycle IN ('superseded','archived') THEN lifecycle WHEN ? - last_verified_at > 15552000000 THEN 'stale' WHEN ? - last_verified_at > 5184000000 THEN 'aging' ELSE 'active' END WHERE project_id = ?", [now, now, projectId]);
+    const changed = this.ready().getRowsModified();
+    if (changed) await this.persist();
+    return changed;
+  }
+
+  async markSemanticRecordsUsed(ids: string[], successful = false): Promise<void> {
+    if (!ids.length) return; const projectId = await this.projectId(); const increment = successful ? 2 : 1;
+    for (const recordId of [...new Set(ids)]) this.ready().run('UPDATE semantic_records SET last_used_at = ?, usage_count = MIN(1000, usage_count + ?) WHERE id = ? AND project_id = ?', [Date.now(), increment, recordId, projectId]);
+    await this.persist();
+  }
+
+  async clearSemanticIndex(): Promise<{ deleted: number }> {
+    const projectId = await this.projectId();
+    const count = Number(this.one('SELECT COUNT(*) AS count FROM semantic_records WHERE project_id = ?', [projectId])?.count ?? 0);
+    this.ready().run('DELETE FROM semantic_records WHERE project_id = ?', [projectId]);
+    this.ready().run("INSERT INTO semantic_index_state (project_id, state, indexed_records, active_records, stale_records, updated_at) VALUES (?, 'empty', 0, 0, 0, ?) ON CONFLICT(project_id) DO UPDATE SET state = 'empty', embedding_model = NULL, embedding_dimensions = NULL, indexed_records = 0, active_records = 0, stale_records = 0, last_indexed_at = NULL, last_error = NULL, updated_at = excluded.updated_at", [projectId, Date.now()]);
+    await this.persist(); return { deleted: count };
+  }
+
+  async setSemanticIndexState(update: { state: SemanticIndexStatus['state']; embeddingModel?: string; embeddingDimensions?: number; lastIndexedAt?: number; lastError?: string }): Promise<SemanticIndexStatus> {
+    const projectId = await this.projectId();
+    const counts = this.one("SELECT COUNT(*) AS total, SUM(CASE WHEN lifecycle IN ('active','aging') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN lifecycle = 'stale' THEN 1 ELSE 0 END) AS stale FROM semantic_records WHERE project_id = ?", [projectId]);
+    this.ready().run(`INSERT INTO semantic_index_state (project_id, state, embedding_model, embedding_dimensions, indexed_records, active_records, stale_records, last_indexed_at, last_error, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET state = excluded.state, embedding_model = COALESCE(excluded.embedding_model, embedding_model), embedding_dimensions = COALESCE(excluded.embedding_dimensions, embedding_dimensions), indexed_records = excluded.indexed_records, active_records = excluded.active_records, stale_records = excluded.stale_records, last_indexed_at = COALESCE(excluded.last_indexed_at, last_indexed_at), last_error = excluded.last_error, updated_at = excluded.updated_at`, [projectId, update.state, update.embeddingModel ?? null, update.embeddingDimensions ?? null, Number(counts?.total ?? 0), Number(counts?.active ?? 0), Number(counts?.stale ?? 0), update.lastIndexedAt ?? null, update.lastError ?? null, Date.now()]);
+    await this.persist(); return this.semanticIndexStatus();
+  }
+
+  async semanticIndexStatus(): Promise<SemanticIndexStatus> {
+    const projectId = await this.projectId(); const row = this.one('SELECT * FROM semantic_index_state WHERE project_id = ?', [projectId]);
+    if (!row) return { schemaVersion: CURRENT_SCHEMA_VERSION, state: 'empty', indexedRecords: 0, activeRecords: 0, staleRecords: 0 };
+    return { schemaVersion: CURRENT_SCHEMA_VERSION, state: String(row.state) as SemanticIndexStatus['state'], embeddingModel: row.embedding_model ? String(row.embedding_model) : undefined, embeddingDimensions: row.embedding_dimensions === null ? undefined : Number(row.embedding_dimensions), indexedRecords: Number(row.indexed_records), activeRecords: Number(row.active_records), staleRecords: Number(row.stale_records), lastIndexedAt: row.last_indexed_at === null ? undefined : Number(row.last_indexed_at), lastError: row.last_error ? String(row.last_error) : undefined };
+  }
+
   async appendAction(record: StoredActionRecord): Promise<void> {
     const projectId = await this.projectId();
     if (record.workspaceId !== projectId) throw new Error('Audit record belongs to another workspace.');
@@ -610,6 +719,8 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS semantic_records (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_uri TEXT, source_revision TEXT NOT NULL, chunk_index INTEGER NOT NULL, line_start INTEGER, line_end INTEGER, content_hash TEXT NOT NULL, text TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_model TEXT NOT NULL, embedding_dimensions INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER NOT NULL, last_used_at INTEGER, usage_count INTEGER NOT NULL DEFAULT 0, authority_score REAL NOT NULL DEFAULT 0.5, lifecycle TEXT NOT NULL DEFAULT 'active', superseded_by TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE, FOREIGN KEY(superseded_by) REFERENCES semantic_records(id) ON DELETE SET NULL, UNIQUE(project_id, source_type, source_id, chunk_index, content_hash, embedding_model));
+      CREATE TABLE IF NOT EXISTS semantic_index_state (project_id TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'empty', embedding_model TEXT, embedding_dimensions INTEGER, indexed_records INTEGER NOT NULL DEFAULT 0, active_records INTEGER NOT NULL DEFAULT 0, stale_records INTEGER NOT NULL DEFAULT 0, last_indexed_at INTEGER, last_error TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
@@ -689,7 +800,15 @@ export class StorageService {
       CREATE INDEX IF NOT EXISTS idx_task_external_project_type ON task_external_references(project_id, type, external_id);
       CREATE INDEX IF NOT EXISTS idx_browser_bookmarks_project_created ON browser_bookmarks(project_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_browser_history_project_visited ON browser_history(project_id, visited_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_project_model ON semantic_records(project_id, embedding_model, embedding_dimensions);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_source_revision ON semantic_records(project_id, source_type, source_id, source_revision);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_lifecycle ON semantic_records(project_id, lifecycle, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_semantic_records_content_hash ON semantic_records(project_id, content_hash, embedding_model);
     `);
+  }
+
+  private semanticRecordFromRow(row: Row): SemanticRecord {
+    return { id: String(row.id), workspaceId: String(row.project_id), sourceType: String(row.source_type), sourceId: String(row.source_id), sourceUri: row.source_uri ? String(row.source_uri) : undefined, sourceRevision: String(row.source_revision), chunkIndex: Number(row.chunk_index), lineStart: row.line_start === null ? undefined : Number(row.line_start), lineEnd: row.line_end === null ? undefined : Number(row.line_end), contentHash: String(row.content_hash), text: String(row.text), embedding: parseJson(row.embedding_json, []), embeddingModel: String(row.embedding_model), embeddingDimensions: Number(row.embedding_dimensions), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastVerifiedAt: Number(row.last_verified_at), lastUsedAt: row.last_used_at === null ? undefined : Number(row.last_used_at), usageCount: Number(row.usage_count), authorityScore: Number(row.authority_score), lifecycle: String(row.lifecycle) as SemanticLifecycle, supersededBy: row.superseded_by ? String(row.superseded_by) : undefined, metadata: parseJson(row.metadata_json, {}) };
   }
 
   private async ensureProject(): Promise<void> {

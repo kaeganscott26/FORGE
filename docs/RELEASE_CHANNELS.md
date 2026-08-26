@@ -4,8 +4,8 @@ FORGE exposes logical user channels. Provider metadata names are an internal imp
 
 | Channel | Current identity | Eligible newer versions | Purpose |
 | --- | --- | --- | --- |
-| Development | `2.3.0-beta.2-dev` | none | Source and renderer development |
-| Beta | `2.3.0-beta.2` | `beta`, `rc`, or normal SemVer | Public evaluation before stable |
+| Development | `2.4.0-beta-dev` | none | Source and renderer development |
+| Beta | `2.4.0-beta` | `beta`, `rc`, or normal SemVer | Public evaluation before stable |
 | Stable | normal SemVer | normal SemVer only | Supported production releases |
 
 All channels are forward-only. Equal versions, downgrades, malformed versions, drafts, unpublished releases, incompatible prerelease flags, unsupported identifiers, unsafe asset URLs, and missing metadata are rejected before Electron Updater receives a feed.
@@ -27,11 +27,11 @@ FORGE retrieves a bounded set of published Releases from the fixed repository an
 5. supplies only that selected `latest-mac.yml` or `beta-mac.yml` feed to Electron Updater;
 6. resets downgrade permission and verifies the updater-returned version again before download.
 
-The current source beta target is `2.3.0-beta.2`. Stable ignores every prerelease.
+The current source beta target is `2.4.0-beta`. Stable ignores every prerelease.
 
 ## 🚀 Publication
 
-The current beta target is **FORGE v2.3 Beta** with annotated tag `v2.3.0-beta.1`. An annotated prerelease tag produces a GitHub Pre-release and `beta-mac.yml`; a normal tag produces a stable release and `latest-mac.yml`. Metadata is uploaded only after the DMG, ZIP, and both blockmaps have been uploaded and hash-verified.
+The current beta target is **FORGE v2.4.0-beta** with tag `v2.4.0-beta`. The coordinated workflow produces Linux, macOS, Windows, and checksum assets only after all validation jobs succeed.
 
 The beta asset family is:
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { formatAppBuildInfo, type AgentRuntimeStatusView, type AppBuildInfo, type ModelValidationResult, type ProviderModel, type SkillDescriptor, type UserSettings } from '@forge/ipc';
+import { formatAppBuildInfo, type AgentRuntimeStatusView, type AppBuildInfo, type EmbeddingModelValidationResult, type ModelValidationResult, type ProviderModel, type SemanticIndexStatusView, type SkillDescriptor, type UserSettings } from '@forge/ipc';
 import { forgeInvoke } from '../forge';
 import WorkspaceDataPanel from './WorkspaceDataPanel';
 import './settings.css';
@@ -30,6 +30,15 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const [agentRuntime, setAgentRuntime] = useState<'native' | 'hermes'>('native');
   const [hermesCommand, setHermesCommand] = useState('');
   const [hermesEndpoint, setHermesEndpoint] = useState('');
+  const [embeddingEnabled, setEmbeddingEnabled] = useState(true);
+  const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState('http://127.0.0.1:11434/v1');
+  const [embeddingModel, setEmbeddingModel] = useState('qwen3-embedding:0.6b');
+  const [embeddingApiKey, setEmbeddingApiKey] = useState('');
+  const [clearEmbeddingApiKey, setClearEmbeddingApiKey] = useState(false);
+  const [contextTokenBudget, setContextTokenBudget] = useState(32_000);
+  const [embeddingModels, setEmbeddingModels] = useState<ProviderModel[]>([]);
+  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingModelValidationResult | null>(null);
+  const [indexStatus, setIndexStatus] = useState<SemanticIndexStatusView | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<AgentRuntimeStatusView | null>(null);
   const [skills, setSkills] = useState<SkillDescriptor[]>([]);
   const [busy, setBusy] = useState(false);
@@ -44,11 +53,12 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
 
   useEffect(() => {
     getData<UserSettings>('settings.get').then((value) => {
-      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername); setWebResearchEnabled(value.webResearchEnabled); setUpdateChannel(value.updateChannel); setAgentRuntime(value.agentRuntime); setHermesCommand(value.hermesCommand); setHermesEndpoint(value.hermesEndpoint);
+      setSettings(value); setApiBaseUrl(value.apiBaseUrl); setApiModel(value.apiModel); setGithubUsername(value.githubUsername); setWebResearchEnabled(value.webResearchEnabled); setUpdateChannel(value.updateChannel); setAgentRuntime(value.agentRuntime); setHermesCommand(value.hermesCommand); setHermesEndpoint(value.hermesEndpoint); setEmbeddingEnabled(value.embeddingEnabled); setEmbeddingBaseUrl(value.embeddingBaseUrl); setEmbeddingModel(value.embeddingModel); setContextTokenBudget(value.contextTokenBudget);
     }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     getData<AppBuildInfo>('app.build.info').then(setBuildInfo).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     getData<AgentRuntimeStatusView>('settings.runtime.status').then(setRuntimeStatus).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
     getData<SkillDescriptor[]>('agent.skills.list').then(setSkills).catch(() => setSkills([]));
+    getData<SemanticIndexStatusView>('semantic.index.status').then(setIndexStatus).catch(() => setIndexStatus(null));
   }, []);
 
   useEffect(() => {
@@ -81,8 +91,8 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
   const save = async (): Promise<void> => {
     setBusy(true); setError(null); setMessage(null);
     try {
-      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken, webResearchEnabled, updateChannel, agentRuntime, hermesCommand, hermesEndpoint });
-      setSettings(saved); setApiKey(''); setGithubToken(''); setClearApiKey(false); setClearGithubToken(false); setMessage('Settings saved securely.');
+      const saved = await getData<UserSettings>('settings.save', { apiBaseUrl, apiModel, apiKey, clearApiKey, githubUsername, githubToken, clearGithubToken, webResearchEnabled, updateChannel, agentRuntime, hermesCommand, hermesEndpoint, embeddingEnabled, embeddingProvider: 'openai-compatible', embeddingBaseUrl, embeddingModel, embeddingApiKey, clearEmbeddingApiKey, contextTokenBudget });
+      setSettings(saved); setApiKey(''); setGithubToken(''); setEmbeddingApiKey(''); setClearApiKey(false); setClearGithubToken(false); setClearEmbeddingApiKey(false); setMessage('Settings saved securely.');
       setRuntimeStatus(await getData<AgentRuntimeStatusView>('settings.runtime.status'));
       setSkills(await getData<SkillDescriptor[]>('agent.skills.list').catch(() => []));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
@@ -118,6 +128,27 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
     finally { setBusy(false); }
   };
 
+  const refreshEmbeddingModels = async (): Promise<void> => {
+    setBusy(true); setError(null); setMessage(null); setEmbeddingStatus(null);
+    try { const available = await getData<ProviderModel[]>('settings.embedding.models.list', { embeddingBaseUrl, embeddingApiKey: embeddingApiKey || undefined }); setEmbeddingModels(available); setMessage(`${available.length} embedding models loaded.`); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+
+  const validateEmbeddingModel = async (): Promise<void> => {
+    setBusy(true); setError(null); setMessage(null); setEmbeddingStatus(null);
+    try { const result = await getData<EmbeddingModelValidationResult>('settings.embedding.model.validate', { embeddingBaseUrl, embeddingModel, embeddingApiKey: embeddingApiKey || undefined }); setEmbeddingStatus(result); setMessage(result.exists ? `Embedding model ${result.model} is available${result.dimensions ? ` with ${result.dimensions} dimensions` : ''}.` : `Embedding model ${result.model} was not found.`); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+
+  const rebuildSemanticIndex = async (): Promise<void> => {
+    setBusy(true); setError(null); setMessage(null);
+    try { const status = await getData<SemanticIndexStatusView>('semantic.index.rebuild'); setIndexStatus(status); setMessage(`Semantic index rebuilt with ${status.indexedRecords} records.`); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+
   const copyBuildInfo = async (): Promise<void> => {
     setError(null);
     try {
@@ -138,15 +169,30 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
         </section>}
         {!settings.secureStorageAvailable && <div className="settings-warning">OS secure storage is unavailable. FORGE will not save new secrets.</div>}
         <section className="settings-section" ref={apiSection}>
-          <div className="settings-section-title"><div><span>AI ASSISTANT</span><h3>API integration</h3></div><em className={settings.apiKeyConfigured || keylessLocalProvider ? 'configured' : ''}>{settings.apiKeyConfigured ? 'Key saved' : keylessLocalProvider ? 'Local provider' : 'Not configured'}</em></div>
-          <label>API base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label>
+          <div className="settings-section-title"><div><span>INTELLIGENCE · INFERENCE</span><h3>Reasoning model</h3></div><em className={settings.apiKeyConfigured || keylessLocalProvider ? 'configured' : ''}>{settings.apiKeyConfigured ? 'Key saved' : keylessLocalProvider ? 'Local provider' : 'Not configured'}</em></div>
+          <label>Inference API base URL<input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" /></label>
           <p className="settings-help">The default tracks FORGE's current recommended GPT-5.x model. For a local Ollama server, use http://127.0.0.1:11434/v1 and leave the API key blank. Compatible local models receive the same FORGE file tools and execution activity log.</p>
-          <label>Model ID<input list="forge-provider-models" value={apiModel} onChange={(event) => { setApiModel(event.target.value); setModelStatus(null); }} placeholder="gpt-5.6-sol" /></label>
+          <label>Inference model ID<input list="forge-provider-models" value={apiModel} onChange={(event) => { setApiModel(event.target.value); setModelStatus(null); }} placeholder="gpt-5.6-sol" /></label>
           <datalist id="forge-provider-models">{models.map((model) => <option key={model.id} value={model.id}>{model.ownedBy}</option>)}</datalist>
           <div className="model-actions"><button onClick={refreshModels} disabled={busy || modelsLoading || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>{modelsLoading ? 'Loading models…' : 'Refresh provider models'}</button><button onClick={validateModel} disabled={busy || !apiModel.trim() || (!settings.apiKeyConfigured && !apiKey && !keylessLocalProvider)}>Validate model</button>{modelStatus && <em className={modelStatus.exists ? 'model-valid' : 'model-invalid'}>{modelStatus.exists ? 'Available' : 'Not found'}</em>}</div>
           <label>API key (optional for loopback providers)<input type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings.apiKeyConfigured ? 'Saved — enter a new key to replace it' : keylessLocalProvider ? 'Not required for this local provider' : 'Enter API key'} /></label>
           {settings.apiKeyConfigured && <button className="settings-link danger" onClick={() => { setClearApiKey(true); setApiKey(''); }}>Remove saved API key</button>}
           <button onClick={testApi} disabled={busy || (!settings.apiKeyConfigured && !keylessLocalProvider)}>Test saved model and API connection</button>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-title"><div><span>INTELLIGENCE · SEMANTIC CONTEXT</span><h3>Embedding and semantic memory</h3></div><em className={indexStatus?.state === 'ready' ? 'configured' : ''}>{indexStatus?.state ?? 'Not initialized'}</em></div>
+          <label className="settings-check"><input type="checkbox" checked={embeddingEnabled} onChange={(event) => setEmbeddingEnabled(event.target.checked)} /> Enable semantic context</label>
+          <p className="settings-help">The embedding model only retrieves workspace evidence. It is separate from the reasoning model. Local Ollama is the default; remote workspace embedding requires an explicit HTTPS endpoint and securely stored key.</p>
+          <label>Embedding API base URL<input value={embeddingBaseUrl} onChange={(event) => setEmbeddingBaseUrl(event.target.value)} placeholder="http://127.0.0.1:11434/v1" /></label>
+          <label>Embedding model<input list="forge-embedding-models" value={embeddingModel} onChange={(event) => { setEmbeddingModel(event.target.value); setEmbeddingStatus(null); }} placeholder="qwen3-embedding:0.6b" /></label>
+          <datalist id="forge-embedding-models">{embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.ownedBy}</option>)}</datalist>
+          <div className="model-actions"><button onClick={refreshEmbeddingModels} disabled={busy || !embeddingEnabled}>Refresh provider models</button><button onClick={validateEmbeddingModel} disabled={busy || !embeddingEnabled || !embeddingModel.trim()}>Validate embedding model</button>{embeddingStatus && <em className={embeddingStatus.exists ? 'model-valid' : 'model-invalid'}>{embeddingStatus.exists ? `${embeddingStatus.dimensions ?? '?'} dimensions` : 'Not found'}</em>}</div>
+          <label>Embedding API key (remote providers only)<input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => { setEmbeddingApiKey(event.target.value); setClearEmbeddingApiKey(false); }} placeholder={settings.embeddingApiKeyConfigured ? 'Saved — enter a new key to replace it' : isLoopbackProvider(embeddingBaseUrl) ? 'Not required for local Ollama' : 'Enter embedding API key'} /></label>
+          {settings.embeddingApiKeyConfigured && <button className="settings-link danger" onClick={() => { setClearEmbeddingApiKey(true); setEmbeddingApiKey(''); }}>Remove saved embedding key</button>}
+          <label>Context token budget<input type="number" min={4000} max={128000} step={1000} value={contextTokenBudget} onChange={(event) => setContextTokenBudget(Number(event.target.value))} /></label>
+          <div className="model-actions"><button onClick={rebuildSemanticIndex} disabled={busy || !embeddingEnabled}>Rebuild semantic index</button><span className="settings-help">{indexStatus ? `${indexStatus.indexedRecords} records · ${indexStatus.embeddingModel ?? 'no model'}${indexStatus.embeddingDimensions ? ` · ${indexStatus.embeddingDimensions}d` : ''}${indexStatus.lastIndexedAt ? ` · ${new Date(indexStatus.lastIndexedAt).toLocaleString()}` : ''}` : 'Index status unavailable.'}</span></div>
+          {indexStatus?.lastError && <p className="settings-warning">{indexStatus.lastError}</p>}
         </section>
 
         <section className="settings-section">
@@ -181,7 +227,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
         {message && <div className="settings-message success">{message}</div>}
         {error && <div className="settings-message error">{error}</div>}
       </div>}
-      <footer className="settings-footer"><span>Secrets are encrypted with macOS Keychain-backed storage.</span><div><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !settings} onClick={save}>{busy ? 'Working…' : 'Save settings'}</button></div></footer>
+      <footer className="settings-footer"><span>Secrets use Electron secure OS credential storage.</span><div><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !settings} onClick={save}>{busy ? 'Working…' : 'Save settings'}</button></div></footer>
     </section>
   </div>;
 }

@@ -1,6 +1,6 @@
 # 🗺️ FORGE Documentation
 
-This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.3.0-beta.2`; start with the outcome you need, then follow the narrowest relevant guide.
+This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.4.0-beta`; start with the outcome you need, then follow the narrowest relevant guide.
 
 **Current implementation authority:** start with [Current Implementation](CURRENT_IMPLEMENTATION.md). It is reconciled against `main` and supersedes stale implementation claims in point-in-time reviews, audits, verification snapshots, and archived release notes.
 
@@ -18,6 +18,8 @@ This directory is the map for people building with, evaluating, or extending FOR
 | Understand the built-in agent and every available tool | [Tools in Plain English](TOOLING_GUIDE.md) |
 
 ## 🧱 Runtime and safety
+
+- [Semantic Context](SEMANTIC_CONTEXT.md) — embedding configuration, indexing, governance, privacy, and bounded context packets.
 
 - [Current Implementation](CURRENT_IMPLEMENTATION.md) — canonical `main` behavior, including Hermes, FORGE Live, browser update status, workspace persistence, and current tool/runtime contracts.
 - [Architecture](ARCHITECTURE.md) — Electron services, renderer boundary, providers, persistence, and update discovery.

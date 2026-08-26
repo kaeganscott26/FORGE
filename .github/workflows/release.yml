@@ -1,0 +1,96 @@
+name: FORGE coordinated release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forge-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: npm run verify:release-version
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  package-linux:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: bash scripts/package-linux.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: forge-linux-${{ github.sha }}
+          path: dist_electron/
+          if-no-files-found: error
+
+  package-macos:
+    needs: validate
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: npm run package:mac:universal
+      - run: node scripts/verify-build-manifest.mjs
+      - run: shasum -a 256 dist_electron/FORGE-* > dist_electron/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: forge-macos-${{ github.sha }}
+          path: dist_electron/
+          if-no-files-found: error
+
+  package-windows:
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - run: npm run package:win
+      - run: node scripts/verify-build-manifest.mjs
+      - shell: pwsh
+        run: Get-ChildItem dist_electron -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content dist_electron/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: forge-windows-${{ github.sha }}
+          path: dist_electron/
+          if-no-files-found: error
+
+  publish:
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.4.0-beta') }}
+    needs: [package-linux, package-macos, package-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with: { pattern: forge-*, path: release-assets, merge-multiple: true }
+      - name: Verify tag and publish complete release
+        env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+        run: |
+          test "$GITHUB_REF_NAME" = "v2.4.0-beta"
+          sha256sum release-assets/* > release-assets/SHA256SUMS.all
+          gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.4.0-beta" --notes-file RELEASE_NOTES.md --prerelease

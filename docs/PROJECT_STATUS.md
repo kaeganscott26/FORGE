@@ -2,9 +2,9 @@
 
 **Updated:** August 21, 2026
 
-**Working version:** `2.3.0-beta.2` — FORGE v2.3 Beta
+**Working version:** `2.4.0-beta` — FORGE native semantic context beta
 
-**Published release:** [`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) on `main`
+**Release target:** `v2.4.0-beta` on `main`
 
 **Platform:** macOS arm64 with universal x86_64 + arm64 packaging
 
@@ -21,7 +21,7 @@ The prior public baselines remain [FORGE beta 2.1](https://github.com/kaeganscot
 | Area | Implemented behavior |
 | --- | --- |
 | Explorer and editor | Recursive permission-tolerant workspace tree, routed create/rename dialogs, safe file operations, UTF-8 editing, Monaco language mapping, responsive layout, and keyboard controls |
-| Workspace intelligence | Bounded context packets from docs, source, Git, tasks, durable memory, and observations; context ownership stays with the workspace |
+| Workspace intelligence | Native semantic indexing, composite relevance/authority/freshness governance, stale/superseded filtering, provenance, and bounded context packets from docs, source, Git, tasks, durable memory, and observations |
 | Agent runtime | Provider-neutral tool routing, policy/approval/audit enforcement, progress-aware continuation, persistent tasks, and task handoffs |
 | Browser | Native public-web BrowserView, Home, independent tabs, close/select controls, navigation, workspace-scoped bookmarks/history, and explicit agent page-read approval |
 | Git and terminal | Workspace-contained Git service, user-controlled PTYs, visible action results, and durable audit history |

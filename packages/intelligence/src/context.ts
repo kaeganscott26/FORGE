@@ -4,8 +4,9 @@ import type { StorageService } from '@forge/storage';
 import type { FileNode } from '@forge/ipc';
 import type { MemoryEntry } from '@forge/memory';
 import type { CompiledWorkspaceContext, ContextBudgetPolicy, WorkspaceArtifact, AgentContextEnvelope } from './types';
+import { DEFAULT_CONTEXT_TOKEN_BUDGET, estimateTokens, type SemanticContextService } from './semantic';
 
-const DEFAULT_CONTEXT_BUDGET = 28_000;
+const DEFAULT_CONTEXT_BUDGET = DEFAULT_CONTEXT_TOKEN_BUDGET * 4;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 
 export interface ProjectContext {
@@ -41,12 +42,17 @@ export class PriorityContextBudgetPolicy implements ContextBudgetPolicy {
 }
 
 export class WorkspaceContextEngine {
+  private tokenBudget = DEFAULT_CONTEXT_TOKEN_BUDGET;
   constructor(
     private workspace: WorkspaceService,
     private git: GitService,
     private storage: StorageService,
-    private budgetPolicy: ContextBudgetPolicy = new PriorityContextBudgetPolicy()
+    private budgetPolicy: ContextBudgetPolicy = new PriorityContextBudgetPolicy(),
+    private semantic?: SemanticContextService
   ) {}
+
+  useSemanticContext(service: SemanticContextService): void { this.semantic = service; }
+  setTokenBudget(value: number): void { this.tokenBudget = Math.min(128_000, Math.max(4_000, Math.round(value))); }
 
   private flattenFiles(nodes: FileNode[]): Array<{ path: string; type: 'file' | 'directory'; extension?: string }> {
     const out: Array<{ path: string; type: 'file' | 'directory'; extension?: string }> = [];
@@ -94,17 +100,38 @@ export class WorkspaceContextEngine {
     if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Project goals and metadata', content: JSON.stringify(context.metadata, null, 2), priority: 94 });
     for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: 'memory', title: memory.title || memory.type, content: memory.content, priority: memory.type === 'decision' ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)), updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(' · ') ?? 'Relevant durable workspace knowledge.' } });
 
+    let metrics = this.semantic?.health() ?? { tokensUsed: 0, tokenBudget: DEFAULT_CONTEXT_TOKEN_BUDGET, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true, fallbackReason: 'Semantic context has not been initialized.' };
+    if (this.semantic) {
+      const retrieval = await this.semantic.searchSemanticContext(query, { limit: 24, tokenBudget: Math.floor(this.tokenBudget * 0.7) });
+      metrics = this.semantic.health();
+      for (const candidate of retrieval.candidates) {
+        const record = candidate.record;
+        add({ id: `semantic:${record.id}`, kind: semanticArtifactKind(record.sourceType), title: record.sourceUri ?? record.sourceId, path: record.sourceUri, content: record.text, priority: Math.round(candidate.score.finalScore * 100), updatedAt: record.updatedAt, metadata: { semanticRecordId: record.id, sourceType: record.sourceType, sourceRevision: record.sourceRevision, lineStart: record.lineStart, lineEnd: record.lineEnd, lifecycle: record.lifecycle, relevance: Math.round(candidate.score.semanticRelevance * 100), authority: candidate.score.authority, freshness: candidate.score.freshness, finalScore: candidate.score.finalScore, retrievalMode: candidate.retrievalMode, reason: `${candidate.retrievalMode} retrieval; governed for authority, freshness, task relationship, usefulness, staleness, supersession, and redundancy.` } });
+      }
+    }
+
     const budgeted = this.budgetPolicy.select(artifacts, characterBudget);
     const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ''}\n${artifact.content}`).join('\n\n');
     const projectName = context.projectName ?? 'the active workspace';
     const systemPrompt = `You are consuming context compiled by FORGE for the repository "${projectName}".\n\nFORGE owns workspace intelligence: project evidence, durable memory, task state, Git chronology, terminal observations, and relevance filtering. The active LLM or CLI agent owns reasoning and execution. Treat the project folder as authority, distinguish evidence from inference, and preserve durable project decisions across model changes.\n\nWorkspace evidence for this turn:\n${evidence || 'No workspace evidence was available.'}`;
-    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length };
+    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: { ...metrics, tokensUsed: estimateTokens(systemPrompt), tokenBudget: this.tokenBudget } };
   }
 
   async envelope(query: string, memories?: MemoryEntry[] | null, characterBudget?: number): Promise<AgentContextEnvelope> {
     const compiled = await this.assemble(query, memories, characterBudget);
     return { ...compiled, query, generatedAt: Date.now() };
   }
+}
+
+function semanticArtifactKind(sourceType: string): WorkspaceArtifact['kind'] {
+  if (['source'].includes(sourceType)) return 'source';
+  if (['configuration'].includes(sourceType)) return 'configuration';
+  if (['documentation'].includes(sourceType)) return 'documentation';
+  if (['architecture', 'decision'].includes(sourceType)) return 'architecture';
+  if (sourceType === 'conversation') return 'conversation';
+  if (sourceType === 'git') return 'git';
+  if (['memory', 'note'].includes(sourceType)) return 'memory';
+  return 'metadata';
 }
 
 export { WorkspaceContextEngine as ContextBuilderImpl };

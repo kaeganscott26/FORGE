@@ -11,7 +11,7 @@ export interface NativeAgentRuntime {
 
 /** Native chat is one optional consumer of FORGE workspace intelligence and tool runtime. */
 export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime {
-  const { storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent } = dependencies;
+  const { storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent, resolveReasoningRuntime } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 60_000, 60_000), 60 * 60_000);
   const historyFor = async (conversationId: string): Promise<AgentMessage[]> => (await storage.listConversationMessages(conversationId)).map((entry: any) => ({ role: entry.role, content: entry.content }));
   const recordTaskOutcome = async (request: any, result: any): Promise<string | null> => {
@@ -23,6 +23,8 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
   const runAgentTurn = async (conversationId: string | undefined, prompt: string, executionTask?: TaskStepLink) => {
     await emitRuntimeEvent?.('agent.started', { conversationId });
     try {
+    const selectedRuntime = resolveReasoningRuntime ? await resolveReasoningRuntime() : { agent, provider: aiProvider, kind: 'native' };
+    const activeAgent = selectedRuntime.agent; const activeProvider = selectedRuntime.provider;
     const state = await storage.conversationState(conversationId);
     const history = await historyFor(state.activeConversationId);
     await storage.appendConversation(state.activeConversationId, 'user', prompt);
@@ -30,7 +32,7 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     const info = workspace.info();
     if (!project || !info) throw new Error('Open a workspace before requesting agent tools.');
     const definitions = toolRouter.providerDefinitions();
-    let turn = await agent.askWithTools(prompt, history, definitions);
+    let turn = await activeAgent.askWithTools(prompt, history, definitions);
     const outcomes: ToolRequestOutcome[] = [];
     const continuationHistory: AgentMessage[] = [...history, { role: 'user', content: prompt }];
     const loopGuard = new ProgressAwareLoopGuard();
@@ -45,14 +47,14 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     while (true) {
       if (Date.now() - startedAt > maxRuntimeMs) throw new Error(`Agent execution exceeded the configured ${Math.round(maxRuntimeMs / 60_000)} minute runtime budget. Progress and tool evidence were preserved for task resumption.`);
       const calls = [...turn.toolCalls];
-      const fallback = calls.length ? null : parseStructuredToolFallback(aiProvider.id, turn.content);
+      const fallback = calls.length ? null : parseStructuredToolFallback(activeProvider.id, turn.content);
       if (fallback) calls.push(fallback);
       if (!calls.length) { modelContent = turn.content; break; }
       const revision = await workspaceRevision();
       const fresh = calls.filter((call) => loopGuard.shouldRun(call, revision));
       if (!fresh.length) {
         const evidence = loopGuard.observedResults().join('\n\n');
-        modelContent = (await agent.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:\n\n${evidence}`, continuationHistory)).content;
+        modelContent = (await activeAgent.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:\n\n${evidence}`, continuationHistory)).content;
         break;
       }
       const round: ToolRequestOutcome[] = [];
@@ -66,13 +68,15 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
       continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
-      turn = await agent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.\n\n${evidence}`, continuationHistory, definitions);
+      turn = await activeAgent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.\n\n${evidence}`, continuationHistory, definitions);
     }
     const summary = outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? 'succeeded' : 'failed'}${result?.error ? `: ${result.error.message}` : ''}.`).join('\n');
     const content = [modelContent, summary].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
     await storage.appendConversation(state.activeConversationId, 'assistant', content);
-    await emitRuntimeEvent?.('agent.completed', { conversationId: state.activeConversationId, toolCount: outcomes.length });
-    return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory: any) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact: any) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path })) };
+    const semanticRecordIds = turn.context.artifacts.map((artifact: any) => artifact.metadata?.semanticRecordId).filter((value: unknown): value is string => typeof value === 'string');
+    await storage.markSemanticRecordsUsed(semanticRecordIds, outcomes.length === 0 || outcomes.every((outcome) => outcome.result?.success));
+    await emitRuntimeEvent?.('agent.completed', { conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
+    return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory: any) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact: any) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: artifact.metadata?.relevance, reason: artifact.metadata?.reason })), contextHealth: turn.context.metrics };
     } catch (error) {
       await emitRuntimeEvent?.('agent.blocked', { conversationId, message: error instanceof Error ? error.message : String(error) });
       throw error;

@@ -4,7 +4,7 @@
 
 FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
 
-**Current source build:** `2.3.0-beta.2` · Hermes-ready autonomous runtime · Electron + React + TypeScript. The latest published beta remains [`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1).
+**Current source build:** `2.4.0-beta` · native semantic context · Hermes-ready autonomous runtime · Electron + React + TypeScript. The coordinated release tag is `v2.4.0-beta`.
 
 ## 🧭 The missing layer between your project and the model
 

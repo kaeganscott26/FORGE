@@ -1,6 +1,6 @@
 # ⚙️ FORGE User Configuration
 
-This guide covers Git integration, AI API integration, platform updates, and release credentials. Do not put real secrets in the repository.
+This guide covers Git integration, AI API integration, platform updates, and release credentials for FORGE `2.4.0-beta`. Do not put real secrets in the repository.
 
 ## 🌿 Git integration
 
@@ -33,6 +33,8 @@ git push --dry-run origin HEAD
 ## 🤖 AI API integration
 
 Open **Settings** in FORGE to save the API key, base URL, and model. The API key is encrypted with Electron's platform secure storage and is never returned to the renderer after saving.
+
+Inference and semantic context are separate settings. Under **Semantic Context**, enable local-first embeddings (default `http://127.0.0.1:11434/v1`, model `qwen3-embedding:0.6b`), validate the provider, rebuild the index, and set a context token budget. Embedding credentials use the same secure OS credential store and are never indexed or logged.
 
 For development and automation, the OpenAI-compatible provider also supports these environment fallbacks:
 
@@ -127,7 +129,7 @@ Never use placeholder certificate identities. If `CSC_LINK` is absent, the workf
 
 ## 🚀 Version and release procedure
 
-1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current source beta identity is `2.3.0-beta.2` (`FORGE v2.3 Beta`).
+1. Run `npm version X.Y.Z --workspaces --include-workspace-root --no-git-tag-version` so every workspace package and generated lockfile record agrees. The current source beta identity is `2.4.0-beta` (`FORGE v2.4.0-beta`).
 2. Inspect the resulting package and lockfile diff, then run `npm run verify:release-version`; do not hand-edit generated dependency versions.
 3. Run `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `npm run package:mac`, and `npm run package:mac:universal`; use `package:mac:all` for one clean combined artifact directory.
 4. Commit on a feature/release branch, push it, open a pull request, and merge only after checks pass.

@@ -37,6 +37,6 @@ export class WorkspaceIntelligenceService implements ContextAssemblyService {
     const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8_000) : '';
     const artifact = observationContent ? { id: 'project-observations', kind: 'metadata' as const, title: 'Fresh project observations', content: observationContent, priority: 99, updatedAt: projectObservations[0]?.timestamp, metadata: { relevance: 99, reason: 'Durable observations invalidate stale cached context.' } } : null;
     const systemPrompt = artifact ? `${compiled.systemPrompt}\n\n## ${artifact.title}\n${artifact.content}` : compiled.systemPrompt;
-    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
   }
 }

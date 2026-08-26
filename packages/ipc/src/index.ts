@@ -58,7 +58,11 @@ export interface TaskDraft { title: string; description?: string; taskType: stri
 export interface TaskRealitySnapshot { observedAt: number; workspaceId: string; git?: { branch?: string; commitSha?: string; workingTreeClean?: boolean }; processes: Array<{ pid: number; state: 'running' | 'exited' | 'missing'; exitCode?: number | null }>; stepObservations: Array<{ stepId: string; state: 'running' | 'waiting' | 'completed' | 'failed'; verified: boolean; summary: string; evidence?: unknown; error?: TaskStep['lastError']; auditReference?: string }>; }
 export interface TaskHandoff { taskId: string; relativePath: string; markdown: string; generatedAt: number; }
 export interface ProjectMetadata { id: string; name: string; rootPath: string; createdAt: number; updatedAt: number; goals: Goal[]; tasks: Task[]; }
-export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: { hasReadme: boolean; noteCount: number; codeFileCount: number }; }
+export interface ContextHealthView {
+  tokensUsed: number; tokenBudget: number; relevance: number; freshness: number; authority: number; redundancy: number; staleRatio: number;
+  recordsConsidered: number; recordsSelected: number; sourceDistribution: Record<string, number>; degraded: boolean; fallbackReason?: string;
+}
+export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: ContextHealthView & { hasReadme: boolean; noteCount: number; codeFileCount: number }; }
 
 export interface AppUpdateStatus {
   currentVersion: string;
@@ -125,6 +129,12 @@ export interface UserSettings {
   agentRuntime: 'native' | 'hermes';
   hermesCommand: string;
   hermesEndpoint: string;
+  embeddingEnabled: boolean;
+  embeddingProvider: 'openai-compatible';
+  embeddingBaseUrl: string;
+  embeddingModel: string;
+  embeddingApiKeyConfigured: boolean;
+  contextTokenBudget: number;
 }
 
 export interface SettingsSaveRequest {
@@ -140,6 +150,13 @@ export interface SettingsSaveRequest {
   agentRuntime?: 'native' | 'hermes';
   hermesCommand?: string;
   hermesEndpoint?: string;
+  embeddingEnabled?: boolean;
+  embeddingProvider?: 'openai-compatible';
+  embeddingBaseUrl?: string;
+  embeddingModel?: string;
+  embeddingApiKey?: string;
+  clearEmbeddingApiKey?: boolean;
+  contextTokenBudget?: number;
 }
 
 export interface ToolRequestView {
@@ -161,7 +178,7 @@ export interface BrowserStateView {
   activeTabId?: string; showingHome: boolean; tabs: BrowserTabView[]; bookmarks: BrowserBookmark[]; history: BrowserHistoryEntry[];
 }
 export interface BrowserLayoutRequest { visible: boolean; bounds?: { x: number; y: number; width: number; height: number }; }
-export type RuntimeEventType = 'workspace.changed' | 'file.changed' | 'git.changed' | 'task.changed' | 'context.invalidated' | 'context.updated' | 'memory.changed' | 'tool.requested' | 'tool.completed' | 'agent.started' | 'agent.progress' | 'agent.completed' | 'agent.blocked' | 'terminal.changed' | 'github.changed';
+export type RuntimeEventType = 'workspace.changed' | 'file.changed' | 'git.changed' | 'task.changed' | 'context.invalidated' | 'context.updated' | 'memory.changed' | 'tool.requested' | 'tool.completed' | 'agent.started' | 'agent.progress' | 'agent.completed' | 'agent.blocked' | 'terminal.changed' | 'github.changed' | 'semantic.index.start' | 'semantic.index.complete' | 'semantic.index.error' | 'semantic.embedding.request' | 'semantic.retrieval' | 'semantic.fallback' | 'semantic.stale.detected';
 export interface RuntimeEvent { type: RuntimeEventType; workspaceId: string; occurredAt: number; payload?: Record<string, unknown>; }
 
 export interface ProviderModel { id: string; ownedBy?: string; }
@@ -174,6 +191,9 @@ export interface SkillDescriptor { id: string; name: string; description: string
 export interface ModelLookupRequest { apiBaseUrl: string; apiKey?: string; }
 export interface ModelValidationRequest extends ModelLookupRequest { apiModel: string; }
 export interface ModelValidationResult { model: string; exists: boolean; availableCount: number; }
+export interface EmbeddingModelValidationResult extends ModelValidationResult { dimensions?: number; }
+export interface SemanticIndexStatusView { schemaVersion: number; state: 'empty' | 'ready' | 'indexing' | 'degraded' | 'rebuild-required'; embeddingModel?: string; embeddingDimensions?: number; indexedRecords: number; activeRecords: number; staleRecords: number; lastIndexedAt?: number; lastError?: string; }
+export interface PlatformCapabilityView { platform: 'linux' | 'darwin' | 'win32' | 'other'; nativeRuntimeAvailable: boolean; hermesAvailable: boolean; hermesIntegrationMode: 'acp' | 'headless-http' | 'unavailable'; embeddingProviderAvailable: boolean; embeddingModelAvailable: boolean; semanticIndexHealthy: boolean; toolRouterAvailable: boolean; workspaceDatabaseHealthy: boolean; appDataPath: string; packagedResourcePath: string; }
 
 export interface WorkspaceLayout {
   explorerWidth: number;
@@ -246,6 +266,7 @@ export interface AgentResponse {
   conversationId: string;
   memories?: Array<{ id: string; title?: string | null }>;
   contextSources?: ContextSourceSummary[];
+  contextHealth?: ContextHealthView;
 }
 
 export const IPC_CHANNELS = {
@@ -254,7 +275,7 @@ export const IPC_CHANNELS = {
   markdownParse: 'markdown.parse', gitStatus: 'git.status', gitBranches: 'git.branches', gitLog: 'git.log', gitDiff: 'git.diff', gitStage: 'git.stage', gitUnstage: 'git.unstage', gitCommit: 'git.commit', gitPull: 'git.pull', gitPush: 'git.push',
   metaDashboard: 'meta.dashboard', metaGoalCreate: 'meta.goal.create', metaGoalUpdate: 'meta.goal.update', metaGoalDelete: 'meta.goal.delete', metaTaskCreate: 'meta.task.create',
   appUpdateStatus: 'app.update.status', appUpdateCheck: 'app.update.check', appUpdateInstall: 'app.update.install', appReleaseOpen: 'app.release.open', appBuildInfo: 'app.build.info', appBuildInfoCopy: 'app.build.info.copy',
-  settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate', settingsRuntimeStatus: 'settings.runtime.status', agentSkillsList: 'agent.skills.list',
+  settingsGet: 'settings.get', settingsSave: 'settings.save', settingsTestApi: 'settings.test.api', settingsTestGithub: 'settings.test.github', settingsModelsList: 'settings.models.list', settingsModelValidate: 'settings.model.validate', settingsEmbeddingModelsList: 'settings.embedding.models.list', settingsEmbeddingModelValidate: 'settings.embedding.model.validate', settingsRuntimeStatus: 'settings.runtime.status', settingsPlatformCapabilities: 'settings.platform.capabilities', semanticIndexStatus: 'semantic.index.status', semanticIndexRebuild: 'semantic.index.rebuild', contextHealthGet: 'context.health.get', agentSkillsList: 'agent.skills.list',
   agentAsk: 'agent.ask', agentExplainProject: 'agent.explainProject', agentReviewChanges: 'agent.reviewChanges',
   agentConversationsState: 'agent.conversations.state', agentConversationsList: 'agent.conversations.list', agentConversationsAppend: 'agent.conversations.append',
   agentConversationCreate: 'agent.conversation.create', agentConversationSelect: 'agent.conversation.select', agentConversationRename: 'agent.conversation.rename', agentConversationClear: 'agent.conversation.clear', agentConversationDelete: 'agent.conversation.delete', agentConversationsClearAll: 'agent.conversations.clearAll',
@@ -274,7 +295,7 @@ export interface IPCRequestMap {
   'markdown.parse': { path: string }; 'git.status': undefined; 'git.branches': undefined; 'git.log': { limit?: number }; 'git.diff': { staged: boolean }; 'git.stage': { files: string[] }; 'git.unstage': { files: string[] }; 'git.commit': { message: string; files?: string[] }; 'git.pull': undefined; 'git.push': undefined;
   'meta.dashboard': undefined; 'meta.goal.create': { title: string; description?: string }; 'meta.goal.update': { goalId: string; title: string; description?: string; status?: Goal['status'] }; 'meta.goal.delete': { goalId: string }; 'meta.task.create': { title: string; description?: string; priority?: Task['priority'] };
   'app.update.status': undefined; 'app.update.check': undefined; 'app.update.install': undefined; 'app.release.open': undefined; 'app.build.info': undefined; 'app.build.info.copy': undefined;
-  'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest; 'settings.runtime.status': undefined; 'agent.skills.list': undefined;
+  'settings.get': undefined; 'settings.save': SettingsSaveRequest; 'settings.test.api': undefined; 'settings.test.github': undefined; 'settings.models.list': ModelLookupRequest; 'settings.model.validate': ModelValidationRequest; 'settings.embedding.models.list': { embeddingBaseUrl: string; embeddingApiKey?: string }; 'settings.embedding.model.validate': { embeddingBaseUrl: string; embeddingModel: string; embeddingApiKey?: string }; 'settings.runtime.status': undefined; 'settings.platform.capabilities': undefined; 'semantic.index.status': undefined; 'semantic.index.rebuild': undefined; 'context.health.get': undefined; 'agent.skills.list': undefined;
   'agent.ask': AgentAskRequest; 'agent.explainProject': { conversationId?: string } | undefined; 'agent.reviewChanges': { conversationId?: string } | undefined;
   'agent.conversations.state': { conversationId?: string } | undefined; 'agent.conversations.list': { conversationId?: string } | undefined; 'agent.conversations.append': { conversationId?: string; entries: Array<{ role: ConversationEntry['role']; content: string }> };
   'agent.conversation.create': { title?: string }; 'agent.conversation.select': { conversationId: string }; 'agent.conversation.rename': { conversationId: string; title: string }; 'agent.conversation.clear': { conversationId: string }; 'agent.conversation.delete': { conversationId: string }; 'agent.conversations.clearAll': undefined;
@@ -295,7 +316,7 @@ export interface IPCResponseMap {
   'markdown.parse': ParsedMarkdown; 'git.status': GitStatus; 'git.branches': GitBranch[]; 'git.log': GitCommit[]; 'git.diff': GitDiff; 'git.stage': void; 'git.unstage': void; 'git.commit': GitCommit; 'git.pull': void; 'git.push': void;
   'meta.dashboard': DashboardData; 'meta.goal.create': Goal; 'meta.goal.update': Goal; 'meta.goal.delete': void; 'meta.task.create': Task;
   'app.update.status': AppUpdateStatus; 'app.update.check': AppUpdateStatus; 'app.update.install': void; 'app.release.open': void; 'app.build.info': AppBuildInfo; 'app.build.info.copy': AppBuildInfo;
-  'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult; 'settings.runtime.status': AgentRuntimeStatusView; 'agent.skills.list': SkillDescriptor[];
+  'settings.get': UserSettings; 'settings.save': UserSettings; 'settings.test.api': ModelValidationResult; 'settings.test.github': { login: string }; 'settings.models.list': ProviderModel[]; 'settings.model.validate': ModelValidationResult; 'settings.embedding.models.list': ProviderModel[]; 'settings.embedding.model.validate': EmbeddingModelValidationResult; 'settings.runtime.status': AgentRuntimeStatusView; 'settings.platform.capabilities': PlatformCapabilityView; 'semantic.index.status': SemanticIndexStatusView; 'semantic.index.rebuild': SemanticIndexStatusView; 'context.health.get': ContextHealthView; 'agent.skills.list': SkillDescriptor[];
   'agent.ask': AgentResponse; 'agent.explainProject': AgentResponse; 'agent.reviewChanges': AgentResponse;
   'agent.conversations.state': ConversationState; 'agent.conversations.list': ConversationEntry[]; 'agent.conversations.append': void;
   'agent.conversation.create': ConversationState; 'agent.conversation.select': ConversationState; 'agent.conversation.rename': ConversationState; 'agent.conversation.clear': ConversationState; 'agent.conversation.delete': ConversationState; 'agent.conversations.clearAll': ConversationState;

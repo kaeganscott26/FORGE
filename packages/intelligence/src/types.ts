@@ -18,6 +18,9 @@ export interface CompiledWorkspaceContext {
   omittedArtifactIds: readonly string[];
   characterBudget: number;
   characterCount: number;
+  tokenBudget: number;
+  tokenCount: number;
+  metrics: import('./semantic').ContextHealthMetrics;
 }
 
 export interface WorkspaceContextCompiler {

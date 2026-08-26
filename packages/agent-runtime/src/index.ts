@@ -7,6 +7,34 @@ import { promisify } from 'node:util';
 const execFile = promisify(execFileCallback);
 
 export type AgentRuntimeKind = 'native' | 'hermes';
+export type SupportedPlatform = 'linux' | 'darwin' | 'win32' | 'other';
+export type HermesIntegrationMode = 'acp' | 'headless-http' | 'unavailable';
+
+export interface PlatformCapabilities {
+  platform: SupportedPlatform;
+  nativeRuntimeAvailable: boolean;
+  hermesAvailable: boolean;
+  hermesIntegrationMode: HermesIntegrationMode;
+  embeddingProviderAvailable: boolean;
+  embeddingModelAvailable: boolean;
+  semanticIndexHealthy: boolean;
+  toolRouterAvailable: boolean;
+  workspaceDatabaseHealthy: boolean;
+  appDataPath: string;
+  packagedResourcePath: string;
+}
+
+export function normalizePlatform(value: string): SupportedPlatform { return ['linux', 'darwin', 'win32'].includes(value) ? value as SupportedPlatform : 'other'; }
+
+export function hermesIntegrationMode(platform: string, status: HermesRuntimeStatus | null): HermesIntegrationMode {
+  if (status?.availability !== 'available') return 'unavailable';
+  return normalizePlatform(platform) === 'linux' ? 'acp' : status.endpointReachable ? 'headless-http' : 'unavailable';
+}
+
+export function platformCapabilities(input: { platform?: string; appDataPath: string; resourcePath: string; hermesStatus: HermesRuntimeStatus | null; embeddingProviderAvailable: boolean; embeddingModelAvailable: boolean; semanticIndexHealthy: boolean; workspaceDatabaseHealthy: boolean; toolRouterAvailable?: boolean }): PlatformCapabilities {
+  const platform = normalizePlatform(input.platform ?? process.platform); const mode = hermesIntegrationMode(platform, input.hermesStatus);
+  return { platform, nativeRuntimeAvailable: true, hermesAvailable: mode !== 'unavailable', hermesIntegrationMode: mode, embeddingProviderAvailable: input.embeddingProviderAvailable, embeddingModelAvailable: input.embeddingModelAvailable, semanticIndexHealthy: input.semanticIndexHealthy, toolRouterAvailable: input.toolRouterAvailable !== false, workspaceDatabaseHealthy: input.workspaceDatabaseHealthy, appDataPath: path.resolve(input.appDataPath), packagedResourcePath: path.resolve(input.resourcePath) };
+}
 export type RuntimeAvailability = 'available' | 'unavailable' | 'degraded';
 export type SkillScope = 'workspace' | 'repository' | 'global' | 'forge-os';
 

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { normalizeUpdateChannel, type SettingsSaveRequest, type UserSettings } from '@forge/ipc';
 import { DEFAULT_OPENAI_MODEL } from '@forge/ai';
+import { DEFAULT_CONTEXT_TOKEN_BUDGET, DEFAULT_EMBEDDING_BASE_URL, DEFAULT_EMBEDDING_MODEL, type EmbeddingConfiguration } from '@forge/intelligence';
 
 interface StoredSettings {
   apiBaseUrl?: string;
@@ -15,6 +16,12 @@ interface StoredSettings {
   agentRuntime?: 'native' | 'hermes';
   hermesCommand?: string;
   hermesEndpoint?: string;
+  embeddingEnabled?: boolean;
+  embeddingProvider?: 'openai-compatible';
+  embeddingBaseUrl?: string;
+  embeddingModel?: string;
+  embeddingApiKey?: string;
+  contextTokenBudget?: number;
 }
 
 export interface GitHubCredentials {
@@ -55,6 +62,12 @@ export class SettingsService {
       , agentRuntime: this.data.agentRuntime === 'hermes' ? 'hermes' : 'native'
       , hermesCommand: this.data.hermesCommand ?? ''
       , hermesEndpoint: this.data.hermesEndpoint ?? ''
+      , embeddingEnabled: this.data.embeddingEnabled !== false
+      , embeddingProvider: 'openai-compatible'
+      , embeddingBaseUrl: this.data.embeddingBaseUrl ?? process.env.FORGE_EMBEDDING_BASE_URL ?? DEFAULT_EMBEDDING_BASE_URL
+      , embeddingModel: this.data.embeddingModel ?? process.env.FORGE_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL
+      , embeddingApiKeyConfigured: Boolean(this.data.embeddingApiKey || process.env.FORGE_EMBEDDING_API_KEY)
+      , contextTokenBudget: Math.min(128_000, Math.max(4_000, this.data.contextTokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET))
     };
   }
 
@@ -69,12 +82,20 @@ export class SettingsService {
     if (hermesCommand) this.data.hermesCommand = this.validateCommand(hermesCommand); else delete this.data.hermesCommand;
     const hermesEndpoint = request.hermesEndpoint?.trim();
     if (hermesEndpoint) this.data.hermesEndpoint = this.validateUrl(hermesEndpoint); else delete this.data.hermesEndpoint;
+    this.data.embeddingEnabled = request.embeddingEnabled !== false;
+    this.data.embeddingProvider = 'openai-compatible';
+    this.data.embeddingBaseUrl = this.validateUrl(request.embeddingBaseUrl || DEFAULT_EMBEDDING_BASE_URL);
+    this.data.embeddingModel = request.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    this.data.contextTokenBudget = Math.min(128_000, Math.max(4_000, Math.round(request.contextTokenBudget ?? DEFAULT_CONTEXT_TOKEN_BUDGET)));
 
     if (request.clearApiKey) delete this.data.apiKey;
     else if (request.apiKey?.trim()) this.data.apiKey = await this.encrypt(request.apiKey.trim());
 
     if (request.clearGithubToken) delete this.data.githubToken;
     else if (request.githubToken?.trim()) this.data.githubToken = await this.encrypt(request.githubToken.trim());
+
+    if (request.clearEmbeddingApiKey) delete this.data.embeddingApiKey;
+    else if (request.embeddingApiKey?.trim()) this.data.embeddingApiKey = await this.encrypt(request.embeddingApiKey.trim());
 
     const temporaryPath = `${this.settingsPath}.tmp`;
     await fs.writeFile(temporaryPath, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
@@ -88,6 +109,16 @@ export class SettingsService {
       apiKey: overrides.apiKey?.trim() || (this.data.apiKey ? await this.decrypt(this.data.apiKey) : process.env.OPENAI_API_KEY),
       baseUrl: this.validateUrl(overrides.baseUrl || this.data.apiBaseUrl || process.env.OPENAI_BASE_URL || defaultBaseUrl),
       model: overrides.model?.trim() || this.data.apiModel || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
+    };
+  }
+
+  async embeddingConfiguration(overrides: { apiKey?: string; baseUrl?: string; model?: string; enabled?: boolean } = {}): Promise<EmbeddingConfiguration> {
+    return {
+      enabled: overrides.enabled ?? this.data.embeddingEnabled !== false,
+      provider: 'openai-compatible',
+      apiKey: overrides.apiKey?.trim() || (this.data.embeddingApiKey ? await this.decrypt(this.data.embeddingApiKey) : process.env.FORGE_EMBEDDING_API_KEY),
+      baseUrl: this.validateUrl(overrides.baseUrl || this.data.embeddingBaseUrl || process.env.FORGE_EMBEDDING_BASE_URL || DEFAULT_EMBEDDING_BASE_URL),
+      model: overrides.model?.trim() || this.data.embeddingModel || process.env.FORGE_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL
     };
   }
 

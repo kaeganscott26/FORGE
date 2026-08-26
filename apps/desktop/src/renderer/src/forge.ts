@@ -8,7 +8,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
     case 'git.status':
       return { success: true, data: null };
     case 'meta.dashboard':
-      return { success: true, data: { project: null, recentCommits: [], contextHealth: { hasReadme: false, noteCount: 0, codeFileCount: 0 } } };
+      return { success: true, data: { project: null, recentCommits: [], contextHealth: { hasReadme: false, noteCount: 0, codeFileCount: 0, tokensUsed: 0, tokenBudget: 32000, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true } } };
     case 'file.read':
       return { success: true, data: { content: '' } } as any;
     case 'agent.conversations.list':
@@ -21,9 +21,9 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
       return { success: true, data: { currentVersion: 'development', state: 'development', message: 'Update checks run in the packaged app.' } } as any;
     case 'app.build.info':
     case 'app.build.info.copy':
-      return { success: true, data: { version: '2.3.0-beta.1-dev', channel: 'development', commit: 'unavailable in browser preview', buildDate: new Date().toISOString(), runtime: 'development', rendererSource: 'development URL', platform: navigator.platform, architecture: 'browser' } } as any;
+      return { success: true, data: { version: '2.4.0-beta-dev', channel: 'development', commit: 'unavailable in browser preview', buildDate: new Date().toISOString(), runtime: 'development', rendererSource: 'development URL', platform: navigator.platform, architecture: 'browser' } } as any;
     case 'settings.get':
-      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false, webResearchEnabled: true, updateChannel: 'stable' } } as any;
+      return { success: true, data: { apiBaseUrl: 'https://api.openai.com/v1', apiModel: 'gpt-5.6-sol', apiKeyConfigured: false, githubUsername: '', githubTokenConfigured: false, secureStorageAvailable: false, webResearchEnabled: true, updateChannel: 'stable', agentRuntime: 'native', hermesCommand: '', hermesEndpoint: '', embeddingEnabled: true, embeddingProvider: 'openai-compatible', embeddingBaseUrl: 'http://127.0.0.1:11434/v1', embeddingModel: 'qwen3-embedding:0.6b', embeddingApiKeyConfigured: false, contextTokenBudget: 32000 } } as any;
     case 'workspace.layout.get':
       return { success: true, data: { explorerWidth: 245, intelligenceWidth: 360, bottomHeight: 240, contextHeight: 300 } } as any;
     default:

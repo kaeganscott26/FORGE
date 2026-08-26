@@ -1,4 +1,12 @@
-# ✨ FORGE v2.3 Beta
+# ✨ FORGE v2.4.0-beta
+
+## 2.4.0-beta — Native semantic context
+
+- Adds a local-first OpenAI-compatible embedding client, durable SQLite semantic records, deterministic indexing, composite context governance, staleness/supersession filtering, deduplication, provenance, and token-bounded context packets.
+- Separates inference and semantic-context provider settings, exposes live Context Health metrics, and keeps lexical retrieval available when embeddings are offline.
+- Preserves Native FORGE and Hermes execution through the same FORGE-prepared context and ToolRouter; runtime capabilities are normalized across Linux, macOS, and Windows.
+
+The prior entries below are historical release notes.
 
 ## 2.3.0-beta.2 — Hermes-ready autonomous runtime
 

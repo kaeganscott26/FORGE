@@ -1,5 +1,7 @@
 # 🚀 Releasing FORGE
 
+The current coordinated release is **FORGE 2.4.0-beta**, published from the exact `v2.4.0-beta` tag. The release workflow validates Linux, macOS, and Windows packages before publishing a complete draft release.
+
 ## 🧭 Release philosophy
 
 Release integrity matters because an updater connects source, a tag, a CI runner, public binaries, an installed application, and future update behavior. CI success alone does not prove which source produced a binary or whether the public artifact is the one that was validated.
@@ -22,7 +24,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 - Stable accepts only strictly newer normal SemVer.
 - A legacy stored `preview` preference migrates to Beta.
 - Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`; the current source beta is `v2.3.0-beta.2` and its public name is `FORGE v2.3 Beta`. The published beta remains `v2.3.0-beta.1` until the newer version is tagged and released.
+- Tags use `v<package-version>`; the current source beta is `v2.4.0-beta` and its public name is `FORGE v2.4.0-beta`.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 

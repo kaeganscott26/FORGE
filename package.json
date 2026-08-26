@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "2.3.0-beta.2",
+  "version": "2.4.0-beta",
   "desktopName": "forge.desktop",
   "private": true,
   "description": "Local-first AI-native development workspace",

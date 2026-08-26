@@ -8,7 +8,7 @@ This is the canonical current-state document for implemented FORGE behavior. His
 
 FORGE is a local-first intelligent workspace environment. The workspace owns project state, durable memory, task history, tool audit history, browser history/bookmarks, and Git evidence. Models and agent runtimes are replaceable clients of that workspace state rather than owners of it.
 
-Current source line: **2.3.0-beta.2**.
+Current source line: **2.4.0-beta**.
 
 ## Desktop runtime
 
@@ -20,6 +20,8 @@ Current source line: **2.3.0-beta.2**.
 - Text, image, audio, and video handling use explicit file classification instead of treating arbitrary files as source text.
 
 ## Agent and tool architecture
+
+- Semantic Context owns embedding, retrieval, composite scoring, stale/superseded governance, deduplication, provenance, and token-budgeted packet assembly. Embeddings are not the inference model; Hermes consumes the packet prepared by FORGE.
 
 - FORGE ToolRouter remains the authority for tool validation, execution, audit, cancellation, rollback metadata, and workspace containment.
 - Tool schemas are provider-neutral and capability-aware.

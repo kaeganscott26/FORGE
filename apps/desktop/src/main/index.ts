@@ -10,7 +10,7 @@ import { WorkspaceService } from '@forge/workspace';
 import { GitHubService, GitService } from '@forge/git';
 import { StorageService } from '@forge/storage';
 import { OpenAIProvider, Agent } from '@forge/ai';
-import { WorkspaceContextEngine, WorkspaceIntelligenceService } from '@forge/intelligence';
+import { OpenAICompatibleEmbeddingClient, SemanticContextService, SemanticIndexer, WorkspaceContextEngine, WorkspaceIntelligenceService } from '@forge/intelligence';
 import { MemoryService, MemoryRetriever, MemoryIndexer } from '@forge/memory';
 import { UpdaterService } from './updater';
 import { SettingsService } from './settings';
@@ -21,7 +21,7 @@ import { ForgeLiveService, isLoopbackUrl } from '@forge/forge-live';
 import { TaskRuntime } from '@forge/tasks';
 import { createNativeAgentRuntime } from './native-agent-runtime';
 import { ForgeOsService } from '@forge/os-integration';
-import { HermesRuntimeDetector, discoverSkills, resolveAgentRuntime, skillRootsForWorkspace } from '@forge/agent-runtime';
+import { HermesRuntimeDetector, discoverSkills, platformCapabilities, resolveAgentRuntime, skillRootsForWorkspace } from '@forge/agent-runtime';
 
 declare const __FORGE_BUILD_COMMIT__: string;
 declare const __FORGE_BUILD_DATE__: string;
@@ -81,12 +81,32 @@ function appBuildInfo(): AppBuildInfo {
 const aiProvider = new OpenAIProvider();
 const contextBuilder = new WorkspaceContextEngine(workspace, git, storage);
 const intelligence = new WorkspaceIntelligenceService(contextBuilder, storage);
+const embeddingClient = new OpenAICompatibleEmbeddingClient(() => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+const semanticContext = new SemanticContextService(storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+const semanticIndexer = new SemanticIndexer(workspace, storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+contextBuilder.useSemanticContext(semanticContext);
 const memoryService = new MemoryService(storage as any);
 const memoryRetriever = new MemoryRetriever(memoryService as any);
 const memoryIndexer = new MemoryIndexer(memoryService as any, workspace as any);
 const agent = new Agent(aiProvider as any, intelligence as any, memoryRetriever as any);
+const hermesProvider = new OpenAIProvider();
+hermesProvider.id = 'hermes';
+const hermesAgent = new Agent(hermesProvider as any, intelligence as any, memoryRetriever as any);
 
-async function applyAISettings(): Promise<void> { aiProvider.configure(await settings.apiConfiguration()); }
+async function applyAISettings(): Promise<void> {
+  const inference = await settings.apiConfiguration(); aiProvider.configure(inference);
+  contextBuilder.setTokenBudget(settings.publicSettings().contextTokenBudget);
+  const endpoint = settings.hermesConfiguration().endpoint;
+  if (endpoint) hermesProvider.configure({ baseUrl: endpoint, model: inference.model });
+}
+
+async function resolveReasoningRuntime(): Promise<{ agent: Agent; provider: OpenAIProvider; kind: 'native' | 'hermes' }> {
+  const publicSettings = settings.publicSettings();
+  if (publicSettings.agentRuntime !== 'hermes' || !publicSettings.hermesEndpoint) return { agent, provider: aiProvider, kind: 'native' };
+  const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+  const profile = resolveAgentRuntime('hermes', status, status.endpointReachable === true);
+  return profile.active === 'hermes' ? { agent: hermesAgent, provider: hermesProvider, kind: 'hermes' } : { agent, provider: aiProvider, kind: 'native' };
+}
 
 async function emitRuntimeEvent(type: RuntimeEventType, payload?: Record<string, unknown>): Promise<void> {
   if (type === 'context.invalidated') await intelligence.invalidate(String(payload?.channel ?? 'runtime-event'), payload);
@@ -111,7 +131,7 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
     try {
       const data = await action(request);
       const event = eventForChannel(channel);
-      if (event) { await emitRuntimeEvent(event, { channel }); await emitRuntimeEvent('context.invalidated', { channel }); }
+      if (event) { await emitRuntimeEvent(event, { channel }); await emitRuntimeEvent('context.invalidated', { channel }); if (['file.changed', 'git.changed', 'task.changed', 'memory.changed'].includes(event)) void semanticIndexer.incremental().then(() => emitRuntimeEvent('context.updated', { channel })).catch(() => undefined); }
       return { success: true, data };
     }
     catch (error) { return { success: false, error: { message: error instanceof Error ? error.message : 'An unexpected error occurred.' } }; }
@@ -123,9 +143,15 @@ async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
+  workspace.watch();
   await refreshBrowserRecords();
+  void semanticIndexer.incremental().then(() => emitRuntimeEvent('context.updated', { reason: 'workspace-indexed' })).catch(() => undefined);
   return info;
 }
+
+workspace.on('changed', (relativePath: string) => {
+  void emitRuntimeEvent('file.changed', { path: relativePath }).then(() => semanticIndexer.incremental()).then(() => emitRuntimeEvent('context.updated', { path: relativePath })).catch(() => undefined);
+});
 
 function liveService(): ForgeLiveService {
   const info = workspace.info(); if (!info) throw new Error('Open a workspace before using FORGE Live.');
@@ -345,7 +371,7 @@ function registerHandlers(): void {
     const project = await storage.dashboard();
     const all = (nodes: any[]): any[] => nodes.flatMap((node) => [node, ...(node.children ? all(node.children) : [])]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
+    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { ...semanticContext.health(), hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
@@ -362,12 +388,23 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
   register(IPC_CHANNELS.settingsModelsList, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl })).listModels());
   register(IPC_CHANNELS.settingsModelValidate, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel })).validateModel(request.apiModel));
+  register(IPC_CHANNELS.settingsEmbeddingModelsList, async (request) => embeddingClient.listModels({ baseUrl: request.embeddingBaseUrl, apiKey: request.embeddingApiKey }));
+  register(IPC_CHANNELS.settingsEmbeddingModelValidate, async (request) => embeddingClient.validateModel(request.embeddingModel, { baseUrl: request.embeddingBaseUrl, model: request.embeddingModel, apiKey: request.embeddingApiKey, enabled: true }));
   register(IPC_CHANNELS.settingsTestGithub, async () => settings.testGitHub());
   register(IPC_CHANNELS.settingsRuntimeStatus, async () => {
     const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
-    const profile = resolveAgentRuntime(settings.publicSettings().agentRuntime, status);
+    const profile = resolveAgentRuntime(settings.publicSettings().agentRuntime, status, status.endpointReachable === true);
     return { ...status, requested: profile.requested, active: profile.active };
   });
+  register(IPC_CHANNELS.settingsPlatformCapabilities, async () => {
+    const status = await new HermesRuntimeDetector().status(settings.hermesConfiguration());
+    const semantic = await storage.semanticIndexStatus().catch(() => null);
+    const config = await settings.embeddingConfiguration();
+    return platformCapabilities({ platform: process.platform, appDataPath: app.getPath('userData'), resourcePath: process.resourcesPath, hermesStatus: status, embeddingProviderAvailable: config.enabled && (!semantic?.lastError || semantic.state === 'ready'), embeddingModelAvailable: semantic?.state === 'ready' && semantic.embeddingModel === config.model, semanticIndexHealthy: semantic?.state === 'ready', workspaceDatabaseHealthy: Boolean(await storage.dashboard().catch(() => null)), toolRouterAvailable: true });
+  });
+  register(IPC_CHANNELS.semanticIndexStatus, async () => storage.semanticIndexStatus());
+  register(IPC_CHANNELS.semanticIndexRebuild, async () => semanticIndexer.rebuild());
+  register(IPC_CHANNELS.contextHealthGet, async () => semanticContext.health());
   register(IPC_CHANNELS.agentSkillsList, async () => {
     const info = workspace.info();
     if (!info) throw new Error('Open a workspace before listing skills.');
@@ -375,7 +412,7 @@ function registerHandlers(): void {
     return discoverSkills(skillRootsForWorkspace(info.rootPath, { hermesRoots: status.skillRoots }));
   });
 
-  const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent });
+  const nativeAgent = createNativeAgentRuntime({ storage, workspace, agent, toolRouter, taskRuntime, settings, aiProvider, git, emitRuntimeEvent, resolveReasoningRuntime });
   register(IPC_CHANNELS.agentAsk, async (request) => { if (!request.prompt.trim()) throw new Error('A prompt is required.'); return nativeAgent.runAgentTurn(request.conversationId, request.prompt.trim()); });
   register(IPC_CHANNELS.agentExplainProject, async (request) => nativeAgent.runAgentTurn(request?.conversationId, 'Explain this repository as an evidence-grounded architecture summary.'));
   register(IPC_CHANNELS.agentReviewChanges, async (request) => nativeAgent.runAgentTurn(request?.conversationId, 'Review the current repository changes against its documented architecture and project goals.'));
