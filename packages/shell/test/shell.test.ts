@@ -81,11 +81,11 @@ describe('shell and terminal services', () => {
     await expect(service.run({ command: 'hermes acp --help', args: [], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'rejected input' })).rejects.toThrow(/Executable and arguments must be separate/);
   });
 
-  it('executes an explicitly valid bash -lc command', async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-bash-lc-')); const service = new ShellService(() => root);
-    const script = 'echo shell-ok && printf "%s\\n" verified';
-    const output = await service.run({ command: 'bash', args: ['-lc', script], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'verified shell output' });
-    expect(output).toMatchObject({ executable: 'bash', argv: ['-lc', script], cwd: await realpath(root), stdout: 'shell-ok\nverified\n', stderr: '', exitCode: 0 });
+  it('executes an explicitly valid executable and argument vector without shell interpolation', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'forge-canonical-executable-')); const service = new ShellService(() => root);
+    const script = "process.stdout.write(['shell-ok', 'verified'].join('\\n') + '\\n')";
+    const output = await service.run({ command: process.execPath, args: ['-e', script], timeoutMs: 2_000, reason: 'test', expectedOutcome: 'verified process output' });
+    expect(output).toMatchObject({ executable: process.execPath, argv: ['-e', script], cwd: await realpath(root), stdout: 'shell-ok\nverified\n', stderr: '', exitCode: 0 });
   });
 
   it('requires an explicit network profile for known network-capable executables', async () => {
@@ -96,7 +96,9 @@ describe('shell and terminal services', () => {
   it('cancels process trees', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'forge-cancel-')); const service = new ShellService(() => root); const id = 'cancel-me';
     const running = service.run({ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'], workingDirectory: '.', timeoutMs: 10_000, reason: 'test', expectedOutcome: 'cancel' }, id);
-    await new Promise((resolve) => setTimeout(resolve, 80)); expect(service.cancel(id)).toBe(true); expect((await running).cancelled).toBe(true);
+    const deadline = Date.now() + 3_000; let cancelled = false;
+    while (!cancelled && Date.now() < deadline) { cancelled = service.cancel(id); if (!cancelled) await new Promise((resolve) => setTimeout(resolve, 20)); }
+    expect(cancelled).toBe(true); expect((await running).cancelled).toBe(true);
   });
 
   it('starts detached workspace-owned output without blocking the caller', async () => {

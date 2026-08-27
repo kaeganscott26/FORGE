@@ -87,12 +87,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
-        with: { pattern: forge-*, path: release-assets, merge-multiple: true }
+        with: { pattern: forge-*, path: release-assets }
       - name: Verify tag and publish complete release
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
           release_tag='v2.4.0-beta'
-          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          test "${#assets[@]}" -gt 0
-          (cd release-assets && sha256sum "${assets[@]#release-assets/}" > SHA256SUMS.all)
+          upload_directory="$RUNNER_TEMP/forge-release-upload"
+          mkdir -p "$upload_directory"
+          declare -A names=()
+          while IFS= read -r asset; do
+            name="$(basename "$asset")"
+            if [[ -n "${names[$name]+present}" ]]; then
+              echo "Duplicate cross-platform release asset: $name" >&2
+              exit 1
+            fi
+            names[$name]=1
+            cp "$asset" "$upload_directory/$name"
+          done < <(find release-assets -mindepth 2 -maxdepth 2 -type f ! -name build-manifest.json ! -name SHA256SUMS -print | sort)
+          mapfile -t assets < <(find "$upload_directory" -maxdepth 1 -type f -print | sort)
+          test "${#assets[@]}" -eq 11
+          (cd "$upload_directory" && sha256sum * > SHA256SUMS.all)
+          assets+=("$upload_directory/SHA256SUMS.all")
           gh release create "$release_tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.4.0-beta" --notes-file RELEASE_NOTES.md --prerelease

@@ -15,21 +15,23 @@ const packageManifest = JSON.parse(await fs.readFile(path.join(repositoryRoot, '
 
 if (manifest.schemaVersion !== 1 || manifest.product !== 'FORGE') throw new Error('Unsupported build manifest.');
 if (manifest.version !== packageManifest.version || manifest.tag !== `v${packageManifest.version}`) throw new Error('Build manifest version does not match package.json.');
-if (!['darwin', 'win32'].includes(manifest.platform)) throw new Error('Build manifest platform is unsupported.');
+if (!['darwin', 'linux', 'win32'].includes(manifest.platform)) throw new Error('Build manifest platform is unsupported.');
 if (!Array.isArray(manifest.artifacts) || !Array.isArray(manifest.packagedApplications)) throw new Error('Build manifest is incomplete.');
 if (!/^[0-9a-f]{40}$/.test(manifest.gitCommit) || Number.isNaN(Date.parse(manifest.buildDate))) throw new Error('Build manifest provenance is malformed.');
 const expectedChannel = packageManifest.version.includes('-') ? 'beta' : 'stable';
 if (manifest.channel !== expectedChannel) throw new Error('Build manifest channel does not match package.json.');
 const expectedArtifactKinds = manifest.platform === 'win32'
   ? ['blockmap', 'nsis', 'updater-metadata']
+  : manifest.platform === 'linux'
+    ? ['appimage', 'deb', 'updater-metadata']
   : manifest.artifacts.length === 5
     ? ['blockmap', 'blockmap', 'dmg', 'updater-metadata', 'zip']
     : ['blockmap', 'blockmap', 'blockmap', 'blockmap', 'dmg', 'dmg', 'updater-metadata', 'zip', 'zip'];
 if (JSON.stringify(manifest.artifacts.map((entry) => entry.kind).sort()) !== JSON.stringify(expectedArtifactKinds.sort())) {
   throw new Error('Build manifest artifact topology is incomplete or unexpected.');
 }
-if (manifest.platform === 'win32' && (manifest.packagedApplications.length !== 1 || JSON.stringify(manifest.architectures) !== JSON.stringify(['x64']))) {
-  throw new Error('Windows build manifest architecture topology is invalid.');
+if (manifest.platform !== 'darwin' && (manifest.packagedApplications.length !== 1 || JSON.stringify(manifest.architectures) !== JSON.stringify(['x64']))) {
+  throw new Error(`${manifest.platform === 'win32' ? 'Windows' : 'Linux'} build manifest architecture topology is invalid.`);
 }
 
 const verify = async (record) => {
@@ -47,12 +49,13 @@ for (const app of manifest.packagedApplications) {
   await verify(app.appAsar);
   const appRoot = path.resolve(repositoryRoot, app.path);
   if (manifest.platform === 'win32' && appRoot !== path.join(outputDirectory, 'win-unpacked')) throw new Error('Windows packaged application path is invalid.');
-  const runtimeMetadataPath = manifest.platform === 'win32'
-    ? path.join(appRoot, 'resources', 'forge-runtime.json')
-    : path.join(appRoot, 'Contents', 'Resources', 'forge-runtime.json');
+  if (manifest.platform === 'linux' && appRoot !== path.join(outputDirectory, 'linux-unpacked')) throw new Error('Linux packaged application path is invalid.');
+  const runtimeMetadataPath = manifest.platform === 'darwin'
+    ? path.join(appRoot, 'Contents', 'Resources', 'forge-runtime.json')
+    : path.join(appRoot, 'resources', 'forge-runtime.json');
   const metadataBytes = await fs.readFile(runtimeMetadataPath);
   let packagedVersion;
-  if (manifest.platform === 'win32') {
+  if (manifest.platform !== 'darwin') {
     packagedVersion = JSON.parse(extractFile(path.resolve(repositoryRoot, app.appAsar.path), 'package.json').toString('utf8')).version;
   } else {
     const infoPlist = path.join(appRoot, 'Contents', 'Info.plist');

@@ -18,7 +18,7 @@ for command in node npm python3 make g++; do
   fi
 done
 
-for required_file in package.json package-lock.json scripts/prepare-node-pty.mjs; do
+for required_file in package.json package-lock.json scripts/prepare-node-pty.mjs scripts/stage-runtime-metadata.mjs scripts/write-build-manifest.mjs scripts/verify-build-manifest.mjs; do
   if [[ ! -f "$required_file" ]]; then
     echo "Required project file is missing: $required_file" >&2
     exit 1
@@ -34,6 +34,7 @@ npm run lint
 npm test
 npm run build
 npm run package:linux
+node scripts/verify-build-manifest.mjs
 
 version="$(node -p "require('./package.json').version")"
 output_directory="$repository_root/dist_electron"
@@ -57,4 +58,5 @@ fi
 echo "Linux packaging succeeded for FORGE $version:"
 printf '  %s\n' "${appimage_artifacts[@]}" "${deb_artifacts[@]}"
 echo "  Verified node-pty: $pty_node"
+echo "  Verified AppImage, DEB, updater metadata, runtime provenance, and build manifest"
 sha256sum "${appimage_artifacts[@]}" "${deb_artifacts[@]}" > "$output_directory/SHA256SUMS"

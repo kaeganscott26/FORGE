@@ -32,7 +32,7 @@
     "package:mac:universal": "npm run clean:dist && npm run build && npm run stage:mac-runtime-metadata && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs universal",
     "package:mac:all": "npm run clean:dist && npm run build && npm run stage:mac-runtime-metadata && electron-builder --mac --arm64 --publish never && electron-builder --mac --universal --publish never && node scripts/write-build-manifest.mjs arm64,universal",
     "package:win": "npm run clean:dist && npm run build && npm run stage:win-runtime-metadata && electron-builder --win --x64 --publish never && node scripts/write-build-manifest.mjs x64 win32",
-    "package:linux": "npm run clean:dist && npm run build && npm run stage:linux-runtime-metadata && electron-builder --linux --x64 --publish never",
+    "package:linux": "npm run clean:dist && npm run build && npm run stage:linux-runtime-metadata && electron-builder --linux --x64 --publish never && node scripts/write-build-manifest.mjs x64 linux",
     "install:mac": "bash scripts/install-mac.sh",
     "update:mac": "bash scripts/update-macos.sh",
     "update:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-windows.ps1",

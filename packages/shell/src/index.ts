@@ -95,7 +95,7 @@ export async function resolveWorkspacePath(workspaceRoot: string, requested?: st
 
 function assertCanonicalExecutable(command: string, args: readonly string[]): void {
   if (!command.trim() || command.includes('\0')) throw new Error('A valid executable is required.');
-  if (/\s/.test(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
+  if (/\s/.test(command) && !path.isAbsolute(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
   if (args.some((argument) => argument.includes('\0'))) throw new Error('Shell arguments may not contain null bytes.');
 }
 

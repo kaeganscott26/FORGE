@@ -13,11 +13,12 @@ const platform = process.argv[3] ?? 'darwin';
 const allowedArchitectures = platform === 'darwin' ? new Set(['arm64', 'x64', 'universal']) : new Set(['x64']);
 const appDirectoryFor = (architecture) => {
   if (platform === 'win32') return 'win-unpacked';
+  if (platform === 'linux') return 'linux-unpacked';
   return architecture === 'arm64' ? 'mac-arm64' : architecture === 'x64' ? 'mac' : 'mac-universal';
 };
 
-if (!['darwin', 'win32'].includes(platform) || expectedArchitectures.size === 0 || [...expectedArchitectures].some((entry) => !allowedArchitectures.has(entry))) {
-  throw new Error('Usage: node scripts/write-build-manifest.mjs arm64|x64|universal|arm64,universal [darwin] OR node scripts/write-build-manifest.mjs x64 win32');
+if (!['darwin', 'linux', 'win32'].includes(platform) || expectedArchitectures.size === 0 || [...expectedArchitectures].some((entry) => !allowedArchitectures.has(entry))) {
+  throw new Error('Usage: node scripts/write-build-manifest.mjs arm64|x64|universal|arm64,universal [darwin] OR node scripts/write-build-manifest.mjs x64 linux|win32');
 }
 
 const packageManifest = JSON.parse(await fs.readFile(path.join(repositoryRoot, 'package.json'), 'utf8'));
@@ -46,6 +47,14 @@ const windowsExecutableArchitecture = async (filePath) => {
   if (machine !== 0x8664) throw new Error(`Unexpected Windows executable architecture 0x${machine.toString(16)}: ${filePath}`);
   return ['x64'];
 };
+const linuxExecutableArchitecture = async (filePath) => {
+  const data = await fs.readFile(filePath);
+  if (data.length < 20 || data[0] !== 0x7f || data.toString('ascii', 1, 4) !== 'ELF') throw new Error(`Invalid Linux executable: ${filePath}`);
+  if (data[4] !== 2 || data[5] !== 1) throw new Error(`Unexpected Linux ELF class or byte order: ${filePath}`);
+  const machine = data.readUInt16LE(18);
+  if (machine !== 0x3e) throw new Error(`Unexpected Linux executable architecture 0x${machine.toString(16)}: ${filePath}`);
+  return ['x64'];
+};
 const fileRecord = async (kind, absolutePath, architectures) => {
   const stat = await fs.stat(absolutePath);
   return {
@@ -60,11 +69,11 @@ const fileRecord = async (kind, absolutePath, architectures) => {
 await Promise.all([
   fs.rm(path.join(outputDirectory, 'builder-debug.yml'), { force: true }),
   fs.rm(path.join(outputDirectory, 'builder-effective-config.yaml'), { force: true }),
-  fs.rm(path.join(outputDirectory, platform === 'win32' ? '.icon-ico' : '.icon-icns'), { recursive: true, force: true })
+  fs.rm(path.join(outputDirectory, platform === 'win32' ? '.icon-ico' : platform === 'darwin' ? '.icon-icns' : '.icon-set'), { recursive: true, force: true })
 ]);
 
 const outputEntries = await fs.readdir(outputDirectory, { withFileTypes: true });
-const metadataName = platform === 'win32' ? `${channel}.yml` : `${channel}-mac.yml`;
+const metadataName = platform === 'win32' ? `${channel}.yml` : `${channel}-${platform === 'linux' ? 'linux' : 'mac'}.yml`;
 const staleFiles = outputEntries
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name)
@@ -79,6 +88,9 @@ if (platform === 'win32') {
   const installerPath = path.join(outputDirectory, `FORGE-${version}-x64.exe`);
   artifacts.push(await fileRecord('nsis', installerPath, ['x64']));
   artifacts.push(await fileRecord('blockmap', `${installerPath}.blockmap`, ['x64']));
+} else if (platform === 'linux') {
+  artifacts.push(await fileRecord('appimage', path.join(outputDirectory, `FORGE-${version}-x64.AppImage`), ['x64']));
+  artifacts.push(await fileRecord('deb', path.join(outputDirectory, `FORGE-${version}-x64.deb`), ['x64']));
 } else {
   for (const architecture of expectedArchitectures) {
     for (const extension of ['dmg', 'dmg.blockmap', 'zip', 'zip.blockmap']) {
@@ -93,11 +105,13 @@ artifacts.push(await fileRecord('updater-metadata', metadataPath, expectedArchit
 const packagedApplications = [];
 for (const architecture of expectedArchitectures) {
   const appPath = path.join(outputDirectory, appDirectoryFor(architecture), 'FORGE.app');
-  const actualAppPath = platform === 'win32' ? path.join(outputDirectory, appDirectoryFor(architecture)) : appPath;
-  const executablePath = platform === 'win32' ? path.join(actualAppPath, 'FORGE.exe') : path.join(actualAppPath, 'Contents/MacOS/FORGE');
-  const appAsarPath = platform === 'win32' ? path.join(actualAppPath, 'resources/app.asar') : path.join(actualAppPath, 'Contents/Resources/app.asar');
+  const actualAppPath = platform === 'darwin' ? appPath : path.join(outputDirectory, appDirectoryFor(architecture));
+  const executablePath = platform === 'win32' ? path.join(actualAppPath, 'FORGE.exe') : platform === 'linux' ? path.join(actualAppPath, 'forge') : path.join(actualAppPath, 'Contents/MacOS/FORGE');
+  const appAsarPath = platform === 'darwin' ? path.join(actualAppPath, 'Contents/Resources/app.asar') : path.join(actualAppPath, 'resources/app.asar');
   const observedArchitectures = platform === 'win32'
     ? await windowsExecutableArchitecture(executablePath)
+    : platform === 'linux'
+      ? await linuxExecutableArchitecture(executablePath)
     : (await execute('lipo', ['-archs', executablePath])).stdout.trim().split(/\s+/).sort();
   const required = architecture === 'universal' ? ['arm64', 'x86_64'] : [architecture];
   if (JSON.stringify(observedArchitectures) !== JSON.stringify(required.sort())) {

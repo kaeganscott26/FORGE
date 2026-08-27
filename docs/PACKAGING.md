@@ -28,7 +28,7 @@ Run from a Linux x64 machine or native Linux CI runner:
 ./scripts/package-linux.sh
 ```
 
-The script requires Node.js, npm, Python 3, `make`, and `g++` so `node-pty` can be installed for Linux. It never installs system packages or uses `sudo`; on Debian/Ubuntu install `python3 build-essential`, or on Arch install `python3 base-devel`, before retrying. It produces and verifies versioned `.AppImage` and `.deb` artifacts in `dist_electron/` and checks the unpacked Linux PTY module and helper.
+The script requires Node.js, npm, Python 3, `make`, and `g++` so `node-pty` can be installed for Linux. It never installs system packages or uses `sudo`; on Debian/Ubuntu install `python3 build-essential`, or on Arch install `python3 base-devel`, before retrying. It produces versioned `.AppImage` and `.deb` artifacts in `dist_electron/`, then applies the same authoritative build-manifest gate used by macOS and Windows: artifact hashes, x64 ELF identity, packaged `app.asar`, embedded commit/version/build date, `beta-linux.yml` or `latest-linux.yml`, runtime metadata, and the unpacked Linux PTY module are all verified.
 
 ## 🪟 Windows
 
