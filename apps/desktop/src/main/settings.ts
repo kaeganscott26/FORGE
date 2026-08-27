@@ -62,7 +62,7 @@ export class SettingsService {
       , agentRuntime: this.data.agentRuntime === 'hermes' ? 'hermes' : 'native'
       , hermesCommand: this.data.hermesCommand ?? ''
       , hermesEndpoint: this.data.hermesEndpoint ?? ''
-      , embeddingEnabled: this.data.embeddingEnabled !== false
+      , embeddingEnabled: this.data.embeddingEnabled === true
       , embeddingProvider: 'openai-compatible'
       , embeddingBaseUrl: this.data.embeddingBaseUrl ?? process.env.FORGE_EMBEDDING_BASE_URL ?? DEFAULT_EMBEDDING_BASE_URL
       , embeddingModel: this.data.embeddingModel ?? process.env.FORGE_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL
@@ -82,7 +82,7 @@ export class SettingsService {
     if (hermesCommand) this.data.hermesCommand = this.validateCommand(hermesCommand); else delete this.data.hermesCommand;
     const hermesEndpoint = request.hermesEndpoint?.trim();
     if (hermesEndpoint) this.data.hermesEndpoint = this.validateUrl(hermesEndpoint); else delete this.data.hermesEndpoint;
-    this.data.embeddingEnabled = request.embeddingEnabled !== false;
+    this.data.embeddingEnabled = request.embeddingEnabled === true;
     this.data.embeddingProvider = 'openai-compatible';
     this.data.embeddingBaseUrl = this.validateUrl(request.embeddingBaseUrl || DEFAULT_EMBEDDING_BASE_URL);
     this.data.embeddingModel = request.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
@@ -114,7 +114,7 @@ export class SettingsService {
 
   async embeddingConfiguration(overrides: { apiKey?: string; baseUrl?: string; model?: string; enabled?: boolean } = {}): Promise<EmbeddingConfiguration> {
     return {
-      enabled: overrides.enabled ?? this.data.embeddingEnabled !== false,
+      enabled: overrides.enabled ?? this.data.embeddingEnabled === true,
       provider: 'openai-compatible',
       apiKey: overrides.apiKey?.trim() || (this.data.embeddingApiKey ? await this.decrypt(this.data.embeddingApiKey) : process.env.FORGE_EMBEDDING_API_KEY),
       baseUrl: this.validateUrl(overrides.baseUrl || this.data.embeddingBaseUrl || process.env.FORGE_EMBEDDING_BASE_URL || DEFAULT_EMBEDDING_BASE_URL),

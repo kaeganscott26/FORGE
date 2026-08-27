@@ -4,9 +4,9 @@ import type { StorageService } from '@forge/storage';
 import type { FileNode } from '@forge/ipc';
 import type { MemoryEntry } from '@forge/memory';
 import type { CompiledWorkspaceContext, ContextBudgetPolicy, WorkspaceArtifact, AgentContextEnvelope } from './types';
-import { DEFAULT_CONTEXT_TOKEN_BUDGET, estimateTokens, type SemanticContextService } from './semantic';
+import { DEFAULT_CONTEXT_TOKEN_BUDGET, DEFAULT_SEMANTIC_RESULT_LIMIT, DEFAULT_SEMANTIC_TOKEN_BUDGET, estimateTokens, type SemanticContextService } from './semantic';
 
-const DEFAULT_CONTEXT_BUDGET = DEFAULT_CONTEXT_TOKEN_BUDGET * 4;
+const DEFAULT_CONTEXT_BUDGET = 28_000;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
 
 export interface ProjectContext {
@@ -88,32 +88,33 @@ export class WorkspaceContextEngine {
   }
 
   async assemble(query: string, memories?: MemoryEntry[] | null, characterBudget = DEFAULT_CONTEXT_BUDGET): Promise<CompiledWorkspaceContext> {
+    characterBudget = Math.min(characterBudget, this.tokenBudget * 4);
     const context = await this.buildContext(query, memories);
     const artifacts: WorkspaceArtifact[] = [];
     const add = (artifact: WorkspaceArtifact): void => { if (artifact.content.trim()) artifacts.push(artifact); };
     add({ id: 'workspace-inventory', kind: 'source', title: 'Workspace inventory', priority: 60, content: `${context.files.length} indexed entries\n${context.files.slice(0, 180).map((file) => `${file.type === 'directory' ? 'dir' : 'file'}: ${file.path}`).join('\n')}`, metadata: { relevance: 70, reason: 'Workspace identity and file inventory.' } });
-    for (const document of context.documents) add({ id: `document:${document.path}`, kind: /(?:architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes)/i.test(document.path) ? 'architecture' : 'documentation', title: document.path, path: document.path, content: document.content, priority: /architecture/i.test(document.path) ? 100 : /^readme/i.test(document.path) ? 90 : 80, metadata: { relevance: 90, reason: 'Project documentation selected by workspace context policy.' } });
-    for (const sourceFile of context.sourceFiles) add({ id: `source:${sourceFile.path}`, kind: 'source', title: sourceFile.path, path: sourceFile.path, content: sourceFile.content, priority: sourceFile.changed ? 92 : 70, metadata: { relevance: sourceFile.relevance, reason: sourceFile.reason } });
-    if (context.packageJson) add({ id: 'package-json', kind: 'configuration', title: 'package.json', path: context.packageJson.path, content: context.packageJson.content, priority: 72 });
-    if (context.gitStatus) add({ id: 'git-status', kind: 'git', title: 'Current Git state', content: JSON.stringify(context.gitStatus, null, 2), priority: 88 });
-    if (context.recentCommits?.length) add({ id: 'git-history', kind: 'git', title: 'Recent Git history', content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}`).join('\n'), priority: 86 });
-    if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Project goals and metadata', content: JSON.stringify(context.metadata, null, 2), priority: 94 });
-    for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: 'memory', title: memory.title || memory.type, content: memory.content, priority: memory.type === 'decision' ? 98 : Math.max(70, Math.min(92, memory.relevance ?? 84)), updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(' · ') ?? 'Relevant durable workspace knowledge.' } });
+    for (const document of context.documents) add({ id: `document:${document.path}`, kind: /(?:architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes)/i.test(document.path) ? 'architecture' : 'documentation', title: document.path, path: document.path, content: document.content, priority: /architecture/i.test(document.path) ? 82 : /^readme/i.test(document.path) ? 78 : 74, metadata: { relevance: 90, reason: 'Current workspace documentation selected by deterministic context policy.' } });
+    for (const sourceFile of context.sourceFiles) add({ id: `source:${sourceFile.path}`, kind: 'source', title: sourceFile.path, path: sourceFile.path, content: sourceFile.content, priority: sourceFile.changed ? 98 : 96, metadata: { relevance: sourceFile.relevance, reason: sourceFile.reason } });
+    if (context.packageJson) add({ id: 'package-json', kind: 'configuration', title: 'package.json', path: context.packageJson.path, content: context.packageJson.content, priority: 90 });
+    if (context.gitStatus) add({ id: 'git-status', kind: 'git', title: 'Current Git state', content: JSON.stringify(context.gitStatus, null, 2), priority: 94 });
+    if (context.recentCommits?.length) add({ id: 'git-history', kind: 'git', title: 'Recent Git history', content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}`).join('\n'), priority: 92 });
+    if (context.metadata) add({ id: 'project-metadata', kind: 'metadata', title: 'Current project goals, tasks, and runtime metadata', content: JSON.stringify(context.metadata, null, 2), priority: 88 });
+    for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: 'memory', title: memory.title || memory.type, content: memory.content, priority: memory.type === 'decision' ? 54 : 50, updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(' · ') ?? 'Durable historical workspace knowledge; current source and tool evidence take precedence.' } });
 
     let metrics = this.semantic?.health() ?? { tokensUsed: 0, tokenBudget: DEFAULT_CONTEXT_TOKEN_BUDGET, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true, fallbackReason: 'Semantic context has not been initialized.' };
-    if (this.semantic) {
-      const retrieval = await this.semantic.searchSemanticContext(query, { limit: 24, tokenBudget: Math.floor(this.tokenBudget * 0.7) });
+    if (this.semantic && shouldUseSemanticRetrieval(query, context)) {
+      const retrieval = await this.semantic.searchSemanticContext(query, { limit: DEFAULT_SEMANTIC_RESULT_LIMIT, tokenBudget: Math.min(DEFAULT_SEMANTIC_TOKEN_BUDGET, Math.floor(this.tokenBudget * 0.2)) });
       metrics = this.semantic.health();
       for (const candidate of retrieval.candidates) {
         const record = candidate.record;
-        add({ id: `semantic:${record.id}`, kind: semanticArtifactKind(record.sourceType), title: record.sourceUri ?? record.sourceId, path: record.sourceUri, content: record.text, priority: Math.round(candidate.score.finalScore * 100), updatedAt: record.updatedAt, metadata: { semanticRecordId: record.id, sourceType: record.sourceType, sourceRevision: record.sourceRevision, lineStart: record.lineStart, lineEnd: record.lineEnd, lifecycle: record.lifecycle, relevance: Math.round(candidate.score.semanticRelevance * 100), authority: candidate.score.authority, freshness: candidate.score.freshness, finalScore: candidate.score.finalScore, retrievalMode: candidate.retrievalMode, reason: `${candidate.retrievalMode} retrieval; governed for authority, freshness, task relationship, usefulness, staleness, supersession, and redundancy.` } });
+        add({ id: `semantic:${record.id}`, kind: semanticArtifactKind(record.sourceType), title: record.sourceUri ?? record.sourceId, path: record.sourceUri, content: record.text, priority: Math.min(58, 28 + Math.round(candidate.score.finalScore * 30)), updatedAt: record.updatedAt, metadata: { semanticRecordId: record.id, sourceType: record.sourceType, sourceRevision: record.sourceRevision, lineStart: record.lineStart, lineEnd: record.lineEnd, lifecycle: record.lifecycle, relevance: Math.round(candidate.score.semanticRelevance * 100), authority: candidate.score.authority, freshness: candidate.score.freshness, finalScore: candidate.score.finalScore, retrievalMode: candidate.retrievalMode, reason: `${candidate.retrievalMode} discovery evidence; current files, Git, task state, and direct Tool Results remain authoritative.` } });
       }
-    }
+    } else if (this.semantic) metrics = this.semantic.skip('Semantic retrieval was not needed; deterministic workspace evidence and direct tools have priority.');
 
     const budgeted = this.budgetPolicy.select(artifacts, characterBudget);
     const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ''}\n${artifact.content}`).join('\n\n');
     const projectName = context.projectName ?? 'the active workspace';
-    const systemPrompt = `You are consuming context compiled by FORGE for the repository "${projectName}".\n\nFORGE owns workspace intelligence: project evidence, durable memory, task state, Git chronology, terminal observations, and relevance filtering. The active LLM or CLI agent owns reasoning and execution. Treat the project folder as authority, distinguish evidence from inference, and preserve durable project decisions across model changes.\n\nWorkspace evidence for this turn:\n${evidence || 'No workspace evidence was available.'}`;
+    const systemPrompt = `You are consuming context compiled by FORGE for the repository "${projectName}".\n\nFORGE owns workspace intelligence: project evidence, durable memory, task state, Git chronology, terminal observations, and relevance filtering. The active LLM or CLI agent owns reasoning and execution. Treat the project folder as authority and distinguish evidence from inference.\n\nEvidence authority, highest first: (1) explicit files or tools requested by the user, (2) direct current source-code Tool Results, (3) current Git state/history/diff, (4) current task/runtime state, (5) semantic discovery, (6) durable historical memory, (7) model prior knowledge. Semantic context is a discovery hint, never proof and never a substitute for tool use. When the user asks to read/search/inspect the workspace, use the corresponding direct tool. A file.search result identifies candidates; read the relevant implementation with file.read, trace callers, inspect relevant tests and Git evidence, then conclude.\n\nWorkspace evidence for this turn:\n${evidence || 'No workspace evidence was available.'}`;
     return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: { ...metrics, tokensUsed: estimateTokens(systemPrompt), tokenBudget: this.tokenBudget } };
   }
 
@@ -121,6 +122,14 @@ export class WorkspaceContextEngine {
     const compiled = await this.assemble(query, memories, characterBudget);
     return { ...compiled, query, generatedAt: Date.now() };
   }
+}
+
+export function shouldUseSemanticRetrieval(query: string, context: Pick<ProjectContext, 'sourceFiles'>): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized || context.sourceFiles.length > 0) return false;
+  if (/^(?:continue the original request|every requested tool call)/.test(normalized)) return false;
+  if (/\b(?:file\.(?:read|search)|git\.(?:log|diff|status)|read (?:this|the) file|use (?:agent |workspace )?tools?|inspect (?:the )?(?:workspace|repository|source|file)|current (?:source|git|diff)|stack trace|exact error|diagnos\w*|debug\w*|regression|bug|crash|failure)\b/.test(normalized)) return false;
+  return /\b(?:explain|overview|architecture|concept|relationship|relate|historical|why does|how does|where is|discover|find related)\b/.test(normalized);
 }
 
 function semanticArtifactKind(sourceType: string): WorkspaceArtifact['kind'] {

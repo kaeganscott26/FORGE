@@ -27,7 +27,7 @@ function record(overrides: Partial<SemanticRecord> = {}): SemanticRecord {
 
 function service(records: SemanticRecord[], fetcher: typeof fetch) {
   vi.stubGlobal('fetch', fetcher);
-  const storage = { semanticRecords: vi.fn(async () => records) };
+  const storage = { semanticIndexStatus: vi.fn(async () => ({ state: 'ready', embeddingModel: 'embed-test' })), semanticRecords: vi.fn(async () => records) };
   return new SemanticContextService(storage as any, new OpenAICompatibleEmbeddingClient(configuration), configuration);
 }
 
@@ -76,6 +76,16 @@ describe('OpenAI-compatible embedding client', () => {
     await expect(new OpenAICompatibleEmbeddingClient(configuration).validateModel()).resolves.toMatchObject({ exists: true, dimensions: 3 });
   });
 
+  it('unloads a loopback Ollama model after a scoped embedding session', async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => String(url).endsWith('/api/generate')
+      ? new Response(JSON.stringify({ done: true, done_reason: 'unload' }), { status: 200 })
+      : new Response(JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new OpenAICompatibleEmbeddingClient(configuration);
+    await client.withModelSession(() => client.embed(['query']));
+    expect(fetcher).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:11434/api/generate'), expect.objectContaining({ body: expect.stringContaining('"keep_alive":0') }));
+  });
+
   it('refuses insecure remote endpoints and malformed vectors', async () => {
     const remote = async (): Promise<EmbeddingConfiguration> => ({ enabled: true, provider: 'openai-compatible', baseUrl: 'http://example.com/v1', model: 'x', apiKey: 'secret' });
     await expect(new OpenAICompatibleEmbeddingClient(remote).embed(['x'])).rejects.toThrow(/HTTPS/);
@@ -96,11 +106,10 @@ describe('context governor', () => {
     expect(result.candidates[0].score).toMatchObject({ authority: 1 });
   });
 
-  it('demotes stale records but resurrects a highly relevant historical failure', async () => {
+  it('does not inject stale historical failures as current workspace truth', async () => {
     const stale = record({ id: 'stale-error', lifecycle: 'stale', lastVerifiedAt: Date.now() - 400 * 86_400_000, text: 'ECONNRESET Hermes bridge failure', embedding: [1, 0] });
     const result = await service([stale], embedFetch as any).searchSemanticContext('ECONNRESET Hermes bridge failure');
-    expect(result.candidates.map((candidate) => candidate.record.id)).toContain('stale-error');
-    expect(result.candidates[0].score.stalenessPenalty).toBeLessThan(0.1);
+    expect(result.candidates).toEqual([]);
   });
 
   it('filters ordinary superseded records and deduplicates identical or near-identical chunks', async () => {
@@ -119,12 +128,31 @@ describe('context governor', () => {
     expect(semantic.health()).toMatchObject({ tokenBudget: 110, recordsConsidered: 2, recordsSelected: 1, degraded: false });
   });
 
-  it('falls back to lexical retrieval when the embedding endpoint is offline', async () => {
+  it('injects no cached records when the embedding endpoint is offline', async () => {
     const semantic = service([record({ id: 'lexical', text: 'unique fallback needle', embedding: [0, 1] })], vi.fn(async () => { throw new Error('offline'); }) as any);
     const result = await semantic.searchSemanticContext('fallback needle');
     expect(result.degraded).toBe(true);
-    expect(result.candidates[0]).toMatchObject({ retrievalMode: 'lexical', record: { id: 'lexical' } });
+    expect(result.candidates).toEqual([]);
     expect(semantic.health().fallbackReason).toContain('offline');
+  });
+
+  it('hard-caps results and selects at most one chunk from each source', async () => {
+    const records = Array.from({ length: 20 }, (_, index) => record({ id: `record-${index}`, sourceId: index < 4 ? 'src/repeated.ts' : `src/file-${index}.ts`, contentHash: `hash-${index}`, embedding: [1, index / 100] }));
+    const result = await service(records, embedFetch as any).searchSemanticContext('context', { limit: 100, tokenBudget: 100_000 });
+    expect(result.candidates.length).toBeLessThanOrEqual(10);
+    expect(new Set(result.candidates.map((candidate) => candidate.record.sourceId)).size).toBe(result.candidates.length);
+  });
+
+  it('rejects changed file records and incomplete indexes before injection', async () => {
+    vi.stubGlobal('fetch', embedFetch);
+    const staleRecord = record({ metadata: { path: 'src/app.ts', modifiedAt: 10, size: 20 } });
+    const readyStorage = { semanticIndexStatus: async () => ({ state: 'ready', embeddingModel: 'embed-test' }), semanticRecords: vi.fn(async () => [staleRecord]) };
+    const changed = new SemanticContextService(readyStorage as any, new OpenAICompatibleEmbeddingClient(configuration), configuration, undefined, { metadata: async () => ({ modifiedAt: 11, size: 20 }) } as any);
+    expect((await changed.searchSemanticContext('context')).candidates).toEqual([]);
+    const incompleteStorage = { semanticIndexStatus: async () => ({ state: 'indexing', embeddingModel: 'embed-test' }), semanticRecords: vi.fn(async () => [staleRecord]) };
+    const incomplete = new SemanticContextService(incompleteStorage as any, new OpenAICompatibleEmbeddingClient(configuration), configuration);
+    expect(await incomplete.searchSemanticContext('context')).toMatchObject({ candidates: [], degraded: true });
+    expect(incompleteStorage.semanticRecords).not.toHaveBeenCalled();
   });
 });
 
@@ -139,6 +167,48 @@ describe('incremental semantic indexing', () => {
       expect((await indexer.indexSource(source)).embedded).toBe(1);
       expect((await indexer.indexSource(source)).embedded).toBe(0);
       expect(embed).toHaveBeenCalledTimes(1);
+      await storage.close();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('rebuilds a 66-record workspace in bounded batches and two database exports', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-semantic-rebuild-'));
+    try {
+      const storage = new StorageService(); await storage.init(directory); const persist = vi.spyOn(storage as any, 'persist');
+      const files = Array.from({ length: 66 }, (_, index) => ({ path: `src/file-${index}.ts`, relativePath: `src/file-${index}.ts`, type: 'file', extension: 'ts' }));
+      const workspace = {
+        list: vi.fn(async () => files),
+        metadata: vi.fn(async (filePath: string) => ({ text: true, size: 40, modifiedAt: 100, path: filePath })),
+        readFile: vi.fn(async (filePath: string) => ({ path: filePath, content: `export const record = ${JSON.stringify(filePath)};`, modifiedAt: 100 }))
+      };
+      const embed = vi.fn(async (input: string[]) => input.map(() => Array.from({ length: 16 }, (_, index) => index / 16)));
+      const embeddings = { embed, withModelSession: async <T>(operation: () => Promise<T>) => operation() };
+      const indexer = new SemanticIndexer(workspace as any, storage, embeddings as any, configuration);
+      const status = await indexer.rebuild();
+      expect(status).toMatchObject({ state: 'ready', indexedRecords: 66, embeddingDimensions: 16 });
+      expect(embed).toHaveBeenCalledTimes(9);
+      expect(persist).toHaveBeenCalledTimes(2);
+      embed.mockClear(); persist.mockClear();
+      await indexer.incremental();
+      expect(embed).not.toHaveBeenCalled();
+      expect(persist).toHaveBeenCalledTimes(2);
+      await storage.close();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it('supersedes durable records after their source is deleted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'forge-semantic-durable-delete-'));
+    try {
+      const storage = new StorageService(); await storage.init(directory);
+      const embeddings = { embed: vi.fn(async (input: string[]) => input.map(() => [1, 0])), withModelSession: async <T>(operation: () => Promise<T>) => operation() };
+      const indexer = new SemanticIndexer({} as any, storage, embeddings as any, configuration);
+      await indexer.indexSource({ sourceType: 'note', sourceId: 'deleted-memory', revision: 'one', text: 'Historical memory that no longer exists.', metadata: { memoryId: 'deleted-memory' } });
+      expect(await storage.semanticRecords()).toHaveLength(1);
+
+      await indexer.refreshDurableState();
+
+      expect(await storage.semanticRecords()).toEqual([]);
+      expect(await storage.semanticRecords({ includeSuperseded: true })).toMatchObject([{ sourceId: 'deleted-memory', lifecycle: 'superseded' }]);
       await storage.close();
     } finally { await rm(directory, { recursive: true, force: true }); }
   });

@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- Repaired the `2.4.0-beta` semantic-context memory regression without reverting the current runtime: retrieval is lazy/tool-first and capped, stale/failed records inject nothing, vectors use Float32 blobs, sql.js index writes are batched, file updates are incremental, and local Ollama unloads after each operation. Native FORGE, Hermes, FORGE Live, Browser/Home, updates, tasks, memory, and ToolRouter remain on the current line.
 - Separated model-visible tool arguments from runtime execution metadata. Providers no longer see or supply `reason`, nested `taskContext`, task-creation conversation identity, or task-process execution IDs; FORGE now injects workspace, conversation, model, request, and optional task/step linkage internally and persists task/step audit columns in schema v8.
 - Made enabled `browser.read({})` and `browser.find(...)` automatic bounded reads. Browser navigation, page-summary persistence, workspace changes, shell/process execution, destructive operations, Git writes, and remote mutations retain their existing approval boundaries.
 - Replaced browser-native text prompts with routed in-app dialogs for file/folder creation, rename, goals, metadata tasks, persistent tasks, release workflows, task pause, and conversation rename. New files activate the editor immediately.

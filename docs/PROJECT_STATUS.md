@@ -1,6 +1,6 @@
 # 📍 FORGE Project Status
 
-**Updated:** August 21, 2026
+**Updated:** August 26, 2026
 
 **Working version:** `2.4.0-beta` — FORGE native semantic context beta
 
@@ -21,8 +21,8 @@ The prior public baselines remain [FORGE beta 2.1](https://github.com/kaeganscot
 | Area | Implemented behavior |
 | --- | --- |
 | Explorer and editor | Recursive permission-tolerant workspace tree, routed create/rename dialogs, safe file operations, UTF-8 editing, Monaco language mapping, responsive layout, and keyboard controls |
-| Workspace intelligence | Native semantic indexing, composite relevance/authority/freshness governance, stale/superseded filtering, provenance, and bounded context packets from docs, source, Git, tasks, durable memory, and observations |
-| Agent runtime | Provider-neutral tool routing, policy/approval/audit enforcement, progress-aware continuation, persistent tasks, and task handoffs |
+| Workspace intelligence | Tool-first deterministic context plus optional lazy semantic discovery, current-file validation, strict result/token caps, Float32 persistence, changed-path indexing, and graceful no-injection fallback |
+| Agent runtime | Provider-neutral tool routing, direct-evidence enforcement, progress-aware continuation, persistent tasks, task handoffs, Native FORGE, and optional Hermes selection |
 | Browser | Native public-web BrowserView, Home, independent tabs, close/select controls, navigation, workspace-scoped bookmarks/history, and explicit agent page-read approval |
 | Git and terminal | Workspace-contained Git service, user-controlled PTYs, visible action results, and durable audit history |
 | Updates | Forward-only Stable/Beta discovery, strict SemVer eligibility, bounded GitHub release discovery, and updater metadata validation |
@@ -51,7 +51,7 @@ The beta is not Developer ID signed or notarized. Independent public download-ha
 1. Apple Developer ID signing and notarization are not configured.
 2. Public unauthenticated GitHub discovery is subject to rate limits and fails closed.
 3. Browser access is public HTTP(S) only; pages, local networks, credential-bearing URLs, and implicit workspace disclosure are blocked.
-4. Retrieval remains lexical; embeddings and a persisted semantic graph remain planned.
+4. Optional semantic discovery requires a separately installed/configured embedding provider; it is off on fresh installs and is not required for normal operation.
 5. Persistent tasks do not provide unattended full workflow orchestration or a cross-restart supervisor.
 6. Workspace memory reindexing remains an explicit user action; automatic filesystem-watch reindexing is not wired.
 7. Explorer edits normal UTF-8 files but does not yet provide the package/executable inspection and launch modes described in older FORGE-OS planning notes.

@@ -43,7 +43,7 @@ project files · docs · Git · tasks · memory · terminal evidence
              filesystem · Git · shell · tasks · web
 ```
 
-FORGE compiles the state of the workspace into useful context. The selected agent does the reasoning and execution. Tool capability belongs to FORGE, so changing the model should not require changing the project or inventing a new filesystem/Git/task API for every provider.
+FORGE compiles a small, authority-ordered view of the workspace. Explicit tools and current source/Git/task evidence come first; optional semantic embeddings are an off-by-default discovery aid and durable memory is historical background. The selected agent does the reasoning and execution. Tool capability belongs to FORGE, so changing the model should not require changing the project or inventing a new filesystem/Git/task API for every provider.
 
 The current built-in OpenAI conversation path remains available during this transition, but it is a client of the workspace architecture—not the architectural center of FORGE.
 

@@ -27,7 +27,7 @@ import {
 type Row = Record<string, unknown>;
 type SqlJs = Awaited<ReturnType<typeof initSqlJs>>;
 const id = (): string => randomUUID();
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
 const MAX_MEMORY_CONTENT_CHARS = 200_000;
 const MAX_MEMORY_METADATA_CHARS = 100_000;
 const MAX_PROJECT_OBSERVATIONS = 2_000;
@@ -72,7 +72,7 @@ export interface SemanticRecord {
   lineEnd?: number;
   contentHash: string;
   text: string;
-  embedding: number[];
+  embedding: readonly number[] | Float32Array;
   embeddingModel: string;
   embeddingDimensions: number;
   createdAt: number;
@@ -138,6 +138,8 @@ export class StorageService {
   private filePath: string | null = null;
   private rootPath: string | null = null;
   private persistQueue: Promise<void> = Promise.resolve();
+  private semanticWriteBatchDepth = 0;
+  private semanticWriteDirty = false;
 
   async init(rootPath: string): Promise<void> {
     const directory = path.join(rootPath, '.forge');
@@ -642,8 +644,25 @@ export class StorageService {
     if (options.sourceId) { clauses.push('source_id = ?'); params.push(options.sourceId); }
     if (options.embeddingModel) { clauses.push('embedding_model = ?'); params.push(options.embeddingModel); }
     if (!options.includeSuperseded) clauses.push("lifecycle != 'superseded'");
-    params.push(Math.min(Math.max(options.limit ?? 20_000, 1), 50_000));
+    params.push(Math.min(Math.max(options.limit ?? 2_000, 1), 5_000));
     return this.all(`SELECT * FROM semantic_records WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC LIMIT ?`, params).map((row) => this.semanticRecordFromRow(row));
+  }
+
+  /**
+   * sql.js exports the complete in-memory database for every persistence call.
+   * Semantic indexing can write hundreds of chunks, so those writes must share
+   * one export instead of multiplying database-sized ArrayBuffer allocations.
+   */
+  async withSemanticWriteBatch<T>(operation: () => Promise<T>): Promise<T> {
+    this.semanticWriteBatchDepth += 1;
+    try { return await operation(); }
+    finally {
+      this.semanticWriteBatchDepth -= 1;
+      if (this.semanticWriteBatchDepth === 0 && this.semanticWriteDirty) {
+        await this.persist();
+        this.semanticWriteDirty = false;
+      }
+    }
   }
 
   async upsertSemanticRecord(input: Omit<SemanticRecord, 'workspaceId' | 'createdAt' | 'updatedAt' | 'lastVerifiedAt' | 'lastUsedAt' | 'usageCount'> & Partial<Pick<SemanticRecord, 'createdAt' | 'updatedAt' | 'lastVerifiedAt' | 'lastUsedAt' | 'usageCount'>>): Promise<{ record: SemanticRecord; embedded: boolean }> {
@@ -651,13 +670,13 @@ export class StorageService {
     const identical = this.one('SELECT * FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND chunk_index = ? AND content_hash = ? AND embedding_model = ?', [projectId, input.sourceType, input.sourceId, input.chunkIndex, input.contentHash, input.embeddingModel]);
     if (identical) {
       this.ready().run("UPDATE semantic_records SET source_uri = ?, source_revision = ?, line_start = ?, line_end = ?, last_verified_at = ?, authority_score = ?, lifecycle = CASE WHEN lifecycle = 'superseded' THEN 'active' ELSE lifecycle END, metadata_json = ? WHERE id = ?", [input.sourceUri ?? null, input.sourceRevision, input.lineStart ?? null, input.lineEnd ?? null, now, input.authorityScore, JSON.stringify(sanitizeTaskData(input.metadata)), String(identical.id)]);
-      await this.persist();
+      await this.persistSemanticMutation();
       return { record: this.semanticRecordFromRow(this.one('SELECT * FROM semantic_records WHERE id = ?', [String(identical.id)])!), embedded: false };
     }
     const recordId = input.id || id();
-    this.ready().run(`INSERT INTO semantic_records (id, project_id, source_type, source_id, source_uri, source_revision, chunk_index, line_start, line_end, content_hash, text, embedding_json, embedding_model, embedding_dimensions, created_at, updated_at, last_verified_at, last_used_at, usage_count, authority_score, lifecycle, superseded_by, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [recordId, projectId, input.sourceType, input.sourceId, input.sourceUri ?? null, input.sourceRevision, input.chunkIndex, input.lineStart ?? null, input.lineEnd ?? null, input.contentHash, input.text, JSON.stringify(input.embedding), input.embeddingModel, input.embeddingDimensions, input.createdAt ?? now, input.updatedAt ?? now, input.lastVerifiedAt ?? now, input.lastUsedAt ?? null, input.usageCount ?? 0, input.authorityScore, input.lifecycle, input.supersededBy ?? null, JSON.stringify(sanitizeTaskData(input.metadata))]);
-    await this.persist();
+    this.ready().run(`INSERT INTO semantic_records (id, project_id, source_type, source_id, source_uri, source_revision, chunk_index, line_start, line_end, content_hash, text, embedding_json, embedding_blob, embedding_model, embedding_dimensions, created_at, updated_at, last_verified_at, last_used_at, usage_count, authority_score, lifecycle, superseded_by, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [recordId, projectId, input.sourceType, input.sourceId, input.sourceUri ?? null, input.sourceRevision, input.chunkIndex, input.lineStart ?? null, input.lineEnd ?? null, input.contentHash, input.text, embeddingBytes(input.embedding), input.embeddingModel, input.embeddingDimensions, input.createdAt ?? now, input.updatedAt ?? now, input.lastVerifiedAt ?? now, input.lastUsedAt ?? null, input.usageCount ?? 0, input.authorityScore, input.lifecycle, input.supersededBy ?? null, JSON.stringify(sanitizeTaskData(input.metadata))]);
+    await this.persistSemanticMutation();
     return { record: this.semanticRecordFromRow(this.one('SELECT * FROM semantic_records WHERE id = ?', [recordId])!), embedded: true };
   }
 
@@ -665,22 +684,48 @@ export class StorageService {
     const projectId = await this.projectId();
     const current = this.all("SELECT id FROM semantic_records WHERE project_id = ? AND source_type = ? AND source_id = ? AND source_revision != ? AND lifecycle != 'superseded'", [projectId, sourceType, sourceId, sourceRevision]);
     for (const row of current) this.ready().run("UPDATE semantic_records SET lifecycle = 'superseded', superseded_by = ?, updated_at = ? WHERE id = ?", [replacementIds[0] ?? null, Date.now(), String(row.id)]);
-    if (current.length) await this.persist();
+    if (current.length) await this.persistSemanticMutation();
     return current.length;
+  }
+
+  async supersedeSemanticSourcesMissing(sourceTypes: string[], sourceIds: string[]): Promise<number> {
+    if (!sourceTypes.length) return 0;
+    const projectId = await this.projectId();
+    const typePlaceholders = sourceTypes.map(() => '?').join(', ');
+    const present = new Set(sourceIds);
+    const rows = this.all(`SELECT DISTINCT source_type, source_id FROM semantic_records WHERE project_id = ? AND source_type IN (${typePlaceholders}) AND lifecycle != 'superseded'`, [projectId, ...sourceTypes]);
+    let changed = 0;
+    for (const row of rows) {
+      if (present.has(String(row.source_id))) continue;
+      this.ready().run("UPDATE semantic_records SET lifecycle = 'superseded', superseded_by = NULL, updated_at = ? WHERE project_id = ? AND source_type = ? AND source_id = ? AND lifecycle != 'superseded'", [Date.now(), projectId, String(row.source_type), String(row.source_id)]);
+      changed += this.ready().getRowsModified();
+    }
+    if (changed) await this.persistSemanticMutation();
+    return changed;
   }
 
   async updateSemanticLifecycle(now = Date.now()): Promise<number> {
     const projectId = await this.projectId();
     this.ready().run("UPDATE semantic_records SET lifecycle = CASE WHEN lifecycle IN ('superseded','archived') THEN lifecycle WHEN ? - last_verified_at > 15552000000 THEN 'stale' WHEN ? - last_verified_at > 5184000000 THEN 'aging' ELSE 'active' END WHERE project_id = ?", [now, now, projectId]);
     const changed = this.ready().getRowsModified();
-    if (changed) await this.persist();
+    if (changed) await this.persistSemanticMutation();
+    return changed;
+  }
+
+  async pruneSupersededSemanticRecords(retain = 100): Promise<number> {
+    const projectId = await this.projectId(); const boundedRetain = Math.min(1_000, Math.max(0, Math.round(retain)));
+    this.ready().run(`DELETE FROM semantic_records WHERE project_id = ? AND lifecycle = 'superseded' AND id NOT IN (
+      SELECT id FROM semantic_records WHERE project_id = ? AND lifecycle = 'superseded' ORDER BY updated_at DESC, id DESC LIMIT ?
+    )`, [projectId, projectId, boundedRetain]);
+    const changed = this.ready().getRowsModified();
+    if (changed) await this.persistSemanticMutation();
     return changed;
   }
 
   async markSemanticRecordsUsed(ids: string[], successful = false): Promise<void> {
     if (!ids.length) return; const projectId = await this.projectId(); const increment = successful ? 2 : 1;
     for (const recordId of [...new Set(ids)]) this.ready().run('UPDATE semantic_records SET last_used_at = ?, usage_count = MIN(1000, usage_count + ?) WHERE id = ? AND project_id = ?', [Date.now(), increment, recordId, projectId]);
-    await this.persist();
+    await this.persistSemanticMutation();
   }
 
   async clearSemanticIndex(): Promise<{ deleted: number }> {
@@ -688,7 +733,7 @@ export class StorageService {
     const count = Number(this.one('SELECT COUNT(*) AS count FROM semantic_records WHERE project_id = ?', [projectId])?.count ?? 0);
     this.ready().run('DELETE FROM semantic_records WHERE project_id = ?', [projectId]);
     this.ready().run("INSERT INTO semantic_index_state (project_id, state, indexed_records, active_records, stale_records, updated_at) VALUES (?, 'empty', 0, 0, 0, ?) ON CONFLICT(project_id) DO UPDATE SET state = 'empty', embedding_model = NULL, embedding_dimensions = NULL, indexed_records = 0, active_records = 0, stale_records = 0, last_indexed_at = NULL, last_error = NULL, updated_at = excluded.updated_at", [projectId, Date.now()]);
-    await this.persist(); return { deleted: count };
+    await this.persistSemanticMutation(); return { deleted: count };
   }
 
   async setSemanticIndexState(update: { state: SemanticIndexStatus['state']; embeddingModel?: string; embeddingDimensions?: number; lastIndexedAt?: number; lastError?: string }): Promise<SemanticIndexStatus> {
@@ -696,7 +741,7 @@ export class StorageService {
     const counts = this.one("SELECT COUNT(*) AS total, SUM(CASE WHEN lifecycle IN ('active','aging') THEN 1 ELSE 0 END) AS active, SUM(CASE WHEN lifecycle = 'stale' THEN 1 ELSE 0 END) AS stale FROM semantic_records WHERE project_id = ?", [projectId]);
     this.ready().run(`INSERT INTO semantic_index_state (project_id, state, embedding_model, embedding_dimensions, indexed_records, active_records, stale_records, last_indexed_at, last_error, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET state = excluded.state, embedding_model = COALESCE(excluded.embedding_model, embedding_model), embedding_dimensions = COALESCE(excluded.embedding_dimensions, embedding_dimensions), indexed_records = excluded.indexed_records, active_records = excluded.active_records, stale_records = excluded.stale_records, last_indexed_at = COALESCE(excluded.last_indexed_at, last_indexed_at), last_error = excluded.last_error, updated_at = excluded.updated_at`, [projectId, update.state, update.embeddingModel ?? null, update.embeddingDimensions ?? null, Number(counts?.total ?? 0), Number(counts?.active ?? 0), Number(counts?.stale ?? 0), update.lastIndexedAt ?? null, update.lastError ?? null, Date.now()]);
-    await this.persist(); return this.semanticIndexStatus();
+    await this.persistSemanticMutation(); return this.semanticIndexStatus();
   }
 
   async semanticIndexStatus(): Promise<SemanticIndexStatus> {
@@ -748,11 +793,19 @@ export class StorageService {
       CREATE TABLE IF NOT EXISTS action_log (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, timestamp INTEGER NOT NULL, conversation_id TEXT NOT NULL, model_id TEXT NOT NULL, tool_name TEXT NOT NULL, task_id TEXT, step_id TEXT, sanitized_inputs TEXT NOT NULL, execution_state TEXT NOT NULL, execution_duration_ms INTEGER NOT NULL, success INTEGER NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', result_summary TEXT NOT NULL, affected_paths TEXT NOT NULL, exit_code INTEGER, rollback TEXT, FOREIGN KEY(project_id) REFERENCES projects(id));
       CREATE TABLE IF NOT EXISTS browser_bookmarks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS browser_history (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, visited_at INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1, UNIQUE(project_id, url), FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS semantic_records (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_uri TEXT, source_revision TEXT NOT NULL, chunk_index INTEGER NOT NULL, line_start INTEGER, line_end INTEGER, content_hash TEXT NOT NULL, text TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_model TEXT NOT NULL, embedding_dimensions INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER NOT NULL, last_used_at INTEGER, usage_count INTEGER NOT NULL DEFAULT 0, authority_score REAL NOT NULL DEFAULT 0.5, lifecycle TEXT NOT NULL DEFAULT 'active', superseded_by TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE, FOREIGN KEY(superseded_by) REFERENCES semantic_records(id) ON DELETE SET NULL, UNIQUE(project_id, source_type, source_id, chunk_index, content_hash, embedding_model));
+      CREATE TABLE IF NOT EXISTS semantic_records (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_uri TEXT, source_revision TEXT NOT NULL, chunk_index INTEGER NOT NULL, line_start INTEGER, line_end INTEGER, content_hash TEXT NOT NULL, text TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_blob BLOB, embedding_model TEXT NOT NULL, embedding_dimensions INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_verified_at INTEGER NOT NULL, last_used_at INTEGER, usage_count INTEGER NOT NULL DEFAULT 0, authority_score REAL NOT NULL DEFAULT 0.5, lifecycle TEXT NOT NULL DEFAULT 'active', superseded_by TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE, FOREIGN KEY(superseded_by) REFERENCES semantic_records(id) ON DELETE SET NULL, UNIQUE(project_id, source_type, source_id, chunk_index, content_hash, embedding_model));
       CREATE TABLE IF NOT EXISTS semantic_index_state (project_id TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'empty', embedding_model TEXT, embedding_dimensions INTEGER, indexed_records INTEGER NOT NULL DEFAULT 0, active_records INTEGER NOT NULL DEFAULT 0, stale_records INTEGER NOT NULL DEFAULT 0, last_indexed_at INTEGER, last_error TEXT, updated_at INTEGER NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
     `);
     const columns = this.all('PRAGMA table_info(conversations)').map((row) => String(row.name));
     if (!columns.includes('thread_id')) this.ready().run('ALTER TABLE conversations ADD COLUMN thread_id TEXT');
+    const semanticColumns = new Set(this.all('PRAGMA table_info(semantic_records)').map((row) => String(row.name)));
+    if (!semanticColumns.has('embedding_blob')) this.ready().run('ALTER TABLE semantic_records ADD COLUMN embedding_blob BLOB');
+    let migratedSemanticVectors = 0;
+    for (const row of this.all("SELECT id, embedding_json FROM semantic_records WHERE embedding_blob IS NULL AND embedding_json != '[]'")) {
+      const embedding = parseJson<number[]>(row.embedding_json, []);
+      if (embedding.length) { this.ready().run("UPDATE semantic_records SET embedding_blob = ?, embedding_json = '[]' WHERE id = ?", [embeddingBytes(embedding), String(row.id)]); migratedSemanticVectors += 1; }
+    }
+    if (migratedSemanticVectors) this.ready().run('VACUUM');
     const actionColumns = new Set(this.all('PRAGMA table_info(action_log)').map((row) => String(row.name)));
     // SQLite cannot drop a column in every version we support. Rebuild every pre-autonomous
     // action log so legacy approval data is removed without losing the execution history.
@@ -837,7 +890,12 @@ export class StorageService {
   }
 
   private semanticRecordFromRow(row: Row): SemanticRecord {
-    return { id: String(row.id), workspaceId: String(row.project_id), sourceType: String(row.source_type), sourceId: String(row.source_id), sourceUri: row.source_uri ? String(row.source_uri) : undefined, sourceRevision: String(row.source_revision), chunkIndex: Number(row.chunk_index), lineStart: row.line_start === null ? undefined : Number(row.line_start), lineEnd: row.line_end === null ? undefined : Number(row.line_end), contentHash: String(row.content_hash), text: String(row.text), embedding: parseJson(row.embedding_json, []), embeddingModel: String(row.embedding_model), embeddingDimensions: Number(row.embedding_dimensions), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastVerifiedAt: Number(row.last_verified_at), lastUsedAt: row.last_used_at === null ? undefined : Number(row.last_used_at), usageCount: Number(row.usage_count), authorityScore: Number(row.authority_score), lifecycle: String(row.lifecycle) as SemanticLifecycle, supersededBy: row.superseded_by ? String(row.superseded_by) : undefined, metadata: parseJson(row.metadata_json, {}) };
+    return { id: String(row.id), workspaceId: String(row.project_id), sourceType: String(row.source_type), sourceId: String(row.source_id), sourceUri: row.source_uri ? String(row.source_uri) : undefined, sourceRevision: String(row.source_revision), chunkIndex: Number(row.chunk_index), lineStart: row.line_start === null ? undefined : Number(row.line_start), lineEnd: row.line_end === null ? undefined : Number(row.line_end), contentHash: String(row.content_hash), text: String(row.text), embedding: embeddingFromRow(row), embeddingModel: String(row.embedding_model), embeddingDimensions: Number(row.embedding_dimensions), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastVerifiedAt: Number(row.last_verified_at), lastUsedAt: row.last_used_at === null ? undefined : Number(row.last_used_at), usageCount: Number(row.usage_count), authorityScore: Number(row.authority_score), lifecycle: String(row.lifecycle) as SemanticLifecycle, supersededBy: row.superseded_by ? String(row.superseded_by) : undefined, metadata: parseJson(row.metadata_json, {}) };
+  }
+
+  private async persistSemanticMutation(): Promise<void> {
+    if (this.semanticWriteBatchDepth > 0) { this.semanticWriteDirty = true; return; }
+    await this.persist();
   }
 
   private async ensureProject(): Promise<void> {
@@ -983,10 +1041,11 @@ export class StorageService {
   }
   private async persist(): Promise<void> {
     if (!this.db || !this.filePath || !this.sql) return;
-    const destination = this.filePath; const bytes = this.db.export(); const temporary = `${destination}.${id()}.tmp`;
+    const destination = this.filePath; const database = this.db; const temporary = `${destination}.${id()}.tmp`;
     const backup = `${destination}.backup`; const backupTemporary = `${backup}.${id()}.tmp`; const SQL = this.sql;
     const operation = this.persistQueue.then(async () => {
       try {
+        const bytes = database.export();
         await writeSyncedFile(temporary, bytes);
         const written = await fs.readFile(temporary);
         const verification = openHealthyDatabase(SQL, written);
@@ -1007,6 +1066,20 @@ export class StorageService {
     this.persistQueue = operation.catch(() => undefined);
     await operation;
   }
+}
+
+function embeddingBytes(values: readonly number[] | Float32Array): Uint8Array {
+  const floats = values instanceof Float32Array ? values : Float32Array.from(values);
+  return new Uint8Array(floats.buffer.slice(floats.byteOffset, floats.byteOffset + floats.byteLength));
+}
+
+function embeddingFromRow(row: Row): readonly number[] | Float32Array {
+  if (row.embedding_blob instanceof Uint8Array && row.embedding_blob.byteLength % Float32Array.BYTES_PER_ELEMENT === 0) {
+    const bytes = row.embedding_blob;
+    const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    return new Float32Array(copy);
+  }
+  return parseJson<number[]>(row.embedding_json, []);
 }
 
 function openHealthyDatabase(SQL: SqlJs, bytes: Uint8Array): Database {

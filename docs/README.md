@@ -40,6 +40,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Native packaging](PACKAGING.md) — repeatable macOS, Linux, and Windows package procedures, runtime-identity parity, and artifact expectations.
 - [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE v2.3 Beta changes.
 - [FORGE 2.3 beta verification](V2.3.0_BETA1_VERIFICATION.md) — tag, workflow, and published-asset evidence for `v2.3.0-beta.1`.
+- [Semantic memory regression repair](SEMANTIC_MEMORY_REPAIR.md) — Git boundary, verified root cause, memory measurements, and the retained tool-first design for `2.4.0-beta`.
 
 ## 🗃️ Historical records
 

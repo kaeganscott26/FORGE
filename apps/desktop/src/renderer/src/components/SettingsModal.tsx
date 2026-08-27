@@ -183,7 +183,7 @@ export default function SettingsModal({ onClose, initialSection = 'api' }: { onC
         <section className="settings-section">
           <div className="settings-section-title"><div><span>INTELLIGENCE · SEMANTIC CONTEXT</span><h3>Embedding and semantic memory</h3></div><em className={indexStatus?.state === 'ready' ? 'configured' : ''}>{indexStatus?.state ?? 'Not initialized'}</em></div>
           <label className="settings-check"><input type="checkbox" checked={embeddingEnabled} onChange={(event) => setEmbeddingEnabled(event.target.checked)} /> Enable semantic context</label>
-          <p className="settings-help">The embedding model only retrieves workspace evidence. It is separate from the reasoning model. Local Ollama is the default; remote workspace embedding requires an explicit HTTPS endpoint and securely stored key.</p>
+          <p className="settings-help">Optional and off on fresh installs. Semantic discovery runs only for broad questions without sufficient direct evidence; explicit file/Git requests and investigations stay tool-first. Local Ollama is unloaded after each semantic operation.</p>
           <label>Embedding API base URL<input value={embeddingBaseUrl} onChange={(event) => setEmbeddingBaseUrl(event.target.value)} placeholder="http://127.0.0.1:11434/v1" /></label>
           <label>Embedding model<input list="forge-embedding-models" value={embeddingModel} onChange={(event) => { setEmbeddingModel(event.target.value); setEmbeddingStatus(null); }} placeholder="qwen3-embedding:0.6b" /></label>
           <datalist id="forge-embedding-models">{embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.ownedBy}</option>)}</datalist>

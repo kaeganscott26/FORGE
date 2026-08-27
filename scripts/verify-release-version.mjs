@@ -22,6 +22,9 @@ for (const { manifestPath, manifest } of workspacePackages) {
   if (manifest.name.startsWith('@forge/') && manifest.version !== version) throw new Error(`${manifestPath} has ${manifest.version}; expected ${version}.`);
 }
 
+const runtimeMetadata = await readJson('build/forge-runtime.json').catch(() => null);
+if (runtimeMetadata && runtimeMetadata.version !== version) throw new Error(`build/forge-runtime.json has ${runtimeMetadata.version}; expected ${version}.`);
+
 const lockfile = await readJson('package-lock.json');
 if (lockfile.version !== version || lockfile.packages?.['']?.version !== version) throw new Error('package-lock.json root version does not match package.json.');
 for (const { manifestPath, manifest } of workspacePackages) {
@@ -45,4 +48,4 @@ for (const documentPath of currentReleaseDocuments) {
   if (!text.includes(version)) throw new Error(`${documentPath} does not name the current release version ${version}.`);
 }
 
-console.log(`Verified ${version} in the root manifest, ${workspaceManifests.length} workspace manifests, package lockfile, and ${currentReleaseDocuments.length} current-release documents.`);
+console.log(`Verified ${version} in the root manifest, ${workspaceManifests.length} workspace manifests, package lockfile,${runtimeMetadata ? ' staged runtime metadata,' : ''} and ${currentReleaseDocuments.length} current-release documents.`);

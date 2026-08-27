@@ -34,7 +34,7 @@ git push --dry-run origin HEAD
 
 Open **Settings** in FORGE to save the API key, base URL, and model. The API key is encrypted with Electron's platform secure storage and is never returned to the renderer after saving.
 
-Inference and semantic context are separate settings. Under **Semantic Context**, enable local-first embeddings (default `http://127.0.0.1:11434/v1`, model `qwen3-embedding:0.6b`), validate the provider, rebuild the index, and set a context token budget. Embedding credentials use the same secure OS credential store and are never indexed or logged.
+Inference and semantic context are separate settings. Semantic context is optional and off on fresh installs. Under **Semantic Context**, enable local-first embeddings (default `http://127.0.0.1:11434/v1`, model `qwen3-embedding:0.6b`), validate the provider, and rebuild the index. Retrieval is lazy and tool-first, with 8 results/4,000 semantic tokens by default; the configured total context budget is an upper bound, not a fill target. Local Ollama is unloaded after each operation. Embedding credentials use the same secure OS credential store and are never indexed or logged.
 
 For development and automation, the OpenAI-compatible provider also supports these environment fallbacks:
 

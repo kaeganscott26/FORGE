@@ -115,7 +115,7 @@ The terminal is designed for your choice of CLI agent. Launch Codex, Claude Code
 
 Use **Check for updates** in the title bar. A signed future release can download and present **Restart to update**. Use **Releases** whenever automatic updating is unavailable.
 
-Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. FORGE v2.3 Beta reports `2.3.0-beta.1`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.3.0-beta.1-dev` and `development`.
+Open **Settings → About this build** to see or copy the application version, release channel, exact source commit, build date, runtime mode, renderer source, platform, and architecture. The current FORGE beta reports `2.4.0-beta`, `beta`, `packaged`, and `file:// packaged app.asar`; source development reports `2.4.0-beta-dev` and `development`.
 
 Stable is the default update channel and excludes every prerelease. Beta must be selected explicitly and permits newer beta, release-candidate, and stable versions. FORGE discovers published GitHub Releases, ignores drafts and malformed or unsupported versions, chooses only the highest strictly newer compatible release, then hands its validated metadata feed to the downloader. Both channels reject equal or older versions, so changing channels never authorizes a downgrade.
 

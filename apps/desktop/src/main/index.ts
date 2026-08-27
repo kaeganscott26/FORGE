@@ -83,7 +83,7 @@ const aiProvider = new OpenAIProvider();
 const contextBuilder = new WorkspaceContextEngine(workspace, git, storage);
 const intelligence = new WorkspaceIntelligenceService(contextBuilder, storage);
 const embeddingClient = new OpenAICompatibleEmbeddingClient(() => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
-const semanticContext = new SemanticContextService(storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
+const semanticContext = new SemanticContextService(storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload), workspace);
 const semanticIndexer = new SemanticIndexer(workspace, storage, embeddingClient, () => settings.embeddingConfiguration(), (event) => emitRuntimeEvent(event.type, event.payload));
 contextBuilder.useSemanticContext(semanticContext);
 const memoryService = new MemoryService(storage as any);
@@ -122,7 +122,10 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
     try {
       const data = await action(request);
       const event = eventForChannel(channel);
-      if (event) { await emitRuntimeEvent(event, { channel }); await emitRuntimeEvent('context.invalidated', { channel }); if (['file.changed', 'git.changed', 'task.changed', 'memory.changed'].includes(event)) void semanticIndexer.incremental().then(() => emitRuntimeEvent('context.updated', { channel })).catch(() => undefined); }
+      if (event) {
+        await emitRuntimeEvent(event, { channel }); await emitRuntimeEvent('context.invalidated', { channel });
+        if (['task.changed', 'memory.changed'].includes(event) && settings.publicSettings().embeddingEnabled) void semanticIndexer.refreshDurableState().then(() => emitRuntimeEvent('context.updated', { channel })).catch(() => undefined);
+      }
       return { success: true, data };
     }
     catch (error) { return { success: false, error: { message: error instanceof Error ? error.message : 'An unexpected error occurred.' } }; }
@@ -130,18 +133,31 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
 }
 
 async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType<WorkspaceService['info']>>> {
-  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await forgeLive?.stop().catch(() => undefined); forgeLive = null; await storage.close();
+  if (semanticRefreshTimer) clearTimeout(semanticRefreshTimer);
+  semanticRefreshTimer = null; pendingSemanticPaths.clear();
+  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await forgeLive?.stop().catch(() => undefined); forgeLive = null;
+  await semanticIndexer.stop(); await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
   await storage.init(info.rootPath);
   workspace.watch();
   await refreshBrowserRecords();
-  void semanticIndexer.incremental().then(() => emitRuntimeEvent('context.updated', { reason: 'workspace-indexed' })).catch(() => undefined);
+  if (settings.publicSettings().embeddingEnabled) void semanticIndexer.incremental().then(() => emitRuntimeEvent('context.updated', { reason: 'workspace-indexed' })).catch(() => undefined);
   return info;
 }
 
+const pendingSemanticPaths = new Set<string>();
+let semanticRefreshTimer: NodeJS.Timeout | null = null;
 workspace.on('changed', (relativePath: string) => {
-  void emitRuntimeEvent('file.changed', { path: relativePath }).then(() => semanticIndexer.incremental()).then(() => emitRuntimeEvent('context.updated', { path: relativePath })).catch(() => undefined);
+  void emitRuntimeEvent('file.changed', { path: relativePath });
+  if (!settings.publicSettings().embeddingEnabled) return;
+  pendingSemanticPaths.add(relativePath);
+  if (semanticRefreshTimer) clearTimeout(semanticRefreshTimer);
+  semanticRefreshTimer = setTimeout(() => {
+    semanticRefreshTimer = null;
+    const paths = [...pendingSemanticPaths]; pendingSemanticPaths.clear();
+    void semanticIndexer.refreshPaths(paths).then(() => emitRuntimeEvent('context.updated', { paths })).catch(() => undefined);
+  }, 300);
 });
 
 function liveService(): ForgeLiveService {
@@ -375,7 +391,7 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.appBuildInfo, async () => appBuildInfo());
   register(IPC_CHANNELS.appBuildInfoCopy, async () => { const info = appBuildInfo(); clipboard.writeText(formatAppBuildInfo(info)); return info; });
   register(IPC_CHANNELS.settingsGet, async () => settings.publicSettings());
-  register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); updater.setChannel(result.updateChannel); return result; });
+  register(IPC_CHANNELS.settingsSave, async (request) => { const result = await settings.save(request); await applyAISettings(); updater.setChannel(result.updateChannel); if (result.embeddingEnabled) void semanticIndexer.incremental().catch(() => undefined); return result; });
   register(IPC_CHANNELS.settingsTestApi, async () => aiProvider.testConnection());
   register(IPC_CHANNELS.settingsModelsList, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl })).listModels());
   register(IPC_CHANNELS.settingsModelValidate, async (request) => new OpenAIProvider(await settings.apiConfiguration({ apiKey: request.apiKey, baseUrl: request.apiBaseUrl, model: request.apiModel })).validateModel(request.apiModel));
@@ -506,6 +522,6 @@ app.whenReady().then(async () => {
   try { await settings.init(); await applyAISettings(); updater.setChannel(settings.updateChannel()); registerHandlers(); const startupWorkspace = process.argv.find((argument) => argument.startsWith('--workspace='))?.slice('--workspace='.length); if (startupWorkspace) await openWorkspaceAt(startupWorkspace); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); }
   catch (error) { dialog.showErrorBox('FORGE could not start', error instanceof Error ? error.message : String(error)); app.quit(); }
 });
-app.on('window-all-closed', async () => { terminalService.dispose(); await forgeLive?.stop().catch(() => undefined); forgeLive = null; await storage.close(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', async () => { terminalService.dispose(); await forgeLive?.stop().catch(() => undefined); forgeLive = null; await semanticIndexer.stop(); await storage.close(); if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => { void forgeLive?.stop().catch(() => undefined); });
 }

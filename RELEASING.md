@@ -44,7 +44,7 @@ Commit, push, merge, tag, upload, publication, installation, and remote cleanup 
 
 ## 📌 Version bump and authoritative source
 
-Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` reports `2.3.0-beta.1`. The public tag is `v2.3.0-beta.1`, and diagnostics report the Beta channel. Run `npm run verify:release-version` before packaging to check the root manifest, every workspace manifest, the lockfile, and current release documents together.
+Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` reports `2.4.0-beta`. The public tag is `v2.4.0-beta`, and diagnostics report the Beta channel. Run `npm run verify:release-version` before packaging to check the root manifest, every workspace manifest, the lockfile, staged runtime metadata, and current release documents together.
 
 Read-only provenance checks include:
 
@@ -132,7 +132,7 @@ Move stale installed bundles to Trash; do not permanently delete them before acc
 
 Cross-platform parity is the embedded FORGE source commit and matching UI/runtime behavior, not byte-identical executables. macOS, Linux, and Windows must each retain their own native executable and payload hashes; FORGE-OS records the shared source commit in `/opt/forge/current/.forge-runtime.env`.
 
-Diagnostics must report `FORGE v2.3.0-beta.1`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date.
+Diagnostics for the current package must report `FORGE v2.4.0-beta`, `Channel: beta`, the exact source commit, packaged runtime, `file:// packaged app.asar`, platform, architecture, and build date. The v2.3 values elsewhere in this guide are retained only as the historical published-release verification example.
 
 ## ✅ Packaged runtime acceptance
 

@@ -21,7 +21,7 @@ Current source line: **2.4.0-beta**.
 
 ## Agent and tool architecture
 
-- Semantic Context owns embedding, retrieval, composite scoring, stale/superseded governance, deduplication, provenance, and token-budgeted packet assembly. Embeddings are not the inference model; Hermes consumes the packet prepared by FORGE.
+- Optional Semantic Context provides lazy, capped discovery after deterministic routing. Explicit tools/current source/Git/task evidence outrank it; stale or failed records inject nothing, vectors use compact Float32 storage, and local Ollama unloads after each semantic operation. Embeddings are not the inference model; Native FORGE and Hermes work without them.
 
 - FORGE ToolRouter remains the authority for tool validation, execution, audit, cancellation, rollback metadata, and workspace containment.
 - Tool schemas are provider-neutral and capability-aware.

@@ -2,8 +2,8 @@
 
 ## 2.4.0-beta — Native semantic context
 
-- Adds a local-first OpenAI-compatible embedding client, durable SQLite semantic records, deterministic indexing, composite context governance, staleness/supersession filtering, deduplication, provenance, and token-bounded context packets.
-- Separates inference and semantic-context provider settings, exposes live Context Health metrics, and keeps lexical retrieval available when embeddings are offline.
+- Retains semantic embeddings as an optional, fresh-install-off discovery assistant with lazy routing, 8-result/4,000-token defaults, hard deduplication, current-file validation, Float32 vector storage, batched sql.js persistence, changed-path indexing, and local Ollama unload after each operation.
+- Restores the authority of explicit Tool Results, current source, Git, and task/runtime evidence. Debugging cannot stop at `file.search`; explicit file/Git requests are enforced, and embedding failure injects nothing while Native FORGE and ToolRouter continue normally.
 - Preserves Native FORGE and Hermes execution through the same FORGE-prepared context and ToolRouter; runtime capabilities are normalized across Linux, macOS, and Windows.
 
 The prior entries below are historical release notes.
@@ -15,7 +15,7 @@ The prior entries below are historical release notes.
 - Replaces approval-state audit records with execution-state records and creates new workspace databases without approval tables or columns.
 - Repairs shared browser-tab controls and terminal sizing behavior while preserving platform adapters.
 
-The earlier `v2.3.0-beta.1` release remains the currently published beta until `v2.3.0-beta.2` is tagged and released.
+The `v2.3.0-beta.1` material below is a historical release record. Current source and packaging remain `v2.4.0-beta`.
 
 ## 🧭 Predictable agent execution
 
