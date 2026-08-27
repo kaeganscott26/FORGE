@@ -1,6 +1,6 @@
 # The FORGE development arc
 
-> Historical narrative. This file explains how FORGE evolved; it is not the current behavior, release, or implementation-gap authority. Use [Project Status](PROJECT_STATUS.md) for current evidence.
+> Historical narrative. This file explains how FORGE evolved; it is not the current behavior, release, or implementation-gap authority. Use [Project Status](../../PROJECT_STATUS.md) for current evidence.
 
 9. Intelligence is now explicitly separate from native chat
 

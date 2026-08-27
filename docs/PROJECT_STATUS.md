@@ -1,63 +1,50 @@
-# 📍 FORGE Project Status
+# FORGE Project Status
 
-**Updated:** August 26, 2026
+Last audited: 2026-08-27 · source version `2.4.0-beta`.
 
-**Working version:** `2.4.0-beta` — FORGE native semantic context beta
+## Current source
 
-**Release target:** `v2.4.0-beta` on `main`
+`main` implements the local-first Electron desktop, provider-neutral workspace intelligence, Native FORGE agent execution, the autonomous ToolRouter, persistent tasks, optional semantic context, a sandboxed Browser, FORGE Live, and coordinated Linux/macOS/Windows packaging.
 
-**Platform:** macOS arm64 with universal x86_64 + arm64 packaging
+Current source is ahead of the published `v2.4.0-beta` tag while retaining the same package version. The published tag resolves to `ff798b91a1a027a4891214c4da6549fc3336d210`; later source fixes are not in those public assets and must use a new version/tag before publication.
 
-## 🧭 Current state
+## Implemented
 
-FORGE v2.3 Beta is the current published beta. It adds capability-aware provider tools, typed GitHub mutations, bounded file evidence, explicit network execution profiles, and workspace-data lifecycle controls to the protected-browser and durable-memory baseline.
-
-Current unreleased `main` also restores the complete Ollama tool catalog and stable aliases, reconciles fabricated task UUID metadata, removes the numeric context-health display, adds platform-aware updater metadata, replaces renderer-native text prompts with routed in-app creation dialogs, and makes home-directory workspaces resilient to protected/container-backed subtrees. These changes are source behavior, not a new tagged release.
-
-The prior public baselines remain [FORGE beta 2.1](https://github.com/kaeganscott26/FORGE/releases/tag/v2.1.0-beta.2) and [FORGE beta 2.2](https://github.com/kaeganscott26/FORGE/releases/tag/v2.2.0-beta.3). They are historical releases, not the supported product identity.
-
-## ✅ Implemented capability matrix
-
-| Area | Implemented behavior |
+| Area | Current behavior |
 | --- | --- |
-| Explorer and editor | Recursive permission-tolerant workspace tree, routed create/rename dialogs, safe file operations, UTF-8 editing, Monaco language mapping, responsive layout, and keyboard controls |
-| Workspace intelligence | Tool-first deterministic context plus optional lazy semantic discovery, current-file validation, strict result/token caps, Float32 persistence, changed-path indexing, and graceful no-injection fallback |
-| Agent runtime | Provider-neutral tool routing, direct-evidence enforcement, progress-aware continuation, persistent tasks, task handoffs, Native FORGE, and optional Hermes selection |
-| Browser | Native public-web BrowserView, Home, independent tabs, close/select controls, navigation, workspace-scoped bookmarks/history, and explicit agent page-read approval |
-| Git and terminal | Workspace-contained Git service, user-controlled PTYs, visible action results, and durable audit history |
-| Updates | Forward-only Stable/Beta discovery, strict SemVer eligibility, bounded GitHub release discovery, and updater metadata validation |
+| Workspace | Open project/Home in place, root confinement, lazy Explorer, text/media/binary classification, workspace-open null-payload recovery |
+| Editor | Monaco text editing, Markdown preview, save/undo/redo, create/rename/copy/delete, dirty-path protection |
+| Git | Status, log, branches, diff, stage/unstage, exact-staged commit, pull, and push |
+| Storage | Schema v10 workspace SQLite, atomic persistence, verified backup recovery, conversations, tasks, memory, layout, Browser state, observations, semantic records, action history |
+| Intelligence | Provider-neutral bounded context, authority/freshness metrics, explicit-evidence priority, optional semantic retrieval/fallback |
+| Agent runtime | Native inspect/tool/observe/continue loop with runtime deadline and unchanged-state repeated-call suppression |
+| Tool runtime | Stable semantic schemas, FORGE-owned execution context, direct execution, cancellation, bounds, rollback metadata, redaction, and execution-state audits |
+| Tasks | Durable definitions, dependencies, checkpoints, events, process reconciliation, retries, pause/cancel/delete, and handoffs |
+| Terminal | Cross-platform PTY, filtered non-secret environment, resize/restart/cancel, Windows ConPTY support |
+| Browser/web | Sandboxed public HTTP(S) Browser, tabs/bookmarks/history, bounded page reads/finds, URL/DNS/redirect validation |
+| FORGE Live | Contained loopback static server, ports 5500–5599, in-memory reload client, Browser preview |
+| Runtime profiles | Native active; Hermes command/endpoint detection, reachability, skill metadata, and safe fallback |
+| Packaging | Linux AppImage/DEB, universal macOS DMG/ZIP, Windows x64 NSIS, runtime metadata, manifests, hashes, updater YAML, installed-runtime verifiers |
 
-## 🧪 Current source validation
+## Execution-security state
 
-The current source has passed:
+The retired policy/approval subsystem is not part of the current runtime. There are no approval queues, grants, risk tiers, session permissions, or approval IPC channels. Valid calls to registered and available tools execute directly.
 
-- `npm run typecheck`
-- `npm run lint`
-- `npm test`
-- `npm run build`
-- `npm run verify:release-version`
-- `git diff --check`
+Enforced boundaries remain: semantic schema validation, workspace/symlink containment, exact shell arguments, filtered environments, OS permissions, URL/network controls, timeouts, cancellation, process-tree termination, atomic writes and backup/rollback metadata, dirty-editor checks, output limits, redaction, progress-aware loop protection, and durable execution records.
 
-Prior Browser acceptance loaded and visibly rendered `https://www.north3rnlight3r.com/` through the native BrowserView path after the surface-height regression was repaired. The current routing suite statically verifies every renderer button has a click or form-submit path, and focused tests cover creation IPC plus protected home-directory traversal. The production renderer was also exercised under Electron on macOS: Home exposed 44 top-level entries, New File created and activated a disposable file in Monaco, and the goal, metadata-task, and persistent-task controls opened their routed dialogs. The disposable file was removed. Platform-native packaged acceptance remains separate.
+## Published release
 
-## 📦 Release state
+[`v2.4.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta) was published on 2026-08-26 with Linux x64, universal macOS, and Windows x64 packages plus updater metadata, blockmaps, `SHA256SUMS`, and a build manifest. GitHub currently reports it as a normal release (`isPrerelease: false`) despite its beta SemVer and workflow intent.
 
-[`v2.3.0-beta.1`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1) is published as **FORGE v2.3 Beta**. Its annotated tag resolves to `302ff52b87e415d357c6fe5039869c742d5ecb24`; workflow [31323231310](https://github.com/kaeganscott26/FORGE/actions/runs/31323231310) completed successfully for that SHA, packaged the universal DMG/ZIP, uploaded the two blockmaps and `beta-mac.yml` serially, and published after upload verification. [The release record](V2.3.0_BETA1_VERIFICATION.md) preserves the observed public asset digests.
+The published macOS package is not claimed as Developer ID notarized, and the Windows package is not claimed as publisher signed. Integrity/provenance and platform signing are separate assertions.
 
-The beta is not Developer ID signed or notarized. Independent public download-hash comparison and mounted-DMG/app acceptance have not been recorded for this release. The public release is not currently flagged as a GitHub prerelease even though it uses a beta SemVer tag and FORGE Beta update channel; release verification must check that flag before treating a future publication as complete.
+## Known limitations
 
-## 🚧 Known limitations
+1. Hermes cannot become the authoritative executor until a tested structured bridge exposes FORGE's ToolRouter as its only tool surface.
+2. Semantic discovery requires a separately available OpenAI-compatible embedding provider and is disabled on fresh installs.
+3. Persistent tasks reconcile observed processes and artifacts but do not provide a general cross-restart supervisor for every external operation.
+4. Public packages lack established Apple notarization and Windows publisher signing.
+5. Current `main` and published `v2.4.0-beta` share a version but differ in source; the next public release must increment the version.
+6. The existing beta release's GitHub prerelease flag is incorrect and must be verified explicitly in the next release.
 
-1. Apple Developer ID signing and notarization are not configured.
-2. Public unauthenticated GitHub discovery is subject to rate limits and fails closed.
-3. Browser access is public HTTP(S) only; pages, local networks, credential-bearing URLs, and implicit workspace disclosure are blocked.
-4. Optional semantic discovery requires a separately installed/configured embedding provider; it is off on fresh installs and is not required for normal operation.
-5. Persistent tasks do not provide unattended full workflow orchestration or a cross-restart supervisor.
-6. Workspace memory reindexing remains an explicit user action; automatic filesystem-watch reindexing is not wired.
-7. Explorer edits normal UTF-8 files but does not yet provide the package/executable inspection and launch modes described in older FORGE-OS planning notes.
-
-The local macOS installer now stages and verifies a universal replacement bundle before activation. Its source and packaging gates must be rerun before that behavior can become release evidence.
-
-## 🛡️ Repository authority
-
-The workspace is authoritative; the model is replaceable. Current source, root documentation, `docs/`, package configuration, and workflows describe implemented behavior. Generated output, `.forge/`, `.obsidian/`, local databases, and updater caches are not source and must not be committed or indexed as memory.
+Validation claims belong in the commit/release evidence that produced them. Historical records are in [`docs/archive`](archive/README.md).

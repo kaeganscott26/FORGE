@@ -15,7 +15,7 @@ Good contribution questions include:
 
 ## 🛠️ Local setup
 
-Requirements: Node.js 22 LTS, npm, and Git. macOS desktop development currently requires macOS 12+.
+Requirements: Node.js 22 LTS, npm, Git, and Windows x64, macOS 12+, or Linux x64 for the corresponding native desktop runtime.
 
 ```sh
 nvm use
@@ -68,7 +68,7 @@ Do not claim a packaged-runtime behavior from source-level tests alone. Test the
 - Use dependency injection and narrow contracts in reusable packages; avoid process-wide mutable singletons and circular ownership.
 - Treat model output, renderer input, terminal output, Git metadata, and web content as untrusted.
 - Keep normal file operations workspace-contained and preserve rollback, validation, cancellation, redaction, and audit semantics for all actions.
-- Keep provider adapters replaceable. Product policy, task ownership, and tool authorization cannot depend on a provider-specific protocol.
+- Keep provider adapters replaceable. Task ownership, execution context, validation, and ToolRouter semantics cannot depend on a provider-specific protocol.
 
 ## 📝 Update the documentation
 

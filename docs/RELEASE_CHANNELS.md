@@ -1,48 +1,29 @@
-# 📦 FORGE Release Channels
+# FORGE Release Channels
 
-FORGE exposes logical user channels. Provider metadata names are an internal implementation detail and never become user authority.
+FORGE exposes logical **Stable** and **Beta** choices. Provider metadata channel names remain an internal implementation detail.
 
-| Channel | Current identity | Eligible newer versions | Purpose |
-| --- | --- | --- | --- |
-| Development | `2.4.0-beta-dev` | none | Source and renderer development |
-| Beta | `2.4.0-beta` | `beta`, `rc`, or normal SemVer | Public evaluation before stable |
-| Stable | normal SemVer | normal SemVer only | Supported production releases |
+| Channel | Eligible versions |
+| --- | --- |
+| Stable | strictly newer normal semantic versions |
+| Beta | strictly newer `beta`, `rc`, or normal semantic versions |
 
-All channels are forward-only. Equal versions, downgrades, malformed versions, drafts, unpublished releases, incompatible prerelease flags, unsupported identifiers, unsafe asset URLs, and missing metadata are rejected before Electron Updater receives a feed.
+Both reject equal/older versions, downgrades, alpha and unsupported prereleases, drafts, malformed versions, unsafe asset URLs, missing metadata, and incompatible platform artifacts. A legacy stored `preview` value migrates to `beta`.
 
-## 🔄 Preference migration
+FORGE queries a bounded set of published GitHub Releases, applies semantic eligibility, validates the exact platform feed, disables downgrade permission, configures Electron Updater only after selection, and revalidates the returned version before download.
 
-Settings written by alpha builds may contain `preview`. FORGE normalizes that legacy value to `beta`; it does not retain a third executable channel. The Beta channel accepts only newer beta, release-candidate, or stable versions and never selects alpha builds.
+## Current published beta
 
-Stable remains the default when no recognized channel is stored. Selecting Beta never authorizes a downgrade.
+`v2.4.0-beta` was published from tag commit `ff798b91a1a027a4891214c4da6549fc3336d210` with:
 
-## 🔎 Discovery and feed selection
+- `FORGE-2.4.0-beta-x86_64.AppImage`
+- `FORGE-2.4.0-beta-amd64.deb`
+- `FORGE-2.4.0-beta-universal.dmg`
+- `FORGE-2.4.0-beta-universal.zip`
+- `FORGE-2.4.0-beta-x64.exe`
+- payload blockmaps, `beta-linux.yml`, `beta-mac.yml`, `beta.yml`, `SHA256SUMS`, and `build-manifest.json`
 
-FORGE retrieves a bounded set of published Releases from the fixed repository and then:
+GitHub currently reports this release as `isPrerelease: false` despite the beta version and workflow intent. That record should be reported accurately and verified in the next release; it is not a reason to move the tag or replace assets.
 
-1. validates response type, size, schema, tag, publication state, and prerelease consistency;
-2. filters by the logical Stable or Beta policy;
-3. chooses the highest strictly newer compatible version independently of API order;
-4. validates the exact GitHub-hosted metadata URL;
-5. supplies only that selected `latest-mac.yml` or `beta-mac.yml` feed to Electron Updater;
-6. resets downgrade permission and verifies the updater-returned version again before download.
+Current `main` is ahead of the tag under the same package version, so its fixes are not eligible for public publication until the version is incremented.
 
-The current source beta target is `2.4.0-beta`. Stable ignores every prerelease.
-
-## 🚀 Publication
-
-The current beta target is **FORGE v2.4.0-beta** with tag `v2.4.0-beta`. The coordinated workflow produces Linux, macOS, Windows, and checksum assets only after all validation jobs succeed.
-
-The beta asset family is:
-
-- `FORGE-2.3.0-beta.1-universal.dmg`;
-- `FORGE-2.3.0-beta.1-universal.dmg.blockmap`;
-- `FORGE-2.3.0-beta.1-universal.zip`;
-- `FORGE-2.3.0-beta.1-universal.zip.blockmap`;
-- `beta-mac.yml`.
-
-The GitHub workflow validates source before packaging. A green job alone is insufficient: tag, workflow head, embedded commit, remote hashes, browser rendering, terminal behavior, AI routing, task persistence, and updater behavior must also be verified.
-
-## ⚠️ Signing limitation
-
-Without configured Apple Developer ID and notarization credentials, the workflow creates an ad-hoc/unsigned beta. Discovery and hash validation remain testable, but unattended in-app replacement is not a trusted installation path. Use the independently verified DMG and report signing state accurately.
+See [Releasing FORGE](../RELEASING.md) for provenance and publication checks.

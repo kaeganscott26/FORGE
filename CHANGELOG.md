@@ -4,15 +4,17 @@
 
 ## Unreleased
 
+- Recovered workspace opening when Electron returns a null or missing successful response payload: the renderer now reloads canonical `workspace.info`, preserves cancellation, and has focused regression coverage for folder and Home opening.
+- Consolidated public documentation around the current autonomous `2.4.0-beta` runtime and cross-platform package contract. Dated audits, implementation logs, superseded plans/reviews, and older release verification records now live under `docs/archive/`.
 - Repaired the `2.4.0-beta` semantic-context memory regression without reverting the current runtime: retrieval is lazy/tool-first and capped, stale/failed records inject nothing, vectors use Float32 blobs, sql.js index writes are batched, file updates are incremental, and local Ollama unloads after each operation. Native FORGE, Hermes, FORGE Live, Browser/Home, updates, tasks, memory, and ToolRouter remain on the current line.
 - Separated model-visible tool arguments from runtime execution metadata. Providers no longer see or supply `reason`, nested `taskContext`, task-creation conversation identity, or task-process execution IDs; FORGE now injects workspace, conversation, model, request, and optional task/step linkage internally and persists task/step audit columns in schema v8.
-- Made enabled `browser.read({})` and `browser.find(...)` automatic bounded reads. Browser navigation, page-summary persistence, workspace changes, shell/process execution, destructive operations, Git writes, and remote mutations retain their existing approval boundaries.
+- Completed the autonomous ToolRouter migration: valid registered operations execute directly without the retired approval queue/session-grant layer, while containment, validation, cancellation, rollback, redaction, network controls, and execution-state auditing remain enforced.
 - Replaced browser-native text prompts with routed in-app dialogs for file/folder creation, rename, goals, metadata tasks, persistent tasks, release workflows, task pause, and conversation rename. New files activate the editor immediately.
 - Added an allowlisted `workspace.open.home` route and Home controls on every desktop platform. Explorer now loads folders on demand; bounded memory discovery and model `file.list`/`file.search` skip unreadable, vanished, cache, and container-storage subtrees rather than failing the entire home workspace.
 - Added a renderer routing contract test that rejects buttons without click or form-submit behavior.
 - Made external web research opt-in by default, preserving automatic bounded public reads only after the user enables the capability.
 - Consolidated active install/update and workspace guidance across README, User Manual, User Configuration, and Project Status.
-- Removed the stray tracked `tatus` ANSI diff artifact in commit `4a54d32`; its forensic history remains in [the tooling runtime audit](docs/TOOLING_RUNTIME_AUDIT_2026-08-21.md).
+- Removed the stray tracked `tatus` ANSI diff artifact in commit `4a54d32`; its forensic history remains in [the archived tooling runtime audit](docs/archive/audits/TOOLING_RUNTIME_AUDIT_2026-08-21.md).
 - Ollama now receives every currently available `ToolRouter.providerDefinitions()` capability, safe legacy aliases resolve, and invalid model-invented task UUID metadata is discarded while valid workspace task links remain.
 - Removed the numeric context-health score while preserving README presence, file counts, goals, tasks, memory, retrieval rank, and per-source relevance.
 - Platform-specific updater metadata supports macOS, Windows, and Linux; source update entry points are `npm run update:mac`, `npm run update:win`, and FORGE-OS `./update.sh`.
@@ -31,7 +33,7 @@
 
 ### Validation and release evidence
 
-- The tagged workflow [31323231310](https://github.com/kaeganscott26/FORGE/actions/runs/31323231310) completed successfully and published the universal DMG, universal ZIP, two blockmaps, and `beta-mac.yml`; their observed SHA-256 digests are in [the v2.3 verification record](docs/V2.3.0_BETA1_VERIFICATION.md).
+- The tagged workflow [31323231310](https://github.com/kaeganscott26/FORGE/actions/runs/31323231310) completed successfully and published the universal DMG, universal ZIP, two blockmaps, and `beta-mac.yml`; their observed SHA-256 digests are in [the archived v2.3 verification record](docs/archive/releases/V2.3.0_BETA1_VERIFICATION.md).
 - After the documentation and release-tooling refresh, `npm run verify:release-version`, `npm run typecheck`, `npm run lint`, `npm test` (27 files; 112 passed, 1 skipped), `npm run build`, and `git diff --check` passed.
 - Independent downloaded-artifact comparison, mounted-DMG/app runtime acceptance, updater installation, Developer ID signing, and notarization are still unverified. The public release is currently not marked as a GitHub prerelease even though its SemVer tag and FORGE update channel are beta; future release checks must verify that flag.
 

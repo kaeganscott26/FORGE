@@ -1,210 +1,99 @@
-# 🏗️ FORGE Architecture
+# FORGE Architecture
 
-## 🧭 System intent
+## System intent
 
-FORGE is a local-first development workspace that keeps project understanding attached to the project instead of to one model. The project folder is the source of truth. Source code, Markdown, architecture records, Git history, tasks, conversations, terminal evidence, and durable memory form the long-lived workspace record.
-
-The central architectural split is now explicit:
-
-- **FORGE workspace intelligence** collects, ranks, filters, and packages project context.
-- **Replaceable agents** such as Codex, Ollama, hosted OpenAI-compatible models, or other CLIs perform reasoning and execution.
-- **FORGE capabilities** expose filesystem, Git, shell, task, and web operations behind one workspace-owned boundary.
-
-The model is a worker. The workspace is the durable system.
-
-## ⚡ Runtime map
+FORGE is a local-first workspace runtime. The project folder—not a provider, model, or chat transcript—owns source, documentation, Git chronology, tasks, conversations, durable memory, and execution evidence.
 
 ```text
-Project folder
-├── source + documentation
-├── Git repository
-├── terminal/process evidence
-└── .forge/metadata.sqlite
-    ├── tasks + checkpoints
-    ├── conversations
-    ├── durable memory
-    └── action history
-             │
-             ▼
-FORGE workspace intelligence
-├── evidence collection
-├── relevance selection
-├── context budgeting
-├── project chronology
-└── stale-context filtering
-             │
-             ▼
-Agent adapter boundary
-├── built-in hosted-provider client
-├── Codex / CLI adapters
-├── Ollama / local-model adapters
-└── future provider runtimes
-             │
-             ▼
-FORGE capability runtime
-├── filesystem
-├── Git
-├── shell / terminal
-├── persistent tasks
-└── web research
-             │
-             ▼
-verified results feed back into workspace state
+workspace files + Git + tasks + memory + observations
+                           │
+                           ▼
+                 FORGE Intelligence
+          bounded context + authority ordering
+                           │
+                           ▼
+              Native FORGE / adapter
+                           │
+                           ▼
+                  FORGE ToolRouter
+       files · Git · shell · tasks · web · GitHub
+                           │
+                           ▼
+       structured results + events + SQLite evidence
 ```
 
-Electron main process owns privileged project operations. The renderer remains a constrained interface with no direct Node.js access.
+The Electron main process owns privileged operations. Preload exposes a typed allowlist. The sandboxed renderer owns presentation and never receives raw Node.js, filesystem, shell, credential, or network APIs.
 
-## 📦 Runtime identity across platforms
+## Ownership boundaries
 
-FORGE's UI and workspace runtime are shared source, while packaged executables remain native to macOS, Linux, and Windows. Runtime parity therefore means the embedded source commit and behavior/UI match; it never means that a universal macOS Mach-O executable must hash-identically to Linux or Windows binaries. Each package records and verifies its own executable and `app.asar` hashes. FORGE-OS additionally records the FORGE source commit and payload hashes in its content-addressed runtime record; macOS and Windows carry the same commit in their packaged `forge-runtime.json`, with macOS exposing it through `/usr/local/bin/forge-session --runtime-info` and Windows verifying it during `npm run update:win` installation.
+- **WorkspaceService** owns the opened root and contained file behavior.
+- **StorageService** owns `.forge/metadata.sqlite` and atomic persistence.
+- **Workspace Intelligence** collects and ranks evidence without requiring a completion.
+- **Agent runtime** reasons over a FORGE context packet and requests semantic tools.
+- **ToolRouter** validates/enriches requests, invokes services, bounds results, supports cancellation, and records outcomes.
+- **Platform adapters** implement native terminal, packaging, updater, and FORGE-OS differences without changing the shared workspace contract.
 
-## 🧩 Package responsibilities
+Conversation deletion never silently deletes files, Git, tasks, memory, or semantic records. A provider switch does not change workspace ownership.
+
+## Package map
 
 | Package | Responsibility |
 | --- | --- |
-| `@forge/workspace` | Open a project and perform root-confined file operations |
-| `@forge/git` | Repository status, history, diffs, staging, commits, pull, and push |
-| `@forge/storage` | Workspace-owned SQLite state, conversations, layout, memory persistence, and audit records |
-| `@forge/tasks` | Persistent task state, dependencies, checkpoints, background processes, and handoffs |
-| `@forge/memory` | Durable project memory and retrieval |
-| `@forge/intelligence` | Provider-neutral contracts for compiled workspace context and replaceable agent adapters |
-| `@forge/ai` | Current provider/client compatibility layer; no longer the intended owner of workspace intelligence |
-| `@forge/ipc` | Shared renderer/main request and response contracts |
-| `@forge/agent-tools` | Tool definitions, normalization, execution adapters, audit redaction, and structured results |
-| `@forge/tool-runtime` | Shared registry, schema validation, execution-context, and request/result contracts |
-| `@forge/shell` | Process execution, cancellation, environment filtering, and PTY sessions |
-| `@forge/web` | External HTTP research controls |
-| `@forge/updater` | Release discovery and update lifecycle |
+| `@forge/workspace` | Root-confined files, metadata, previews, and watching |
+| `@forge/git` | Repository inspection and mutations |
+| `@forge/storage` | SQLite schema, persistence, recovery, and workspace records |
+| `@forge/intelligence` | Context compilation, semantic indexing/retrieval, health/provenance |
+| `@forge/ai` | OpenAI-compatible transport and current Agent compatibility |
+| `@forge/agent-runtime` | Runtime profiles, Hermes detection/fallback, skill discovery |
+| `@forge/tool-runtime` | Tool contracts, validation, context, cancellation, result types |
+| `@forge/agent-tools` | Tool definitions, router, service execution, audits, rollback metadata |
+| `@forge/tasks` | Durable task state and reconciliation |
+| `@forge/memory` | Durable knowledge classification/retrieval |
+| `@forge/shell` | Shell/background processes and PTYs |
+| `@forge/web` | External HTTP controls |
+| `@forge/forge-live` | Contained loopback preview |
+| `@forge/os-integration` | Linux/FORGE-OS platform behavior |
+| `@forge/updater` | Provider-neutral release eligibility/discovery |
+| `@forge/ipc` | Shared renderer/main contracts and runtime events |
 
-## 🧠 Intelligence boundary
+## Intelligence authority
 
-`@forge/intelligence` defines the stable boundary between project understanding and model execution.
+Context is bounded and ordered. Explicit tool results, current file content, Git state, task/checkpoint evidence, and recent observations have higher authority than optional semantic matches or durable historical memory. Semantic retrieval validates current source paths/revisions and fails closed to an empty semantic contribution.
 
-Its job is to represent workspace artifacts and compile context that can be consumed by any agent runtime. That includes architecture, documentation, source snapshots, Git evidence, task metadata, memory, conversations, and terminal observations.
+The default 32,000-token context budget is configurable. Embeddings are disabled on a fresh install and use an OpenAI-compatible provider only when enabled.
 
-The intelligence layer should answer questions such as:
+## Agent runtime
 
-- What project evidence matters for this task?
-- Which prior decisions are still authoritative?
-- Which context is stale or contradicted by current Git/filesystem state?
-- What happened previously that the next agent should not repeat?
-- What is the smallest useful context package for this model?
+Native FORGE performs inspect, request, observe, and continue cycles. It has no small fixed call/round ceiling; elapsed runtime and progress-aware unchanged-state duplicate suppression bound a run. Runtime events are operation notifications with workspace identity, never hidden reasoning.
 
-It should not own the coding-agent loop itself.
+Hermes detection, endpoint reachability, profile resolution, and progressive skill metadata discovery exist. Hermes is not activated merely because its executable is present. A compatible bridge must accept FORGE context, expose ToolRouter as the only tool surface, stream structured events, and leave workspace/storage/credential ownership in FORGE.
 
-## 🤖 Agent boundary
+## Tool execution and safety
 
-An agent adapter consumes FORGE context and translates it into the format expected by a specific runtime.
+The current runtime intentionally has no FORGE approval/policy stage. Available registered calls with valid semantic inputs execute directly. Provider-authored internal IDs, task links, and reasons are discarded or replaced by FORGE-owned execution context.
 
-The adapter may target:
+Safety/resource boundaries include root and realpath containment, schema/size limits, exact executable/argument arrays, filtered environments, URL/DNS/redirect validation, network-capability declarations, OS permissions, timeouts, cancellation, process-tree termination, atomic file replacement, collision refusal, backup/rollback metadata, dirty-editor protection, bounded/redacted output, and execution-state audits.
 
-- a hosted provider API;
-- Codex or another coding CLI;
-- Ollama or another local model runtime;
-- a future provider that supports function/tool calling differently.
+The principle is **bound resources, not agency**.
 
-The agent owns reasoning and task execution. FORGE owns the project evidence and capabilities it receives.
+## Persistent tasks and recovery
 
-This makes local-vs-hosted a model-quality decision rather than a workspace-capability decision. A local model may be weaker, but it should not receive a weaker filesystem/Git/task interface merely because it is local.
+Tasks, steps, dependencies, attempts, checkpoints, artifacts, process observations, events, and audit references belong to the workspace. Resume begins by reconciling current Git/files/processes/external evidence with the last verified checkpoint. Missing evidence does not become success, and another model's statement is not a checkpoint.
 
-## 🛠️ Tool orchestration
+## Platform identity
 
-Registered, available tools with valid semantic arguments execute directly through the shared router. FORGE preserves schema validation, runtime-context injection, cancellation, audit logging, rollback/atomic-write protections, redaction, and loop protection without an approval/policy stage.
+Runtime parity means shared source commit, version, behavior, UI contract, and provenance—not byte-identical native binaries. Each platform records and verifies its own executable and `app.asar` hashes:
 
-Agent execution should not be limited by arbitrary tool-count or continuation-round ceilings. Independent operations may execute in parallel; dependent mutations remain ordered by their data dependencies.
+- Linux: AppImage/DEB and FORGE-OS runtime contract;
+- macOS: universal DMG/ZIP and installed bundle/session launcher;
+- Windows: x64 NSIS, native `node-pty`/ConPTY resources, installed executable and `app.asar`.
 
-Runaway protection should detect lack of progress or repeated identical calls rather than assuming that tool call number six is unsafe.
+`forge-runtime.json` and `build-manifest.json` bind artifacts to source commit and build date.
 
-The design principle is:
+## Source authority
 
-> **Bound resources, not agency.**
-
-File-size limits, context budgets, terminal-output limits, timeouts, cancellation, path containment, and audit history remain valid resource/safety boundaries.
-
-## 🗂️ Workspace boundary and persistence
-
-Opening a folder initializes the project in place. FORGE does not import or relocate source.
-
-```text
-directory selection
-  → WorkspaceService root
-  → GitService repository context
-  → <workspace>/.forge/metadata.sqlite
-  → renderer and intelligence services load project-owned state
-```
-
-Workspace-owned state includes goals, tasks, checkpoints, conversations, memories, layout, action history, and Browser bookmarks/history. App-global credentials remain outside the repository.
-
-## 💬 Conversation lifecycle
-
-Conversation threads are project records, not the definition of project memory. Starting or clearing a chat does not erase durable memory, task state, Git state, architecture, or indexed project evidence.
-
-The built-in conversation path remains useful as one client of the intelligence layer. It is not intended to be the only or privileged agent runtime.
-
-## ✅ Persistent tasks
-
-Persistent tasks survive provider changes and conversation resets. Verified checkpoints and tool evidence belong to the workspace, allowing another model—or a human engineer—to resume from observed project state rather than from a previous model's unverified claim.
-
-## 🧠 Context compilation
-
-Context assembly remains provider-neutral. FORGE gathers relevant workspace evidence, applies priority/resource budgets, and produces a context envelope for the active agent.
-
-Current evidence includes:
-
-- architecture and project documentation;
-- project goals/tasks metadata;
-- current Git status and recent commits;
-- relevant or changed source files;
-- `package.json` and workspace inventory;
-- durable project memories.
-
-Terminal/process evidence is part of the architectural model and should increasingly participate in context compilation as session observation matures.
-
-## 🔌 Provider and local-model direction
-
-Provider-specific model transport belongs behind adapters. FORGE's tool names, project context, permissions, and workspace memory should remain stable.
-
-A future Ollama adapter, for example, should be able to prepare the same FORGE context/tool contract for a local model that the hosted-provider path consumes. The local model's reasoning quality may differ; its project environment should not.
-
-Likewise, a Codex session launched inside the FORGE terminal should be able to inherit workspace context and feed execution evidence back into FORGE without making Codex itself the owner of long-term memory.
-
-## 🛡️ Trust boundary
-
-FORGE separates authority from agency:
-
-- the workspace owns project state and long-term evidence;
-- the human decides which capabilities an agent may exercise;
-- the selected agent decides how to complete the requested task within that authority;
-- FORGE validates project boundaries, records outcomes, and preserves evidence for future sessions.
-
-Renderer sandboxing, workspace path confinement, validation, cancellation, bounded external data transfer, backups, and audit records remain core protections.
-
-## 🔭 Migration state
-
-The existing `@forge/ai` provider/Agent path is still present for compatibility with the current beta UI. The new `@forge/intelligence` package establishes the explicit provider-neutral boundary without pretending the migration is complete.
-
-Next implementation work should move context compilation behind this boundary, add concrete agent adapters, simplify capability permissions, and replace the current bounded sequential agent loop with dependency-aware parallel orchestration.
-
-## 📌 Source authority
-
-1. Source under `apps/` and `packages/`.
-2. Current root and `docs/` documentation.
-3. Package/build configuration and CI workflows.
-4. Generated output only as validation evidence, never architecture authority.
-# FORGE Runtime Architecture
-
-FORGE is organized around project-owned intelligence, not a chat transcript:
-
-workspace + Git + tasks + memory + terminal + audit
-→ FORGE Intelligence
-→ provider-neutral workspace context and provenance
-→ native chat, CLI agents, and future adapters
-→ typed tools, observations, runtime events, and SQLite updates.
-
-The intelligence package assembles provider-neutral workspace evidence independently of a completion. It selects fresh architecture, documentation, source, Git, metadata, and durable-memory artifacts under a bounded context policy. Conversations consume workspace evidence; they never own it.
-
-The native-agent-runtime module is the native-chat execution adapter. It runs inspect, tool, observe, and continue cycles against shared intelligence and tool services. It has no small fixed round or call limit. A progress-aware guard suppresses only an identical normalized call against an unchanged workspace revision; elapsed runtime remains bounded by FORGE_AGENT_MAX_RUNTIME_MS.
-
-The main process publishes typed runtime events after durable workspace, file, Git, task, memory, tool, terminal, and agent operations. Renderer panels consume these events for task and tool activity rather than relying solely on polling.
-
-The embedded Browser surface is a separate sandboxed WebContentsView. It accepts public HTTP(S) pages only, uses the same URL/DNS safety validation as web research, blocks unexpected windows, and never receives Node integration.
+1. Source under `apps/`, `packages/`, and `scripts/`.
+2. Current root and active `docs/` documentation.
+3. Package configuration and CI workflows.
+4. Generated artifacts only as validation evidence.
+5. `docs/archive` only as historical evidence.

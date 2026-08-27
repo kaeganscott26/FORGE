@@ -1,38 +1,38 @@
-# ✨ FORGE v2.4.0-beta
+# FORGE 2.4 source line
 
-## 2.4.0-beta — Native semantic context
+## Current `main` after `v2.4.0-beta`
 
-- Retains semantic embeddings as an optional, fresh-install-off discovery assistant with lazy routing, 8-result/4,000-token defaults, hard deduplication, current-file validation, Float32 vector storage, batched sql.js persistence, changed-path indexing, and local Ollama unload after each operation.
-- Restores the authority of explicit Tool Results, current source, Git, and task/runtime evidence. Debugging cannot stop at `file.search`; explicit file/Git requests are enforced, and embedding failure injects nothing while Native FORGE and ToolRouter continue normally.
-- Preserves Native FORGE and Hermes execution through the same FORGE-prepared context and ToolRouter; runtime capabilities are normalized across Linux, macOS, and Windows.
+Current `main` remains versioned `2.4.0-beta` but is ahead of the published tag. It includes:
 
-The prior entries below are historical release notes.
+- workspace-open response recovery: if the open operation succeeds but Electron drops or nulls the response payload, the renderer reloads canonical `workspace.info` instead of storing a null workspace;
+- malformed workspace-database recovery from a verified backup while preserving the corrupt original;
+- bounded semantic context that keeps explicit tool results, current source, Git, and task/runtime evidence authoritative;
+- shared runtime and packaging parity across Linux, macOS, and Windows, including embedded commit metadata, manifests, native architecture checks, and installed-runtime verification;
+- branch/runtime audit and documentation consolidation.
 
-## 2.3.0-beta.2 — Hermes-ready autonomous runtime
+These post-tag changes are not in the existing public `v2.4.0-beta` assets. Do not replace those assets or move the published tag. Publish them only under a new semantic version and annotated tag.
 
-- Adds cross-platform Hermes runtime detection, progressive skill discovery, and a safe Native FORGE fallback.
-- Removes the FORGE tool-policy and approval gate from the execution path. Valid, available semantic tool calls execute through the shared router with centrally injected context, auditing, cancellation, rollback, validation, and loop protection intact.
-- Replaces approval-state audit records with execution-state records and creates new workspace databases without approval tables or columns.
-- Repairs shared browser-tab controls and terminal sizing behavior while preserving platform adapters.
+## Published `v2.4.0-beta`
 
-The `v2.3.0-beta.1` material below is a historical release record. Current source and packaging remain `v2.4.0-beta`.
+The published release added the native semantic-context foundation and coordinated cross-platform packaging:
 
-## 🧭 Predictable agent execution
+- optional OpenAI-compatible embeddings, disabled on fresh installs;
+- lazy semantic routing with bounded results, deduplication, source freshness checks, Float32 storage, and batched persistence;
+- provider-neutral FORGE Intelligence and Native FORGE execution using the shared ToolRouter;
+- Hermes CLI/endpoint discovery, skill metadata discovery, and safe Native FORGE fallback;
+- Linux AppImage/DEB, universal macOS DMG/ZIP, Windows NSIS, updater metadata, SHA-256 sums, and build manifests.
 
-- Advertises only tools that are available and enabled in the active FORGE runtime. Disabled web research, unavailable Browser, GitHub, terminal, task, and memory dependencies are no longer offered to a provider only to fail at execution time.
-- Makes every registered tool declare an explicit side effect and approval policy. Git commits are now `repository-write` operations requiring a fresh explicit approval.
-- Separates public network reads from network writes: enabled public web search/fetch are automatic and never transmit workspace content, while GitHub mutations and Git remote operations remain explicitly approved.
-- Replaces the unstructured GitHub mutation payload with typed operation schemas for issues, comments, branches, files, pull requests, workflows, and releases.
-- Requires an explicit shell network profile for known network-capable commands and reflects that profile in the approval/audit request. The profile is an accurate policy disclosure and command guard, not an OS-level network sandbox.
+## Execution model
 
-## 📚 Bounded workspace intelligence
+The current runtime does not contain the retired FORGE approval queue, approval grants, session permissions, or approval IPC. Valid calls to registered and available tools execute through the shared router. Schema validation, root confinement, OS permissions, timeouts, cancellation, rollback/atomic-write protections, redaction, bounded results, network controls, loop-progress protection, and execution-state audit records remain enforced.
 
-- Adds cursor-style pagination to `file.list`, with stable ordering and a continuation offset.
-- Adds bounded `file.read` ranges by line or character offset, including total size, returned range, truncation, and continuation metadata.
-- Limits workspace-memory previews and writes, exposes record statistics, warns about oversized legacy records, and makes memory, conversation, and persistent-task deletion explicit about what is—and is not—removed.
+## Published-release facts
 
-## 🧪 Verification
+- Tag: `v2.4.0-beta`
+- Tagged commit: `ff798b91a1a027a4891214c4da6549fc3336d210`
+- Published: 2026-08-26
+- Assets: Linux x64 AppImage/DEB, universal macOS DMG/ZIP, Windows x64 NSIS, updater YAML, blockmaps, `SHA256SUMS`, and build manifest
+- GitHub currently reports the release as a normal release rather than a prerelease, despite the beta version and workflow intent
+- Apple notarization and Windows publisher signing are not claimed
 
-The source gate covers typecheck, lint, storage persistence, memory retrieval, typed IPC, tool-policy runtime tests, shell policy tests, and production bundling. The tag workflow additionally validates the tagged source, universal package, updater metadata, serial asset upload, and public artifact hashes.
-
-The beta is unsigned and not notarized. macOS Developer ID signing and trusted unattended replacement are not claimed.
+Older milestone details remain in [CHANGELOG.md](CHANGELOG.md) and [`docs/archive/releases`](docs/archive/releases).

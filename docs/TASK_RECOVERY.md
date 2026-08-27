@@ -1,89 +1,45 @@
-# 🧭 Task Recovery
+# Persistent Task Recovery
 
-## 🔄 Resume invariant
-
-Persisted state is a lead, not proof. Resuming always audits reality before deciding what is unfinished.
+Task recovery resumes workspace-owned work from observed evidence, not from a previous model's narrative.
 
 ```text
-load task
-  → validate active workspace ownership
-  → load checkpoints, dependencies, approvals, artifacts, and external references
-  → inspect Git and saved process IDs
-  → accept configured external observations only with evidence
-  → reconcile stale running/waiting/failed state
-  → preserve completed steps
-  → select first dependency-ready unfinished step
-  → require fresh policy approval for Tier 1 or Tier 2 execution
+load task + steps + checkpoints + events + audit references
+  → inspect current files, Git, known processes, artifacts, and external state
+  → locate the last verified checkpoint
+  → continue the first dependency-ready unfinished step
+  → record evidence and outcome
 ```
 
-Another model's prose is never completion evidence. Provider/model metadata is provenance only and does not affect routing or authority.
+## Reconciliation rules
 
-## 🧪 Reconciliation rules
+- Do not repeat a completed step without contradictory current evidence.
+- Do not mark a step complete from chat text or another model's claim.
+- A missing process without completion evidence is missing/blocked, not automatically restarted.
+- A running process with matching workspace/task identity remains running; read bounded output before deciding.
+- Verify expected artifact paths, hashes, exit codes, Git state, and remote references appropriate to the step.
+- Retry only when the operation is safe/idempotent or its rollback/recovery path is understood.
+- Persist new checkpoints and audit references so another runtime can resume.
 
-- A verified completed observation completes a step and creates a checkpoint.
-- An already completed or skipped step is not repeated.
-- A live saved PID keeps its step running.
-- A missing PID plus no completion evidence blocks the step and preserves its PID/output path for investigation.
-- A missing PID plus verified remote/local completion reconciles to completed.
-- A checksum mismatch is failed, not waiting.
-- A queued workflow, approval request, active upload, or unmet external condition is waiting/running rather than failed.
-- A failed dependency prevents downstream execution.
-- A task from another workspace is rejected before reconciliation.
-- A completed or cancelled task is not restarted by Resume.
+## Common cases
 
-## 🧯 Recovery playbooks
+### Background process
 
-### Application or AI session interruption
+Inspect the recorded PID/state, bounded task output, expected artifacts, and exit evidence. A live matching process remains running. A clean exit plus verified artifacts may complete the step. A missing process with no evidence remains blocked.
 
-Open **TASKS**, select the task, inspect the handoff/evidence, and choose **Resume**. FORGE re-reads Git and known PIDs. Generate a fresh handoff if the prior projection is stale. Do not reconstruct completion from the old chat transcript.
+### Git operation
 
-### Local process disappeared
+Re-read branch, HEAD, upstream/divergence, and working tree. A commit step completes only when the expected commit and exact staged/content evidence exist. A push completes only when the remote ref contains the commit.
 
-Read the step's `.forge/task-output/` log and inspect expected artifact paths. If exit and artifact evidence satisfy the criteria, record a verified checkpoint linked to the relevant audit result. Otherwise keep it blocked or retry only after confirming the operation is idempotent and receiving fresh approval.
+### Release upload
 
-### Upload interrupted
+Inspect tag provenance, workflow/release state, asset names, manifest, and remote digests before uploading again. A byte-identical remote asset satisfies the upload; a same-name mismatch fails closed and requires explicit human recovery outside automatic resume.
 
-Inspect the remote release before starting another upload. If the named asset exists, download or otherwise obtain a bounded remote digest and compare it with the validated local SHA-256. Matching bytes complete the upload step. A mismatch fails the step and forbids replacement until a human chooses recovery. Missing assets may be uploaded serially with fresh Tier 2 approval.
+### Workspace switch
 
-### Workflow queued or GitHub unavailable
+Tasks belong to one workspace ID. Switching workspaces clears runtime-scoped services but does not delete task state. Foreign task/step identifiers cannot attach evidence in the new workspace.
 
-Queued/running is `waiting`; a transient 502 or network outage is `waiting` or `blocked` with retry metadata. Record the workflow run ID. Do not create a second run, pull request, tag, or release simply because status could not be fetched.
+## Cancellation and deletion
 
-### Partial release
+Cancellation stops supported running work and records the observed outcome. Tracking-only cancellation is used when FORGE cannot safely terminate the external operation. Deleting a task removes its task-owned definition/checkpoints/events; it does not delete project files, Git history, conversations, or durable memory.
 
-Reconcile tag commit, workflow run, draft/published state, DMG, ZIP, blockmaps, updater YAML, and remote hashes independently. Continue at the first missing or invalid item. The repository upload script skips byte-identical remote assets and fails closed when an existing name has different bytes.
-
-### Stale installation or updater cache
-
-Inspect `/Applications` and `~/Applications` for duplicate FORGE bundles, record the selected bundle path, and compare packaged diagnostics with the intended tag/commit. Treat updater cache cleanup or app replacement as a separate explicit action. Never infer installation success from a downloaded DMG.
-
-## 🤝 Safe handoff checklist
-
-The handoff should identify:
-
-- objective and task ID;
-- verified completed steps and checkpoints;
-- current/next step and dependencies;
-- waiting conditions and blockers;
-- PID/output path and artifact paths;
-- branch, commit, tag, PR, workflow, and release references;
-- local and remote hashes;
-- exact next action and its risk tier;
-- operations that must not be repeated;
-- unsupported or still-unverified claims.
-
-See [Persistent Tasks](PERSISTENT_TASKS.md) for the data model and [Releasing FORGE](../RELEASING.md) for release-specific evidence.
-
-# Task menu quick start
-
-Create a task by entering its title. FORGE creates an editable draft with safe defaults, including a first verification step. Select the task in the TASKS panel to edit its description, type, priority, resume instructions, and step array. Use Add Step, Duplicate, Move Up/Down, Remove Step, or Generate Steps with AI, then choose Save Task.
-
-The title is the only field required to create a draft. Before running, complete any objective-specific details and verification criteria. Run / Resume reconciles persisted task state with the current workspace before continuing. Delete task removes the workspace-owned task and its checkpoints.
-
-## Files and media
-
-The explorer can show hidden entries with Hidden, inspect metadata for every accessible file, read UTF-8 and `.txt` content, return binary content as bounded base64, and preview supported image, audio, and video formats with the built-in media controls. Executables are identified by extension or executable mode and can be inspected; running them remains an audited shell/task action.
-
-## Agent actions
-
-Enter the objective in chat and let the provider choose registered tools. Read-only tools run automatically. Workspace writes, process execution, Git mutation, destructive operations, and network operations continue through AGENT ACTIONS so the exact target, effect, audit result, and cancellation control remain visible. “Allow exact scope this session” reduces repeated prompts for the same tool scope; it expires and is cleared when the workspace changes.
+The current runtime does not restore approval state because the approval subsystem has been retired. Resumed calls still pass through current schemas, containment, runtime availability, cancellation, output bounds, redaction, and audit recording.

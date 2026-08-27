@@ -34,13 +34,15 @@ describe('renderer control routing', () => {
 
   it('uses in-app text dialogs and allowlisted IPC for creation actions', () => {
     const app = readFileSync(join(rendererRoot, 'App.tsx'), 'utf8');
+    const workspaceOpening = readFileSync(join(rendererRoot, 'workspace-opening.ts'), 'utf8');
     const taskPanel = readFileSync(join(rendererRoot, 'components', 'TaskPanel.tsx'), 'utf8');
     const chatPanel = readFileSync(join(rendererRoot, 'components', 'ChatPanel.tsx'), 'utf8');
     expect(`${app}\n${taskPanel}\n${chatPanel}`).not.toContain('window.prompt');
     expect(app).toContain("forgeInvoke('file.create'");
     expect(app).toContain("forgeInvoke('meta.goal.create'");
     expect(app).toContain("forgeInvoke('meta.task.create'");
-    expect(app).toContain("forgeInvoke('workspace.open.home'");
+    expect(app).toContain("openWorkspaceFrom('workspace.open.home'");
+    expect(workspaceOpening).toContain("'workspace.info'");
     expect(Object.values(IPC_CHANNELS)).toEqual(expect.arrayContaining(['file.create', 'meta.goal.create', 'meta.task.create', 'workspace.open.home']));
   });
 });

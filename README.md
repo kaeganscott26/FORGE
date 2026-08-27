@@ -1,164 +1,93 @@
-# ⚒️ FORGE
+# FORGE
 
 > A local-first workspace runtime for AI-assisted programming.
 
-FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
+FORGE keeps project files, documentation, Git evidence, persistent tasks, conversations, and durable memory attached to the workspace while models and agent runtimes remain replaceable.
 
-**Current source build:** `2.4.0-beta` · native semantic context · Hermes-ready autonomous runtime · Electron + React + TypeScript. The coordinated release tag is `v2.4.0-beta`.
+Current source version: `2.4.0-beta` · Electron 43 · React 19 · TypeScript · Windows x64, universal macOS, and Linux x64 packages.
 
-## 🧭 The missing layer between your project and the model
+The published [`v2.4.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta) artifacts were built from tag commit `ff798b9`. `main` contains later fixes in the same source version, including workspace/database recovery, context corrections, runtime/packaging parity, and workspace-open response recovery. Those post-tag commits are not part of the published assets and require a new semantic version and tag before public distribution.
 
-Most AI coding tools are excellent at the current task and weak at the life of the project. Change models, open a new terminal, clear a conversation, or return a month later and somebody has to reconstruct what happened.
+## Why FORGE exists
 
-FORGE moves that responsibility into the workspace itself.
+Most AI tools understand the current prompt better than the life of a project. FORGE makes the project folder the durable authority:
 
-The model does not own project memory. The workspace does.
-
-That means Codex, Ollama, Claude Code, OpenAI-compatible models, normal shell tools, and future agents can work against the same durable project record instead of each starting from a different version of the truth.
-
-| Agent changes | FORGE keeps |
+| Replaceable | Workspace-owned |
 | --- | --- |
-| Provider or model | Project files and architecture |
+| Model or provider | Source and architecture |
 | Chat session | Decisions and durable memory |
-| CLI process | Terminal evidence and task state |
-| Coding agent | Git chronology and verification history |
-
-## 🧠 Workspace intelligence, agent execution
-
-FORGE deliberately separates **understanding the project** from **acting on the project**.
+| CLI process | Task checkpoints and terminal evidence |
+| Agent runtime | Git chronology and audited actions |
 
 ```text
-project files · docs · Git · tasks · memory · terminal evidence
-                              │
-                              ▼
-                  FORGE workspace intelligence
-            relevance · chronology · context · stale filtering
-                              │
-                              ▼
-                     agent adapter / model
-             Codex · Ollama · hosted LLM · future CLI
-                              │
-                              ▼
-                     FORGE tool runtime
-             filesystem · Git · shell · tasks · web
+files + docs + Git + tasks + memory + observations
+                         │
+                         ▼
+              FORGE Intelligence
+        bounded, authority-ordered context
+                         │
+                         ▼
+          Native FORGE / runtime adapter
+                         │
+                         ▼
+               FORGE ToolRouter
+      files · Git · shell · tasks · web
 ```
 
-FORGE compiles a small, authority-ordered view of the workspace. Explicit tools and current source/Git/task evidence come first; optional semantic embeddings are an off-by-default discovery aid and durable memory is historical background. The selected agent does the reasoning and execution. Tool capability belongs to FORGE, so changing the model should not require changing the project or inventing a new filesystem/Git/task API for every provider.
+Explicit tool results, current source, Git, and task/runtime evidence outrank historical memory. Optional semantic embeddings are off on a fresh install and act only as a discovery aid. A failed or unavailable embedding provider does not disable normal workspace intelligence or tool execution.
 
-The current built-in OpenAI conversation path remains available during this transition, but it is a client of the workspace architecture—not the architectural center of FORGE.
+Native FORGE is the active execution path. Hermes detection, endpoint checks, and skill metadata discovery are implemented, but Hermes remains a requested/fallback profile until a tested structured bridge routes every Hermes tool request through FORGE's ToolRouter.
 
-## 🔌 Choose the agent that fits the task
+## Install
 
-The question is not “Which AI IDE should I use?” It is “Which agent is best for this task?”
+Download the package for your platform from the [v2.4.0-beta release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta):
 
-- Use Codex for a broad repository refactor.
-- Launch Ollama when you want a local model working against the same project.
-- Use Claude Code, OpenCode, or another CLI when its workflow fits better.
-- Use the built-in provider path when a hosted model is convenient.
+- macOS: `FORGE-2.4.0-beta-universal.dmg`
+- Windows x64: `FORGE-2.4.0-beta-x64.exe`
+- Linux x64: `FORGE-2.4.0-beta-x86_64.AppImage` or `FORGE-2.4.0-beta-amd64.deb`
 
-Inside FORGE, the project stays where it is. The terminal opens at the active workspace, so installed CLI agents operate on the same source tree, Git state, and project-owned history.
-
-```sh
-codex
-claude
-ollama
-opencode
-```
-
-Those commands are examples, not a closed integration list.
-
-## 💡 Why this matters for AI-assisted development
-
-A long-running software project contains more than source code. It accumulates decisions, failed approaches, architecture constraints, release evidence, task checkpoints, terminal output, and explanations for why the code looks the way it does.
-
-FORGE treats those things as project state instead of disposable chat history.
-
-The practical result is less repetitive briefing, less context drift, fewer repeated mistakes, and a cleaner handoff between models—or between an AI and a human engineer joining the project later.
-
-Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
-
-## ⚡ Start with FORGE
-
-### Install the published macOS beta
-
-1. Open the [`FORGE v2.3 Beta` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1).
-2. Download `FORGE-2.3.0-beta.1-universal.dmg`.
-3. Open the DMG and drag **FORGE** into **Applications**.
-4. Launch FORGE and choose **Open workspace**.
-
-The current beta is unsigned and not notarized. macOS may require Control-click → **Open** or approval in **System Settings → Privacy & Security**.
+The current packages are not backed by Apple Developer ID notarization or Windows publisher signing. Verify the published `SHA256SUMS` and release asset digests before installation. The GitHub release currently reports `isPrerelease: false` despite its beta SemVer identity; FORGE still treats it according to semantic-version/channel policy.
 
 ### Install or update from source
 
-FORGE packages native dependencies on the target operating system. Use the command for the machine that will run it:
+Run the native entry point on the operating system that will run the package:
 
 ```sh
-# macOS: fast-forward main, package, verify, install, and open /Applications/FORGE.app
-cd ~/FORGE
+# macOS: trusted main, package, verify, install, and open
 npm run update:mac
 ```
 
 ```powershell
-# Windows PowerShell: fast-forward main, package, install, and verify app.asar
-cd $HOME\FORGE
+# Windows: trusted main, package, verify, install, and smoke-check
 npm run update:win
 ```
 
 ```sh
-# Native Linux standalone package build (AppImage and DEB)
-cd ~/FORGE
+# Linux: build and verify AppImage, DEB, metadata, and manifest
 ./scripts/package-linux.sh
 ```
 
-The macOS and Windows update commands require a trusted `origin`, branch `main`, and no source changes outside `.obsidian`; they preserve local `.obsidian` UI state and refuse divergent history. Windows must be run on Windows with FORGE closed. Linux packaging must be run on Linux. For the integrated Arch environment, clone the sibling [FORGE-OS repository](https://github.com/kaeganscott26/FORGE-OS) and use its `./install.sh` or `./update.sh` entry point.
+The macOS and Windows updaters require `main`, the trusted GitHub origin, forward-only history, and no source changes outside `.obsidian`. Windows installation requires FORGE to be closed. FORGE-OS owns its integrated Linux installation through its sibling repository.
 
-### Open a project
+## Open and use a workspace
 
-FORGE opens the project folder in place. It does not import, clone, or relocate your source. Choose **Home** to use your platform home directory (`~`) as the workspace, or **Open workspace** for a narrower project root. Workspace-owned state is stored under `<workspace>/.forge/metadata.sqlite`; project files and Git history remain where they already are. Explorer folders load on demand, and protected or transient subtrees that the operating system refuses to enumerate are skipped instead of making the whole workspace fail.
+Choose **Open workspace** for a project folder or **Home** for your platform home directory. FORGE opens files in place; it does not import or relocate source. Workspace-owned application state lives at `<workspace>/.forge/metadata.sqlite`.
 
-Use the Explorer to browse and edit files. **New file**, the Explorer `+`, and goal/task `+` controls open an in-app creation dialog and route through typed IPC. Source Control inspects Git state, Tasks keeps persistent work, and Terminal is available when a CLI agent or normal shell command is the best executor. The built-in **Browser** opens public HTTP(S) research in tabs; bookmarks and history remain in the active workspace database. After Web Research is enabled, `browser.read` and `browser.find` return bounded visible-page text automatically, while navigation and state-changing browser actions retain approval.
+The desktop includes:
 
-## 🏗️ Architecture at a glance
+- a lazy Explorer and Monaco text editor;
+- Git status, diff, stage, commit, pull, and push;
+- workspace conversations and persistent tasks;
+- a user terminal plus separately audited agent shell/process execution;
+- a sandboxed public-web Browser with workspace bookmarks/history;
+- FORGE Live loopback preview for static web workspaces;
+- optional semantic context and runtime diagnostics.
 
-```text
-Project folder
-├── source + documentation
-├── Git
-├── .forge/metadata.sqlite
-│   ├── tasks + checkpoints
-│   ├── conversations
-│   ├── durable memory
-│   └── action history
-│
-▼
-FORGE intelligence layer
-├── context compilation
-├── relevance selection
-├── project chronology
-└── durable knowledge
+The current autonomous tool runtime has no FORGE approval queue or session-grant layer. Registered, available calls with valid semantic arguments execute directly. Safety still comes from workspace containment, semantic schemas, exact argument handling, OS permissions, URL/network validation, timeouts, cancellation, atomic writes and rollback data, output bounds, secret redaction, loop-progress detection, and durable action records. Enable external web access or configure remote credentials only when you want those capabilities available.
 
-▼
-replaceable agent
-Codex / Ollama / hosted provider / future adapter
+## Develop
 
-▼
-FORGE capabilities
-filesystem / Git / shell / tasks / web
-```
-
-The renderer has no direct Node.js access. Privileged project operations remain in the Electron main process, and generated build output is never treated as architecture authority.
-
-See [Architecture](docs/ARCHITECTURE.md) for the full system map.
-
-## 👩‍💻 Build FORGE
-
-### Requirements
-
-- A supported target OS: macOS 12+, Windows x64, or native x64 Linux
-- Node.js 22 LTS (see `.nvmrc`)
-- npm and Git
-
-### Run locally
+Requirements: Node.js 22 LTS (see `.nvmrc`), npm, Git, and a supported target OS.
 
 ```sh
 nvm use
@@ -166,7 +95,7 @@ npm ci
 npm run dev
 ```
 
-### Verify a change
+Validate changes with:
 
 ```sh
 npm run typecheck
@@ -175,35 +104,18 @@ npm test
 npm run build
 ```
 
-For packages and releases, follow [Contributing](docs/CONTRIBUTING.md) and [Releasing FORGE](RELEASING.md).
+## Documentation
 
-## 🗺️ Documentation
-
-| If you want to… | Start here |
+| Topic | Document |
 | --- | --- |
-| Understand why FORGE exists | [Workspace Philosophy](docs/PHILOSOPHY.md) |
-| Understand runtime ownership and boundaries | [Architecture](docs/ARCHITECTURE.md) |
-| Contribute a feature or fix | [Contributing](docs/CONTRIBUTING.md) |
-| Use the application day to day | [User Manual](UserManual.md) |
-| Configure models and Git | [User Configuration](UserConfig.md) |
-| Learn what the built-in agent can do | [Tools in Plain English](docs/TOOLING_GUIDE.md) |
-| Work with persistent tasks | [Persistent Tasks](docs/PERSISTENT_TASKS.md) |
-| Use CLI agents in the workspace | [Integrated Terminal](docs/TERMINAL.md) |
-| Review current implementation evidence | [Project Status](docs/PROJECT_STATUS.md) |
-| Browse all documentation | [Documentation Index](docs/README.md) |
+| Daily use | [User Manual](UserManual.md) |
+| Models, credentials, runtimes, and channels | [User Configuration](UserConfig.md) |
+| Architecture and ownership | [Architecture](docs/ARCHITECTURE.md) |
+| Current implementation | [Project Status](docs/PROJECT_STATUS.md) |
+| Agent capabilities | [Agent Tools](docs/AGENT_TOOLS.md) |
+| Persistent tasks | [Persistent Tasks](docs/PERSISTENT_TASKS.md) |
+| Packaging and installation | [Packaging](docs/PACKAGING.md) |
+| Release procedure | [Releasing FORGE](RELEASING.md) |
+| Complete index | [Documentation](docs/README.md) |
 
-## 🛡️ Trust boundary
-
-FORGE separates **authority** from **agency**.
-
-The user decides what capabilities an agent may use. The agent decides how to complete the task within that authority. Workspace containment, validation, cancellation, audit history, backups, and explicit user permissions belong at the execution boundary; arbitrary limits on how many legitimate steps an agent may need do not.
-
-That distinction is important to the direction of the runtime: **bound resources, not agency.**
-
-## 🚧 Beta status
-
-FORGE v2.3 Beta is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, capability-aware tool runtime, and hosted-provider conversation path are implemented.
-
-The architecture is now being separated so workspace intelligence can feed replaceable external and local agent runtimes consistently. Provider-neutral adapters, broader local-model integration, permission simplification, and parallel/unbounded agent orchestration are active architectural work rather than completed release claims.
-
-See [current status](docs/PROJECT_STATUS.md), [release notes](RELEASE_NOTES.md), and the [changelog](CHANGELOG.md) for implementation evidence and history.
+Historical audits, plans, implementation logs, and release verification records live under [`docs/archive`](docs/archive/README.md) and are evidence, not current behavior.

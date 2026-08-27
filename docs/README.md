@@ -1,57 +1,41 @@
-# 🗺️ FORGE Documentation
+# FORGE Documentation
 
-This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.4.0-beta`; start with the outcome you need, then follow the narrowest relevant guide.
+These documents describe current `2.4.0-beta` source behavior unless explicitly marked as historical. Source under `apps/`, `packages/`, `scripts/`, and `.github/workflows/` remains authoritative when documentation and implementation disagree.
 
-**Current implementation authority:** start with [Current Implementation](CURRENT_IMPLEMENTATION.md). It is reconciled against `main` and supersedes stale implementation claims in point-in-time reviews, audits, verification snapshots, and archived release notes.
+## Start here
 
-## 🚀 Start here
+- [Project README](../README.md) — product overview, installation, development, and documentation map.
+- [User Manual](../UserManual.md) — daily desktop use and troubleshooting.
+- [User Configuration](../UserConfig.md) — providers, credentials, semantic context, runtimes, and update channels.
+- [Project Status](PROJECT_STATUS.md) — current implementation, published-release boundary, and known limitations.
+- [Architecture](ARCHITECTURE.md) — ownership, data flow, packages, and runtime boundaries.
 
-| Goal | Read |
-| --- | --- |
-| See what is implemented on `main` right now | [Current Implementation](CURRENT_IMPLEMENTATION.md) |
-| Understand why FORGE exists and why the workspace outlives any model | [Workspace Philosophy](PHILOSOPHY.md) |
-| Run or contribute to the desktop application | [Contributing](CONTRIBUTING.md) |
-| Understand the service boundaries and data ownership model | [Architecture](ARCHITECTURE.md) |
-| Use a CLI agent in the workspace terminal | [Integrated Terminal](TERMINAL.md) |
-| Configure a provider, model, GitHub token, or release credential | [User Configuration](../UserConfig.md) |
-| Use FORGE day to day | [User Manual](../UserManual.md) |
-| Understand the built-in agent and every available tool | [Tools in Plain English](TOOLING_GUIDE.md) |
+## Runtime and capabilities
 
-## 🧱 Runtime and safety
+- [Agent Tools](AGENT_TOOLS.md) — provider-neutral ToolRouter flow and execution records.
+- [Tool Security](TOOL_SECURITY.md) — controls that remain after retirement of the approval subsystem.
+- [Tooling Guide](TOOLING_GUIDE.md) — user-facing capability inventory.
+- [Persistent Tasks](PERSISTENT_TASKS.md) and [Task Recovery](TASK_RECOVERY.md) — durable execution and reconciliation.
+- [Semantic Context](SEMANTIC_CONTEXT.md) — optional embedding discovery and authority ordering.
+- [Hermes Runtime](HERMES_RUNTIME.md) — implemented detection/fallback and required bridge contract.
+- [Integrated Terminal](TERMINAL.md) — user PTY and agent-process separation.
+- [FORGE Live](Architecture/FORGE_LIVE.md) — loopback static preview.
+- [Platform Runtime Contract](PLATFORM_RUNTIME_CONTRACT.md) — native platform parity.
 
-- [Semantic Context](SEMANTIC_CONTEXT.md) — embedding configuration, indexing, governance, privacy, and bounded context packets.
+## Development and release
 
-- [Current Implementation](CURRENT_IMPLEMENTATION.md) — canonical `main` behavior, including Hermes, FORGE Live, browser update status, workspace persistence, and current tool/runtime contracts.
-- [Architecture](ARCHITECTURE.md) — Electron services, renderer boundary, providers, persistence, and update discovery.
-- [Core Architecture](Architecture/Core.md) — reusable `@forge/core` contracts and future runtime adapters.
-- [Agent Tools](AGENT_TOOLS.md) — provider-neutral tool routing and bounded continuation.
-- [Tools in Plain English](TOOLING_GUIDE.md) — what the agent can request, when it needs approval, its limits, and how to change models.
-- [Tool Security](TOOL_SECURITY.md) — threat model, side-effect policy, approvals, filesystem, shell, web, and secret controls.
-- [Persistent Tasks](PERSISTENT_TASKS.md) — durable task state, checkpoints, handoffs, and process reconciliation.
-- [Task Recovery](TASK_RECOVERY.md) — how a human or replacement agent resumes safely.
-- [Integrated Terminal](TERMINAL.md) — user-controlled PTYs and CLI-agent workflows.
-
-## 📦 Build and release
-
-- [Current Project Status](PROJECT_STATUS.md) — implemented scope, current release evidence, and known limits.
-- [Release Channels](RELEASE_CHANNELS.md) — forward-only Stable/Beta selection.
-- [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md) — manifest-led artifact selection and cleanup.
-- [Releasing FORGE](../RELEASING.md) — exact source, tag, workflow, package, and public-hash procedure.
-- [Native packaging](PACKAGING.md) — repeatable macOS, Linux, and Windows package procedures, runtime-identity parity, and artifact expectations.
-- [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE v2.3 Beta changes.
-- [FORGE 2.3 beta verification](V2.3.0_BETA1_VERIFICATION.md) — tag, workflow, and published-asset evidence for `v2.3.0-beta.1`.
-- [Semantic memory regression repair](SEMANTIC_MEMORY_REPAIR.md) — Git boundary, verified root cause, memory measurements, and the retained tool-first design for `2.4.0-beta`.
-
-## 🗃️ Historical records
-
-Historical evidence remains available for auditability, but it does not describe the supported product today. Current behavior and release identity live in the documents above.
-
-- [Historical archive](archive/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [Packaging](PACKAGING.md)
+- [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md)
+- [Release Channels](RELEASE_CHANNELS.md)
+- [Releasing FORGE](../RELEASING.md)
+- [Current Release Notes](../RELEASE_NOTES.md)
 - [Changelog](../CHANGELOG.md)
-- [Development arc](Development_arc.md) — historical narrative, not a current implementation contract.
-- [Beta product review](FORGE_REVIEW.md) — point-in-time critique and recommendations; current status supersedes its measurements.
-- [Platform and market thesis](FORGE_PLATFORM_MARKET_THESIS.md) — product-positioning hypothesis, not runtime evidence.
 
-## ✍️ Documentation contract
+## Product principles
 
-Documentation is part of the product surface. When behavior, policy, storage ownership, security posture, release identity, or a developer workflow changes, update the narrowest applicable document **and** reconcile [Current Implementation](CURRENT_IMPLEMENTATION.md). Do not rewrite historical verification evidence to make it look current—archive it and label it instead.
+- [Workspace Philosophy](PHILOSOPHY.md)
+
+## Historical material
+
+Dated audits, implementation logs, superseded planning/review documents, security prompts, and old release verification records are retained in [`archive/`](archive/README.md). They preserve evidence and chronology but do not describe current runtime behavior.

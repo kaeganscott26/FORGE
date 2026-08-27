@@ -16,6 +16,7 @@ import ForgeOsShell from './components/ForgeOsShell';
 import TextInputDialog from './components/TextInputDialog';
 import { childEditorPath, copiedEditorName, findFileNode, parentEditorPath } from './editor-files';
 import { isEditableShortcutTarget, resolveEditorShortcut } from './editor-shortcuts';
+import { openWorkspaceFrom } from './workspace-opening';
 
 const languageFor = (extension?: string, name?: string): string => {
   if (/^dockerfile$/i.test(name ?? '')) return 'dockerfile';
@@ -143,8 +144,9 @@ export default function App(): JSX.Element {
   }, [layout, layoutLoaded, workspace]);
   useEffect(() => { void forgeInvoke('editor.dirty.update', { paths: active && content !== savedContent ? [active.relativePath] : [] }); }, [active?.relativePath, content, savedContent]);
 
-  const openWorkspace = async (): Promise<void> => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open', undefined)); setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setSelectedPath(undefined); setExpandedFolders(new Set()); setError(null); } catch (cause) { if ((cause as Error).message !== 'Workspace selection was cancelled.') setError((cause as Error).message); } };
-  const openHomeWorkspace = async (): Promise<void> => { try { const opened = await call<WorkspaceInfo>(forgeInvoke('workspace.open.home', undefined)); setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setSelectedPath(undefined); setExpandedFolders(new Set()); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
+  const applyOpenedWorkspace = (opened: WorkspaceInfo): void => { setWorkspace(opened); setActive(null); setContent(''); setSavedContent(''); setSelectedPath(undefined); setExpandedFolders(new Set()); setError(null); };
+  const openWorkspace = async (): Promise<void> => { try { applyOpenedWorkspace(await openWorkspaceFrom('workspace.open', forgeInvoke)); } catch (cause) { if ((cause as Error).message !== 'Workspace selection was cancelled.') setError((cause as Error).message); } };
+  const openHomeWorkspace = async (): Promise<void> => { try { applyOpenedWorkspace(await openWorkspaceFrom('workspace.open.home', forgeInvoke)); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   const startLive = async (): Promise<void> => { try { setForgeLive(await call<ForgeLiveState>(forgeInvoke('forge-live.start', undefined))); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   const stopLive = async (): Promise<void> => { try { setForgeLive(await call<ForgeLiveState>(forgeInvoke('forge-live.stop', undefined))); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };
   const openLivePreview = async (): Promise<void> => { try { await call<BrowserStateView>(forgeInvoke('forge-live.open-preview', undefined)); setBrowserOpen(true); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } };

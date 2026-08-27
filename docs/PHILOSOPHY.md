@@ -50,9 +50,9 @@ This creates an important distinction:
 
 FORGE should protect the workspace without preventing legitimate work.
 
-The human controls authority: allow an operation once, allow it for the current session, persist a permission, or deny it.
+The human controls authority by choosing the workspace, configuring credentials and external capabilities, setting operating-system permissions, and deciding when FORGE runs. The current autonomous runtime does not maintain a second approval queue or session-grant layer inside FORGE.
 
-The agent controls execution within that authority. A complex task should not fail simply because it required six reads, three edits, a test run, and another correction.
+The agent controls execution within those configured boundaries. A complex task should not fail simply because it required six reads, three edits, a test run, and another correction.
 
 Workspace containment, validation, cancellation, backups, auditing, timeouts, and resource limits are useful. Arbitrary tool-count and reasoning-round ceilings are not a substitute for safety.
 

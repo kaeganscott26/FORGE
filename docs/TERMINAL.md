@@ -4,7 +4,7 @@ The terminal is where FORGE becomes a shared workspace for the tools you already
 
 ## 🚀 Launch the agent that fits the task
 
-Install a CLI on your Mac, open **Terminal** in FORGE, select **New**, and run it as you normally would:
+Install a CLI on your computer, open **Terminal** in FORGE, select **New**, and run it as you normally would:
 
 ```sh
 codex
@@ -58,10 +58,10 @@ Terminal output is bounded in memory. You may copy it or deliberately attach it 
 | macOS blocks the CLI | Gatekeeper has blocked that separately installed executable. Verify its origin/signature and approve only that binary through macOS security controls. FORGE never clears quarantine metadata. |
 | Input is ignored after exit | Exited sessions reject writes by design. Use **Restart** to create a fresh shell. |
 | The command starts in the wrong folder | Open the intended workspace first, then create a new terminal session. The displayed working directory is the authority. |
-| A model suggested a command | Review and approve it in **Agent Actions**; it cannot be injected into the user terminal. |
+| A model suggested a command | The model cannot inject it into the user PTY. If it uses `shell.run`, inspect the separate Agent Actions execution record; otherwise run it yourself only after review. |
 
 ## 🧪 Packaging note
 
-`node-pty` is unpacked from `app.asar` so its native module and helper can execute. Universal packaging rebuilds and merges the app executable, `pty.node`, and `spawn-helper` for `arm64` and `x86_64`.
+`node-pty` is unpacked from `app.asar` so its native modules and helpers can execute. macOS universal packaging verifies both architectures; Windows verifies `pty.node`, ConPTY, and console-list resources; Linux verifies its native PTY module.
 
 Automated tests cover ownership, exit rejection, restart, and input-routing contracts. A final release acceptance pass should still type a simple command such as `pwd` in the packaged application, because source-level tests are not a substitute for human terminal interaction.
