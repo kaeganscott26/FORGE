@@ -5,6 +5,7 @@
 ## Unreleased
 
 - Fixed the Intelligence layer so it reports and enumerates the complete provider-neutral artifact packet—including deterministic source, documentation, Git, metadata, and selected durable memory—instead of exposing only optional semantic-retrieval counters that commonly remained at zero.
+- Replaced millisecond timestamp cache freshness with monotonic invalidation revisions so rapid file or memory changes cannot leave an older intelligence packet active on fast macOS, Windows, or Linux runtimes.
 - Added event-correlated tool/task activity telemetry with short completion visibility, ensuring both indicators illuminate for fast operations as well as long-running work.
 - Repaired synthesized system sounds by unlocking Web Audio from pointer or keyboard interaction, awaiting suspended-context resume, and restoring audible tap/completion/warning levels.
 - Advanced the shared macOS, Windows, Linux, and FORGE-OS renderer to `2.5.0-beta` with an adaptive Three.js aurora field, glass window transitions, animated Explorer/Browser/Intelligence surfaces, bundled Oxanium and Space Grotesk typography, a new northern-lights forge mark, and subtle opt-out interface sounds.

@@ -17,6 +17,8 @@ export interface ProjectObservationService {
  */
 export class WorkspaceIntelligenceService implements ContextAssemblyService {
   private invalidatedAt: number | undefined;
+  private invalidationRevision = 0;
+  private packetRevision = -1;
   private readonly invalidationReasons = new Set<string>();
   private latestPacket: WorkspaceContextPacket | null = null;
 
@@ -24,6 +26,7 @@ export class WorkspaceIntelligenceService implements ContextAssemblyService {
 
   async invalidate(reason: string, payload: unknown = {}): Promise<void> {
     this.invalidatedAt = Date.now();
+    this.invalidationRevision += 1;
     this.invalidationReasons.add(reason);
     await this.observations?.recordProjectObservation(reason, payload);
   }
@@ -33,6 +36,7 @@ export class WorkspaceIntelligenceService implements ContextAssemblyService {
   }
 
   async packet(query: string, memories?: MemoryEntry[] | null, characterBudget?: number): Promise<WorkspaceContextPacket> {
+    const revision = this.invalidationRevision;
     const compiled = await this.assemble(query, memories, characterBudget);
     const projectObservations = await this.observations?.listProjectObservations() ?? [];
     const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8_000) : '';
@@ -40,13 +44,14 @@ export class WorkspaceIntelligenceService implements ContextAssemblyService {
     const systemPrompt = artifact ? `${compiled.systemPrompt}\n\n## ${artifact.title}\n${artifact.content}` : compiled.systemPrompt;
     const packet = { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
     this.latestPacket = packet;
+    this.packetRevision = revision;
     this.invalidationReasons.clear();
     return packet;
   }
 
   /** Returns the actual most-recent agent packet, rebuilding a baseline packet after invalidation. */
   async snapshot(memories?: MemoryEntry[] | null): Promise<WorkspaceContextPacket> {
-    if (this.latestPacket && (!this.invalidatedAt || this.latestPacket.generatedAt >= this.invalidatedAt)) return structuredClone(this.latestPacket);
+    if (this.latestPacket && this.packetRevision === this.invalidationRevision) return structuredClone(this.latestPacket);
     return this.packet('', memories);
   }
 }

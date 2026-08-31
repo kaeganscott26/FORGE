@@ -4878,10 +4878,13 @@ class WorkspaceIntelligenceService {
     this.observations = observations;
   }
   invalidatedAt;
+  invalidationRevision = 0;
+  packetRevision = -1;
   invalidationReasons = /* @__PURE__ */ new Set();
   latestPacket = null;
   async invalidate(reason2, payload = {}) {
     this.invalidatedAt = Date.now();
+    this.invalidationRevision += 1;
     this.invalidationReasons.add(reason2);
     await this.observations?.recordProjectObservation(reason2, payload);
   }
@@ -4889,6 +4892,7 @@ class WorkspaceIntelligenceService {
     return this.context.assemble(query, memories, characterBudget);
   }
   async packet(query, memories, characterBudget) {
+    const revision = this.invalidationRevision;
     const compiled = await this.assemble(query, memories, characterBudget);
     const projectObservations = await this.observations?.listProjectObservations() ?? [];
     const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8e3) : "";
@@ -4899,12 +4903,13 @@ class WorkspaceIntelligenceService {
 ${artifact.content}` : compiled.systemPrompt;
     const packet = { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
     this.latestPacket = packet;
+    this.packetRevision = revision;
     this.invalidationReasons.clear();
     return packet;
   }
   /** Returns the actual most-recent agent packet, rebuilding a baseline packet after invalidation. */
   async snapshot(memories) {
-    if (this.latestPacket && (!this.invalidatedAt || this.latestPacket.generatedAt >= this.invalidatedAt)) return structuredClone(this.latestPacket);
+    if (this.latestPacket && this.packetRevision === this.invalidationRevision) return structuredClone(this.latestPacket);
     return this.packet("", memories);
   }
 }
@@ -10880,8 +10885,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "74deb3abcd355728bb4bc3b7539ac9649a877964",
-    buildDate: "2026-08-31T20:30:51.016Z",
+    commit: "95a9ea7f6b43a67b9cf5fe4177aa756a72922b60",
+    buildDate: "2026-08-31T20:50:14.393Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
