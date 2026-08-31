@@ -46,9 +46,9 @@ If a CLI creates or changes files, review the result in the Explorer and Git pan
 
 Keyboard data is bound to the selected terminal session through a fixed `terminal.input` IPC channel. The main process verifies that the session belongs to the active workspace, is still running, and receives bounded null-free input. Absolute paths and `..` escapes are rejected for normal terminal working-directory selection.
 
-The shell receives a narrow, non-secret interactive environment: user identity, selected shell, terminal identity, and standard Homebrew/user executable paths. API keys, GitHub tokens, and unrelated parent environment values are not forwarded. This lets Finder-launched packaged builds resolve installed CLIs without turning the terminal into a credential transport.
+The shell receives a narrow, non-secret interactive environment: user identity, selected shell, terminal identity, and standard Homebrew/user executable paths. npm global tools use the user-owned `~/.local` prefix, which is placed before system paths. API keys, GitHub tokens, and unrelated parent environment values are not forwarded. This lets packaged builds resolve installed CLIs without turning the terminal into a credential transport.
 
-Terminal output is bounded in memory. You may copy it or deliberately attach it as evidence, but FORGE does not automatically index it into project memory, conversations, or the audit log.
+Terminal output is bounded in memory. The live emulator remains mounted while you switch bottom-panel tabs so ANSI/TUI parser state is not reconstructed from a partial escape stream. You may copy output or deliberately attach it as evidence, but FORGE does not automatically index it into project memory, conversations, or the audit log.
 
 ## 🛠️ Troubleshoot a CLI
 
@@ -57,6 +57,7 @@ Terminal output is bounded in memory. You may copy it or deliberately attach it 
 | `command not found` | Confirm the CLI is installed and reachable from your normal shell. FORGE forwards common user/Homebrew executable paths, not every shell initialization side effect. |
 | macOS blocks the CLI | Gatekeeper has blocked that separately installed executable. Verify its origin/signature and approve only that binary through macOS security controls. FORGE never clears quarantine metadata. |
 | Input is ignored after exit | Exited sessions reject writes by design. Use **Restart** to create a fresh shell. |
+| Global npm update reports `EACCES` under `/usr` | Open a new terminal so `NPM_CONFIG_PREFIX=~/.local` is active, then run the npm command without sudo. FORGE-OS keeps `/usr` root-owned even for wheel administrators. |
 | The command starts in the wrong folder | Open the intended workspace first, then create a new terminal session. The displayed working directory is the authority. |
 | A model suggested a command | Review and approve it in **Agent Actions**; it cannot be injected into the user terminal. |
 

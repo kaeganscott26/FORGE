@@ -8270,9 +8270,10 @@ function filteredEnvironment(requested = {}, allowlist = []) {
 function terminalEnvironment(shell2) {
   const home = os.homedir();
   const username = os.userInfo().username;
+  const userPrefix = path__default.join(home, ".local");
   const inherited = filteredEnvironment();
   const pathEntries = [
-    path__default.join(home, ".local", "bin"),
+    path__default.join(userPrefix, "bin"),
     path__default.join(home, ".opencode", "bin"),
     ...process.platform === "win32" ? [] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"],
     ...(inherited.PATH ?? "").split(path__default.delimiter)
@@ -8286,6 +8287,7 @@ function terminalEnvironment(shell2) {
     TERM: inherited.TERM ?? "xterm-256color",
     COLORTERM: "truecolor",
     TERM_PROGRAM: "FORGE",
+    NPM_CONFIG_PREFIX: userPrefix,
     PATH: [...new Set(pathEntries)].join(path__default.delimiter)
   };
 }
@@ -8456,10 +8458,12 @@ class TerminalService {
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id2, session);
     terminal.onData((data) => {
+      if (this.sessions.get(id2)?.process !== terminal) return;
       info.recentOutput = `${info.recentOutput}${data}`.slice(-this.outputLimit);
       this.publish({ sessionId: id2, type: "output", data });
     });
     terminal.onExit(({ exitCode }) => {
+      if (this.sessions.get(id2)?.process !== terminal) return;
       info.state = "exited";
       info.exitCode = exitCode;
       this.publish({ sessionId: id2, type: "exit", exitCode });
@@ -8485,9 +8489,10 @@ class TerminalService {
   async restart(id2) {
     const current = this.required(id2);
     const relative = path__default.relative(current.canonicalWorkspaceRoot, current.info.cwd) || ".";
-    this.terminate(id2);
+    const { cols, rows } = current.process;
     this.sessions.delete(id2);
-    return this.create(relative, 100, 30, id2);
+    if (current.info.state === "running") current.process.kill();
+    return this.create(relative, cols, rows, id2);
   }
   remove(id2) {
     this.terminate(id2);
@@ -10817,8 +10822,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "514bd6b3dd36641879e785af652243df141cef49",
-    buildDate: "2026-08-31T09:35:33.990Z",
+    commit: "e3800d0655e2500f3c7e5b5ffe57ece8a5c522b7",
+    buildDate: "2026-08-31T10:33:37Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,

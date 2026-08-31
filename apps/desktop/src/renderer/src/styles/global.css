@@ -210,13 +210,16 @@ h3 { font-size: 11px; text-transform: uppercase; color: #8795a5; letter-spacing:
 .diff { padding: 12px; color: #b7c5d3; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .terminal-panel, .tool-panel, .task-panel { height: calc(100% - 40px); overflow: hidden; background: #090d11; }
 .terminal-panel { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+.bottom-terminal-view { display: none; height: calc(100% - 40px); min-height: 0; }
+.bottom-terminal-view.active { display: block; }
+.bottom-terminal-view .terminal-panel { height: 100%; }
 .terminal-toolbar, .tool-filters { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 5px 9px; border-bottom: 1px solid #28313a; background: #111820; }
 .terminal-toolbar strong, .tool-filters strong { color: #71d5ff; font-size: 9px; letter-spacing: .1em; }
 .terminal-toolbar select, .tool-filters select, .tool-filters input { min-width: 110px; padding: 4px 6px; border: 1px solid #34404a; border-radius: 4px; background: #090d11; color: #dce3eb; font-size: 10px; }
 .terminal-toolbar span { min-width: 0; flex: 1; overflow: hidden; color: #8f9daa; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .terminal-toolbar button { padding: 4px 7px; font-size: 9px; }
-.terminal-host { grid-row: 3; min-width: 0; min-height: 0; height: 100%; overflow: hidden; padding: 5px 8px; }
-.terminal-host .xterm, .terminal-host .xterm-screen, .terminal-host .xterm-viewport { height: 100%; }
+.terminal-host { position: relative; grid-row: 3; min-width: 0; min-height: 0; height: 100%; overflow: hidden; padding: 5px 8px; }
+.terminal-host > .xterm { height: 100%; }
 .terminal-error { padding: 5px 9px; background: #4a2229; color: #ffc1c7; font-size: 10px; }
 .tool-panel { overflow: auto; }
 .task-panel { display: grid; grid-template: auto minmax(0, 1fr) / 260px minmax(0, 1fr); }
