@@ -5,7 +5,7 @@ FORGE exposes logical user channels. Provider metadata names are an internal imp
 | Channel | Current identity | Eligible newer versions | Purpose |
 | --- | --- | --- | --- |
 | Development | `2.5.0-beta-dev` | none | Source and renderer development |
-| Beta | `2.5.0-beta` candidate | `beta`, `rc`, or normal SemVer | Local acceptance before public evaluation |
+| Beta | `2.5.0-beta` | `beta`, `rc`, or normal SemVer | Public prerelease evaluation |
 | Stable | normal SemVer | normal SemVer only | Supported production releases |
 
 All channels are forward-only. Equal versions, downgrades, malformed versions, drafts, unpublished releases, incompatible prerelease flags, unsupported identifiers, unsafe asset URLs, and missing metadata are rejected before Electron Updater receives a feed.
@@ -27,18 +27,18 @@ FORGE retrieves a bounded set of published Releases from the fixed repository an
 5. supplies only that selected `latest-mac.yml` or `beta-mac.yml` feed to Electron Updater;
 6. resets downgrade permission and verifies the updater-returned version again before download.
 
-The current source beta candidate is `2.5.0-beta`. Stable ignores every prerelease.
+The current Beta release is `2.5.0-beta`. Stable ignores every prerelease.
 
 ## 🚀 Publication
 
-The current candidate is **FORGE v2.5.0-beta**, but no v2.5 tag or public release should be created until local installation, Linux/FORGE-OS validation, Windows/macOS packaging, and visual acceptance are approved. The coordinated workflow produces Linux, macOS, Windows, and checksum assets only after all validation jobs succeed.
+The current release is **FORGE v2.5.0-beta**. The coordinated workflow produces Linux, macOS, Windows, and checksum assets only after all validation jobs succeed.
 
 The beta asset family is:
 
-- `FORGE-2.3.0-beta.1-universal.dmg`;
-- `FORGE-2.3.0-beta.1-universal.dmg.blockmap`;
-- `FORGE-2.3.0-beta.1-universal.zip`;
-- `FORGE-2.3.0-beta.1-universal.zip.blockmap`;
+- `FORGE-2.5.0-beta-universal.dmg`;
+- `FORGE-2.5.0-beta-universal.dmg.blockmap`;
+- `FORGE-2.5.0-beta-universal.zip`;
+- `FORGE-2.5.0-beta-universal.zip.blockmap`;
 - `beta-mac.yml`.
 
 The GitHub workflow validates source before packaging. A green job alone is insufficient: tag, workflow head, embedded commit, remote hashes, browser rendering, terminal behavior, AI routing, task persistence, and updater behavior must also be verified.

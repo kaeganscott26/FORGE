@@ -5,6 +5,7 @@ import type { FileNode } from '@forge/ipc';
 import type { MemoryEntry } from '@forge/memory';
 import type { CompiledWorkspaceContext, ContextBudgetPolicy, WorkspaceArtifact, AgentContextEnvelope } from './types';
 import { DEFAULT_CONTEXT_TOKEN_BUDGET, DEFAULT_SEMANTIC_RESULT_LIMIT, DEFAULT_SEMANTIC_TOKEN_BUDGET, estimateTokens, type SemanticContextService } from './semantic';
+import type { ContextHealthMetrics } from './semantic';
 
 const DEFAULT_CONTEXT_BUDGET = 28_000;
 const DOCUMENT_PATTERN = /(?:^|\/)(?:readme|architecture|project[_-]?status|roadmap|dev[_-]?log|release[_-]?notes|goals?|memory)\.md$/i;
@@ -115,13 +116,45 @@ export class WorkspaceContextEngine {
     const evidence = budgeted.selected.map((artifact) => `## ${artifact.title}${artifact.path ? ` (${artifact.path})` : ''}\n${artifact.content}`).join('\n\n');
     const projectName = context.projectName ?? 'the active workspace';
     const systemPrompt = `You are consuming context compiled by FORGE for the repository "${projectName}".\n\nFORGE owns workspace intelligence: project evidence, durable memory, task state, Git chronology, terminal observations, and relevance filtering. The active LLM or CLI agent owns reasoning and execution. Treat the project folder as authority and distinguish evidence from inference.\n\nEvidence authority, highest first: (1) explicit files or tools requested by the user, (2) direct current source-code Tool Results, (3) current Git state/history/diff, (4) current task/runtime state, (5) semantic discovery, (6) durable historical memory, (7) model prior knowledge. Semantic context is a discovery hint, never proof and never a substitute for tool use. When the user asks to read/search/inspect the workspace, use the corresponding direct tool. A file.search result identifies candidates; read the relevant implementation with file.read, trace callers, inspect relevant tests and Git evidence, then conclude.\n\nWorkspace evidence for this turn:\n${evidence || 'No workspace evidence was available.'}`;
-    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: { ...metrics, tokensUsed: estimateTokens(systemPrompt), tokenBudget: this.tokenBudget } };
+    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: packetMetrics(budgeted.selected, artifacts.length, estimateTokens(systemPrompt), this.tokenBudget, metrics) };
   }
 
   async envelope(query: string, memories?: MemoryEntry[] | null, characterBudget?: number): Promise<AgentContextEnvelope> {
     const compiled = await this.assemble(query, memories, characterBudget);
     return { ...compiled, query, generatedAt: Date.now() };
   }
+}
+
+const AUTHORITY_BY_KIND: Readonly<Record<WorkspaceArtifact['kind'], number>> = Object.freeze({
+  identity: 1, configuration: 0.96, source: 0.94, git: 0.9, architecture: 0.86,
+  documentation: 0.82, metadata: 0.78, memory: 0.72, terminal: 0.66, conversation: 0.48
+});
+
+function normalizedMetric(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(1, Math.max(0, numeric > 1 ? numeric / 100 : numeric));
+}
+
+/** Metrics for the complete provider-neutral packet, not only optional semantic hits. */
+export function packetMetrics(selected: readonly WorkspaceArtifact[], considered: number, tokensUsed: number, tokenBudget: number, semantic: ContextHealthMetrics): ContextHealthMetrics {
+  const average = (selector: (artifact: WorkspaceArtifact) => number): number => selected.length ? selected.reduce((sum, artifact) => sum + selector(artifact), 0) / selected.length : 0;
+  const now = Date.now();
+  const sourceDistribution: Record<string, number> = {};
+  for (const artifact of selected) sourceDistribution[artifact.kind] = (sourceDistribution[artifact.kind] ?? 0) + 1;
+  return {
+    tokensUsed, tokenBudget,
+    relevance: average((artifact) => normalizedMetric(artifact.metadata?.relevance, 0.75)),
+    freshness: average((artifact) => normalizedMetric(artifact.metadata?.freshness, artifact.updatedAt ? Math.exp(-Math.max(0, now - artifact.updatedAt) / (120 * 86_400_000)) : 1)),
+    authority: average((artifact) => normalizedMetric(artifact.metadata?.authority, AUTHORITY_BY_KIND[artifact.kind])),
+    redundancy: semantic.redundancy,
+    staleRatio: selected.length ? selected.filter((artifact) => ['stale', 'archived', 'superseded'].includes(String(artifact.metadata?.lifecycle ?? ''))).length / selected.length : 0,
+    recordsConsidered: considered,
+    recordsSelected: selected.length,
+    sourceDistribution,
+    degraded: semantic.degraded,
+    fallbackReason: semantic.fallbackReason
+  };
 }
 
 export function shouldUseSemanticRetrieval(query: string, context: Pick<ProjectContext, 'sourceFiles'>): boolean {

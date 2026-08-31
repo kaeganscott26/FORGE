@@ -1,6 +1,6 @@
 # Tools in Plain English
 
-This guide describes the tool runtime retained by the `2.5.0-beta` test candidate.
+This guide describes the tool runtime shipped by `2.5.0-beta`.
 
 FORGE's agent can use registered, available tools immediately when it supplies valid operation arguments. The model asks for the operation; FORGE validates it, injects private runtime/task context, executes it under the current OS user, records the outcome, and returns bounded evidence to the agent.
 

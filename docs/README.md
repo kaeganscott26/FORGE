@@ -1,6 +1,6 @@
 # 🗺️ FORGE Documentation
 
-This directory is the map for people building with, evaluating, or extending FORGE. It documents the unpublished `2.5.0-beta` source candidate; start with the outcome you need, then follow the narrowest relevant guide.
+This directory is the map for people building with, evaluating, or extending FORGE `2.5.0-beta`; start with the outcome you need, then follow the narrowest relevant guide.
 
 **Current implementation authority:** start with [Current Implementation](CURRENT_IMPLEMENTATION.md). It is reconciled against `main` and supersedes stale implementation claims in point-in-time reviews, audits, verification snapshots, and archived release notes.
 

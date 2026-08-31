@@ -1,6 +1,6 @@
 # ⚙️ FORGE User Configuration
 
-This guide covers Git integration, AI API integration, platform updates, and release credentials for the unpublished FORGE `2.5.0-beta` candidate. Do not put real secrets in the repository.
+This guide covers Git integration, AI API integration, platform updates, and release credentials for FORGE `2.5.0-beta`. Do not put real secrets in the repository.
 
 ## 🌿 Git integration
 

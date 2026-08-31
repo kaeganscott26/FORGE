@@ -8,7 +8,7 @@ This is the canonical current-state document for implemented FORGE behavior. His
 
 FORGE is a local-first intelligent workspace environment. The workspace owns project state, durable memory, task history, tool audit history, browser history/bookmarks, and Git evidence. Models and agent runtimes are replaceable clients of that workspace state rather than owners of it.
 
-Current source line: **2.5.0-beta test candidate**. It is not a published release.
+Current release line: **2.5.0-beta**.
 
 ## Desktop runtime
 

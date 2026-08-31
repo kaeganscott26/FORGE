@@ -8,7 +8,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
     case 'git.status':
       return { success: true, data: null };
     case 'meta.dashboard':
-      return { success: true, data: { project: null, recentCommits: [], contextHealth: { hasReadme: false, noteCount: 0, codeFileCount: 0, tokensUsed: 0, tokenBudget: 32000, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true } } };
+      return { success: true, data: { project: null, recentCommits: [], contextSources: [], contextHealth: { hasReadme: false, noteCount: 0, codeFileCount: 0, tokensUsed: 0, tokenBudget: 32000, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true } } };
     case 'file.read':
       return { success: true, data: { content: '' } } as any;
     case 'agent.conversations.list':
@@ -27,7 +27,7 @@ async function fallbackResponse<C extends IPCChannel>(channel: C): Promise<IPCRe
     case 'workspace.layout.get':
       return { success: true, data: { explorerWidth: 245, intelligenceWidth: 360, bottomHeight: 240, contextHeight: 300 } } as any;
     case 'runtime.telemetry':
-      return { success: true, data: { sampledAt: Date.now(), process: { pid: 0, uptimeSeconds: 0, rssBytes: 192 * 1024 * 1024, heapUsedBytes: 38 * 1024 * 1024, heapTotalBytes: 64 * 1024 * 1024, externalBytes: 8 * 1024 * 1024, arrayBuffersBytes: 2 * 1024 * 1024 }, semantic: { schemaVersion: 2, state: 'ready', embeddingModel: 'qwen3-embedding:0.6b', embeddingDimensions: 1024, indexedRecords: 66, activeRecords: 66, staleRecords: 0 }, activity: { runningTools: 1, queuedTools: 0, runningTasks: 1, activeTerminals: 1 } } } as any;
+      return { success: true, data: { sampledAt: Date.now(), process: { pid: 0, uptimeSeconds: 0, rssBytes: 192 * 1024 * 1024, heapUsedBytes: 38 * 1024 * 1024, heapTotalBytes: 64 * 1024 * 1024, externalBytes: 8 * 1024 * 1024, arrayBuffersBytes: 2 * 1024 * 1024 }, semantic: { schemaVersion: 2, state: 'ready', embeddingModel: 'qwen3-embedding:0.6b', embeddingDimensions: 1024, indexedRecords: 66, activeRecords: 66, staleRecords: 0 }, activity: { runningTools: 1, queuedTools: 0, runningTasks: 1, activeTerminals: 1, toolsActive: true, tasksActive: true } } } as any;
     default:
       return { success: false, error: { message: 'Forge API bridge not available in this environment.' } } as any;
   }

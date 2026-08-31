@@ -24,8 +24,8 @@ export default function IntelligenceVisualizer({ dashboard, telemetry }: { dashb
       <span><b>{bytes(telemetry?.process.rssBytes)}</b><small>runtime</small></span>
     </div>
     <div className="process-stream" aria-label="Running process state">
-      <span className={(activity?.runningTools ?? 0) ? 'live' : ''}>TOOLS {activity?.runningTools ?? 0}</span>
-      <span className={(activity?.runningTasks ?? 0) ? 'live' : ''}>TASKS {activity?.runningTasks ?? 0}</span>
+      <span className={activity?.toolsActive ? 'live' : ''}>TOOLS {activity?.runningTools ?? 0}</span>
+      <span className={activity?.tasksActive ? 'live' : ''}>TASKS {activity?.runningTasks ?? 0}</span>
       <span className={(activity?.activeTerminals ?? 0) ? 'live' : ''}>TERMINALS {activity?.activeTerminals ?? 0}</span>
       <span className={telemetry?.semantic.state === 'indexing' ? 'live' : ''}>INDEX {telemetry?.semantic.state ?? 'offline'}</span>
     </div>

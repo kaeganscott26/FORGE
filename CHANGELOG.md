@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Fixed the Intelligence layer so it reports and enumerates the complete provider-neutral artifact packet—including deterministic source, documentation, Git, metadata, and selected durable memory—instead of exposing only optional semantic-retrieval counters that commonly remained at zero.
+- Added event-correlated tool/task activity telemetry with short completion visibility, ensuring both indicators illuminate for fast operations as well as long-running work.
+- Repaired synthesized system sounds by unlocking Web Audio from pointer or keyboard interaction, awaiting suspended-context resume, and restoring audible tap/completion/warning levels.
 - Advanced the shared macOS, Windows, Linux, and FORGE-OS renderer to `2.5.0-beta` with an adaptive Three.js aurora field, glass window transitions, animated Explorer/Browser/Intelligence surfaces, bundled Oxanium and Space Grotesk typography, a new northern-lights forge mark, and subtle opt-out interface sounds.
 - Added a live intelligence visualization backed by typed runtime telemetry for context utilization, semantic records, FORGE RSS/heap state, running tools, durable tasks, and terminal processes. Rendering pauses when hidden, caps device pixel ratio, falls back without WebGL, and honors reduced-motion preferences.
 - Audited the repaired embedding path on Linux with a 66-record rebuild and three retrieval/index cycles: the 2.47 GB Ollama allocation unloaded after every operation, ArrayBuffers returned to roughly 1.44 MB, and process RSS reached a stable allocator plateau without a WASM bounds failure.

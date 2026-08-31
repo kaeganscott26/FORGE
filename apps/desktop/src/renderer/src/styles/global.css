@@ -281,6 +281,11 @@ h3 { font-size: 11px; text-transform: uppercase; color: #8795a5; letter-spacing:
 .process-stream { width: 100%; display: flex; gap: 4px; overflow: hidden; }
 .process-stream span { flex: 1; min-width: 0; padding: 4px; border-radius: 4px; background: rgba(64,88,104,.13); color: #6e8796; font: 560 6px/1 'Oxanium Variable', sans-serif; text-align: center; text-transform: uppercase; white-space: nowrap; }
 .process-stream span.live { color: var(--forge-green); background: rgba(103,255,101,.08); box-shadow: inset 0 0 12px rgba(103,255,101,.06); animation: telemetry-breathe 1.7s ease-in-out infinite; }
+.context-sources article { padding: 7px 10px; border-top: 1px solid rgba(84,176,211,.1); background: linear-gradient(90deg, rgba(40,201,255,.035), transparent); }
+.context-sources article div { display: grid; gap: 2px; }
+.context-sources article b { overflow: hidden; color: #dff8ff; font: 590 9px/1.25 'Oxanium Variable', sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.context-sources article small { color: #69bdd8; font-size: 7px; text-transform: uppercase; }
+.context-sources article em { color: #728894; font-size: 8px; font-style: normal; line-height: 1.35; }
 
 .browser-home { isolation: isolate; background: #061018; }
 .browser-home::before, .browser-home::after { content: ''; position: absolute; z-index: -1; inset: -25%; pointer-events: none; }

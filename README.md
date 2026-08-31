@@ -4,7 +4,7 @@
 
 FORGE is not another AI IDE that asks you to commit to one model. It is the durable layer your agents share: the real project files, documentation, Git evidence, task history, terminal activity, and long-term project memory stay attached to the workspace while the model remains replaceable.
 
-**Current source build:** `2.5.0-beta` · living intelligence UI · bounded semantic context · Hermes-ready runtime · Electron + React + TypeScript. This is a local test candidate; no v2.5 release has been published.
+**Current release:** `2.5.0-beta` · living intelligence UI · bounded semantic context · Hermes-ready runtime · Electron + React + TypeScript.
 
 ## 🧭 The missing layer between your project and the model
 
@@ -79,11 +79,11 @@ Read the deeper [workspace philosophy](docs/PHILOSOPHY.md).
 
 ## ⚡ Start with FORGE
 
-### Install the published macOS beta
+### Install the published beta
 
-1. Open the [`FORGE v2.3 Beta` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.3.0-beta.1).
-2. Download `FORGE-2.3.0-beta.1-universal.dmg`.
-3. Open the DMG and drag **FORGE** into **Applications**.
+1. Open the [`FORGE v2.5 Beta` release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.5.0-beta).
+2. Download the package for Linux, macOS, or Windows. On macOS, use the universal DMG.
+3. Install the package using the normal platform flow; on macOS, open the DMG and drag **FORGE** into **Applications**.
 4. Launch FORGE and choose **Open workspace**.
 
 The current beta is unsigned and not notarized. macOS may require Control-click → **Open** or approval in **System Settings → Privacy & Security**.
@@ -202,7 +202,7 @@ That distinction is important to the direction of the runtime: **bound resources
 
 ## 🚧 Beta status
 
-FORGE v2.3 Beta is a public universal macOS pre-release. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, capability-aware tool runtime, and hosted-provider conversation path are implemented.
+FORGE v2.5 Beta is the current cross-platform prerelease. The workspace, explorer, editor, Git integration, persistent task state, memory/context pipeline, integrated terminal, protected tabbed browser, capability-aware tool runtime, and hosted-provider conversation path are implemented.
 
 The architecture is now being separated so workspace intelligence can feed replaceable external and local agent runtimes consistently. Provider-neutral adapters, broader local-model integration, permission simplification, and parallel/unbounded agent orchestration are active architectural work rather than completed release claims.
 

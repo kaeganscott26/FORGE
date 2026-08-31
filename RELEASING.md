@@ -1,6 +1,6 @@
 # 🚀 Releasing FORGE
 
-The current source candidate is **FORGE 2.5.0-beta**. It is intentionally untagged and unpublished while local Linux/FORGE-OS installation plus Windows/macOS package acceptance are pending. The release workflow validates Linux, macOS, and Windows packages before any complete draft can be published.
+The current release is **FORGE 2.5.0-beta**. Its coordinated workflow validates Linux, macOS, and Windows packages before publishing the GitHub prerelease.
 
 ## 🧭 Release philosophy
 
@@ -24,7 +24,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 - Stable accepts only strictly newer normal SemVer.
 - A legacy stored `preview` preference migrates to Beta.
 - Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`; if the current candidate is approved, its tag will be `v2.5.0-beta` and public name will be `FORGE v2.5.0-beta`.
+- Tags use `v<package-version>`; this release uses `v2.5.0-beta` and the public name `FORGE v2.5.0-beta`.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 

@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@forge/ai';
 import type { ToolRequestOutcome } from '@forge/agent-tools';
 import { boundedToolEvidence, parseStructuredToolFallback } from '@forge/agent-tools';
+import { randomUUID } from 'node:crypto';
 import { ProgressAwareLoopGuard } from './agent-continuation';
 import { taskEvidenceLink, type TaskStepLink } from './task-links';
 
@@ -36,7 +37,9 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     catch (error) { return `Task checkpoint link failed: ${error instanceof Error ? error.message : String(error)}`; }
   };
   const runAgentTurn = async (conversationId: string | undefined, prompt: string, executionTask?: TaskStepLink) => {
-    await emitRuntimeEvent?.('agent.started', { conversationId });
+    const operationId = randomUUID();
+    const operation = { operationId, conversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId };
+    await emitRuntimeEvent?.('agent.started', operation);
     try {
     const selectedRuntime = resolveReasoningRuntime ? await resolveReasoningRuntime() : { agent, provider: aiProvider, kind: 'native' };
     const activeAgent = selectedRuntime.agent; const activeProvider = selectedRuntime.provider;
@@ -101,12 +104,17 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
       }
       const round: ToolRequestOutcome[] = [];
       for (const call of fresh) {
-        await emitRuntimeEvent?.('tool.requested', { toolName: call.name, conversationId: state.activeConversationId });
-        const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel, userRequest: prompt, task: executionTask });
-        round.push(outcome); outcomes.push(outcome);
-        loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-        await emitRuntimeEvent?.('tool.completed', { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
-        if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+        const toolOperationId = call.id || randomUUID();
+        await emitRuntimeEvent?.('tool.requested', { operationId: toolOperationId, toolName: call.name, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+        let succeeded = false;
+        try {
+          const outcome = await toolRouter.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings.publicSettings().apiModel, userRequest: prompt, task: executionTask });
+          round.push(outcome); outcomes.push(outcome); succeeded = outcome.result?.success ?? false;
+          loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+          if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+        } finally {
+          await emitRuntimeEvent?.('tool.completed', { operationId: toolOperationId, toolName: call.name, success: succeeded, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+        }
       }
       const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result!)).join('\n\n');
       continuationHistory.push({ role: 'assistant', content: turn.content || 'I requested FORGE tools.' });
@@ -117,10 +125,10 @@ export function createNativeAgentRuntime(dependencies: any): NativeAgentRuntime 
     const content = [modelContent, summary].filter(Boolean).join('\n\n') || 'FORGE received no response from the model.';
     await storage.appendConversation(state.activeConversationId, 'assistant', content);
     await storage.markSemanticRecordsUsed([...semanticRecordIds], outcomes.length === 0 || outcomes.every((outcome) => outcome.result?.success));
-    await emitRuntimeEvent?.('agent.completed', { conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
+    await emitRuntimeEvent?.('agent.completed', { ...operation, conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
     return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory: any) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact: any) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: artifact.metadata?.relevance, reason: artifact.metadata?.reason })), contextHealth: turn.context.metrics };
     } catch (error) {
-      await emitRuntimeEvent?.('agent.blocked', { conversationId, message: error instanceof Error ? error.message : String(error) });
+      await emitRuntimeEvent?.('agent.blocked', { ...operation, message: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   };

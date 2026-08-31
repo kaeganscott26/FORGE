@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldUseSemanticRetrieval, WorkspaceIntelligenceService } from '../src';
+import { packetMetrics, shouldUseSemanticRetrieval, WorkspaceIntelligenceService } from '../src';
 
 describe('WorkspaceIntelligenceService', () => {
   it('assembles provider-neutral context and fresh observations without a configured model', async () => {
@@ -13,6 +13,30 @@ describe('WorkspaceIntelligenceService', () => {
     expect(writes).toEqual(['file.changed']);
     expect(packet.projectObservations[0]).toMatchObject({ kind: 'file.changed' });
     expect(packet.systemPrompt).toContain('Fresh project observations');
+  });
+
+  it('keeps the real packet for telemetry and rebuilds it after invalidation', async () => {
+    let assemblies = 0;
+    const service = new WorkspaceIntelligenceService({ assemble: async (query: string) => ({ systemPrompt: query || 'baseline', artifacts: [{ id: String(++assemblies), kind: 'memory', title: 'Decision', content: 'remember this', priority: 50 }], omittedArtifactIds: [], characterBudget: 100, characterCount: 8, metrics: { tokensUsed: 2, tokenBudget: 100 } }) });
+    const first = await service.packet('actual question');
+    expect((await service.snapshot()).query).toBe('actual question');
+    await service.invalidate('memory.changed');
+    const rebuilt = await service.snapshot();
+    expect(rebuilt.query).toBe('');
+    expect(rebuilt.generatedAt).toBeGreaterThanOrEqual(first.generatedAt);
+    expect(assemblies).toBe(2);
+  });
+});
+
+describe('packet metrics', () => {
+  it('reports deterministic files and memories instead of semantic-only zeroes', () => {
+    const metrics = packetMetrics([
+      { id: 'source', kind: 'source', title: 'app.ts', content: 'code', priority: 90, metadata: { relevance: 90 } },
+      { id: 'memory', kind: 'memory', title: 'Decision', content: 'history', priority: 50, metadata: { relevance: 80 } }
+    ], 3, 1200, 32000, { tokensUsed: 0, tokenBudget: 32000, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: false });
+    expect(metrics).toMatchObject({ tokensUsed: 1200, recordsSelected: 2, recordsConsidered: 3, sourceDistribution: { source: 1, memory: 1 } });
+    expect(metrics.relevance).toBeCloseTo(0.85);
+    expect(metrics.authority).toBeGreaterThan(0);
   });
 });
 

@@ -18,6 +18,7 @@ export interface ProjectObservationService {
 export class WorkspaceIntelligenceService implements ContextAssemblyService {
   private invalidatedAt: number | undefined;
   private readonly invalidationReasons = new Set<string>();
+  private latestPacket: WorkspaceContextPacket | null = null;
 
   constructor(private readonly context: { assemble(query: string, memories?: MemoryEntry[] | null, characterBudget?: number): Promise<any> }, private readonly observations?: ProjectObservationService) {}
 
@@ -37,6 +38,15 @@ export class WorkspaceIntelligenceService implements ContextAssemblyService {
     const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8_000) : '';
     const artifact = observationContent ? { id: 'project-observations', kind: 'metadata' as const, title: 'Fresh project observations', content: observationContent, priority: 99, updatedAt: projectObservations[0]?.timestamp, metadata: { relevance: 99, reason: 'Durable observations invalidate stale cached context.' } } : null;
     const systemPrompt = artifact ? `${compiled.systemPrompt}\n\n## ${artifact.title}\n${artifact.content}` : compiled.systemPrompt;
-    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    const packet = { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    this.latestPacket = packet;
+    this.invalidationReasons.clear();
+    return packet;
+  }
+
+  /** Returns the actual most-recent agent packet, rebuilding a baseline packet after invalidation. */
+  async snapshot(memories?: MemoryEntry[] | null): Promise<WorkspaceContextPacket> {
+    if (this.latestPacket && (!this.invalidatedAt || this.latestPacket.generatedAt >= this.invalidatedAt)) return structuredClone(this.latestPacket);
+    return this.packet('', memories);
   }
 }

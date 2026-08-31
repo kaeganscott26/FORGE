@@ -54,6 +54,10 @@ let browserBookmarks: BrowserBookmark[] = [];
 let browserHistory: BrowserHistoryEntry[] = [];
 let rendererSource: AppBuildInfo['rendererSource'] = 'file:// development build';
 let forgeLive: ForgeLiveService | null = null;
+const activeToolOperations = new Set<string>();
+const activeTaskOperations = new Set<string>();
+let lastToolActivityAt = 0;
+let lastTaskActivityAt = 0;
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
@@ -110,6 +114,12 @@ async function resolveReasoningRuntime(): Promise<{ agent: Agent; provider: Open
 }
 
 async function emitRuntimeEvent(type: RuntimeEventType, payload?: Record<string, unknown>): Promise<void> {
+  const operationId = typeof payload?.operationId === 'string' ? payload.operationId : '';
+  if (type === 'tool.requested') { if (operationId) activeToolOperations.add(operationId); lastToolActivityAt = Date.now(); }
+  if (type === 'tool.completed') { if (operationId) activeToolOperations.delete(operationId); lastToolActivityAt = Date.now(); }
+  if (type === 'agent.started' && typeof payload?.taskId === 'string') { activeTaskOperations.add(operationId || String(payload.taskId)); lastTaskActivityAt = Date.now(); }
+  if (['agent.completed', 'agent.blocked'].includes(type) && typeof payload?.taskId === 'string') { activeTaskOperations.delete(operationId || String(payload.taskId)); lastTaskActivityAt = Date.now(); }
+  if (type === 'task.changed') lastTaskActivityAt = Date.now();
   if (type === 'context.invalidated') await intelligence.invalidate(String(payload?.channel ?? 'runtime-event'), payload);
   const workspaceId = (await storage.dashboard().catch(() => null))?.id;
   if (!workspaceId) return;
@@ -141,7 +151,7 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
 async function openWorkspaceAt(rootPath: string): Promise<NonNullable<ReturnType<WorkspaceService['info']>>> {
   if (semanticRefreshTimer) clearTimeout(semanticRefreshTimer);
   semanticRefreshTimer = null; pendingSemanticPaths.clear();
-  terminalService.dispose(); dirtyEditorPaths.clear(); disposeBrowserTabs(); await forgeLive?.stop().catch(() => undefined); forgeLive = null;
+  terminalService.dispose(); dirtyEditorPaths.clear(); activeToolOperations.clear(); activeTaskOperations.clear(); disposeBrowserTabs(); await forgeLive?.stop().catch(() => undefined); forgeLive = null;
   await semanticIndexer.stop(); await storage.close();
   const info = await workspace.open(rootPath);
   await git.init(info.rootPath);
@@ -382,9 +392,16 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.gitPush, async () => git.push());
   register(IPC_CHANNELS.metaDashboard, async () => {
     const project = await storage.dashboard();
+    const packet = await intelligence.snapshot(await memoryRetriever.search('workspace architecture decisions documentation source', 6));
     const all = (nodes: any[]): any[] => nodes.flatMap((node) => [node, ...(node.children ? all(node.children) : [])]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { ...semanticContext.health(), hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length } };
+    return {
+      project,
+      recentCommits: await git.log(8).catch(() => []),
+      contextHealth: { ...packet.metrics, hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === 'md').length, codeFileCount: files.filter((file) => ['ts', 'tsx', 'js', 'jsx', 'py', 'cpp', 'c'].includes(file.extension ?? '')).length },
+      contextSources: packet.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: typeof artifact.metadata?.relevance === 'number' ? artifact.metadata.relevance : undefined, reason: typeof artifact.metadata?.reason === 'string' ? artifact.metadata.reason : undefined })),
+      contextGeneratedAt: packet.generatedAt
+    };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
@@ -422,15 +439,19 @@ function registerHandlers(): void {
     const [semantic, project] = await Promise.all([storage.semanticIndexStatus(), storage.dashboard()]);
     const requests = project ? await toolRouter.listRequests(project.id) : [];
     const memory = process.memoryUsage();
+    const now = Date.now();
+    const persistedRunningTasks = project?.tasks.filter((task) => task.status === 'running').length ?? 0;
     return {
       sampledAt: Date.now(),
       process: { pid: process.pid, uptimeSeconds: process.uptime(), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal, externalBytes: memory.external, arrayBuffersBytes: memory.arrayBuffers },
       semantic,
       activity: {
-        runningTools: requests.filter((request) => request.state === 'running').length,
+        runningTools: Math.max(activeToolOperations.size, requests.filter((request) => request.state === 'running').length),
         queuedTools: requests.filter((request) => request.state === 'requested').length,
-        runningTasks: project?.tasks.filter((task) => ['running', 'waiting'].includes(task.status)).length ?? 0,
-        activeTerminals: terminalService.list().filter((session) => session.state === 'running').length
+        runningTasks: Math.max(activeTaskOperations.size, persistedRunningTasks),
+        activeTerminals: terminalService.list().filter((session) => session.state === 'running').length,
+        toolsActive: activeToolOperations.size > 0 || now - lastToolActivityAt < 1_500,
+        tasksActive: activeTaskOperations.size > 0 || now - lastTaskActivityAt < 1_500
       }
     };
   });

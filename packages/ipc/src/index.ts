@@ -62,7 +62,13 @@ export interface ContextHealthView {
   tokensUsed: number; tokenBudget: number; relevance: number; freshness: number; authority: number; redundancy: number; staleRatio: number;
   recordsConsidered: number; recordsSelected: number; sourceDistribution: Record<string, number>; degraded: boolean; fallbackReason?: string;
 }
-export interface DashboardData { project: ProjectMetadata | null; recentCommits: GitCommit[]; contextHealth: ContextHealthView & { hasReadme: boolean; noteCount: number; codeFileCount: number }; }
+export interface DashboardData {
+  project: ProjectMetadata | null;
+  recentCommits: GitCommit[];
+  contextHealth: ContextHealthView & { hasReadme: boolean; noteCount: number; codeFileCount: number };
+  contextSources: ContextSourceSummary[];
+  contextGeneratedAt?: number;
+}
 
 export interface AppUpdateStatus {
   currentVersion: string;
@@ -197,7 +203,7 @@ export interface RuntimeTelemetryView {
   sampledAt: number;
   process: { pid: number; uptimeSeconds: number; rssBytes: number; heapUsedBytes: number; heapTotalBytes: number; externalBytes: number; arrayBuffersBytes: number };
   semantic: SemanticIndexStatusView;
-  activity: { runningTools: number; queuedTools: number; runningTasks: number; activeTerminals: number };
+  activity: { runningTools: number; queuedTools: number; runningTasks: number; activeTerminals: number; toolsActive: boolean; tasksActive: boolean };
 }
 export interface PlatformCapabilityView { platform: 'linux' | 'darwin' | 'win32' | 'other'; nativeRuntimeAvailable: boolean; hermesAvailable: boolean; hermesIntegrationMode: 'acp' | 'headless-http' | 'unavailable'; embeddingProviderAvailable: boolean; embeddingModelAvailable: boolean; semanticIndexHealthy: boolean; toolRouterAvailable: boolean; workspaceDatabaseHealthy: boolean; appDataPath: string; packagedResourcePath: string; }
 
