@@ -1,6 +1,6 @@
 # FORGE Current Implementation
 
-Last reconciled with `main`: **2026-08-25**.
+Last reconciled with `main`: **2026-08-31**.
 
 This is the canonical current-state document for implemented FORGE behavior. Historical audits, reviews, release verification files, and development-arc notes remain point-in-time records and should not be read as the current runtime contract.
 
@@ -8,7 +8,7 @@ This is the canonical current-state document for implemented FORGE behavior. His
 
 FORGE is a local-first intelligent workspace environment. The workspace owns project state, durable memory, task history, tool audit history, browser history/bookmarks, and Git evidence. Models and agent runtimes are replaceable clients of that workspace state rather than owners of it.
 
-Current source line: **2.4.0-beta**.
+Current source line: **2.5.0-beta test candidate**. It is not a published release.
 
 ## Desktop runtime
 
@@ -18,6 +18,9 @@ Current source line: **2.4.0-beta**.
 - Home (`~`) can be selected as a workspace on supported desktop platforms; workspace-relative tools remain bounded to the selected root.
 - Explorer uses lazy directory loading and skips protected/transient subtrees that return `EACCES`/`EPERM` rather than failing the entire workspace.
 - Text, image, audio, and video handling use explicit file classification instead of treating arbitrary files as source text.
+- Direct whole-file reads stop before allocation above 32 MB; large content must use a bounded tool, external viewer, or split file.
+- The shared renderer uses a bounded Three.js aurora layer, bundled UI/display fonts, animated glass surfaces, opt-out synthesized system sounds, reduced-motion handling, and the v2.5 brand mark on every desktop platform.
+- The Intelligence panel renders typed live telemetry for context utilization, semantic records, process memory, running tools/tasks, and terminal sessions without exposing renderer Node.js authority.
 
 ## Agent and tool architecture
 

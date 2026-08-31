@@ -53,4 +53,8 @@ The process RSS reached a stable allocator high-water mark, while heap, ArrayBuf
 
 ## Decision
 
-**EMBEDDINGS RETAINED AND REPAIRED.** They remain an optional discovery layer on current `2.4.0-beta` source, not an authority or startup dependency.
+**EMBEDDINGS RETAINED AND REPAIRED.** The repair landed on `2.4.0-beta` and remains the optional discovery layer in the v2.5 candidate, not an authority or startup dependency.
+
+## 2.5 validation rerun
+
+The Linux profile was rerun on 2026-08-31 before the v2.5 local packaging pass. A 66-record rebuild and three repeated retrieval/index cycles completed without a WebAssembly bounds fault. FORGE RSS rose from about 178 MB at launch to a stable allocator plateau near 209 MB; heap use returned to about 20 MB and live ArrayBuffers returned to about 1.44 MB. Ollama reported the embedding model's 2,471,315,373-byte allocation while loaded and no loaded model after each scoped operation. This validates the repaired lifecycle on the target machine; it does not replace native package and long-duration acceptance testing.

@@ -1,6 +1,6 @@
 {
   "name": "boolean",
-  "version": "2.4.0-beta",
+  "version": "2.5.0-beta",
   "private": true,
   "description": "Maintained compatibility replacement for the deprecated boolean package",
   "main": "index.cjs",

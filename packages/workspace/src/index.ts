@@ -29,6 +29,7 @@ const mimeByExtension: Record<string, string> = {
 const textExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'md', 'markdown', 'txt', 'log', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'env', 'py', 'rb', 'php', 'java', 'kt', 'kts', 'c', 'h', 'cpp', 'hpp', 'cc', 'rs', 'go', 'swift', 'sql', 'graphql', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd']);
 const textNames = new Set(['.env', '.env.local', '.env.example', '.gitignore', '.gitattributes', '.editorconfig', '.npmrc', '.yarnrc', 'dockerfile', 'makefile', 'readme', 'license', 'changelog']);
 const CLASSIFICATION_SAMPLE_BYTES = 64 * 1024;
+const MAX_EDITOR_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_MEDIA_PREVIEW_BYTES = 100 * 1024 * 1024;
 type FileClassification = { kind: DetectedFileKind; text: boolean };
 function isKnownTextFile(name: string, extension: string): boolean { return textExtensions.has(extension) || textNames.has(name.toLowerCase()) || name.toLowerCase().startsWith('.env.'); }
@@ -89,6 +90,7 @@ export class WorkspaceService extends EventEmitter {
     const absolute = await this.resolve(relativePath);
     const stat = await fs.stat(absolute);
     if (!stat.isFile()) throw new Error('Path is not a file.');
+    if (stat.size > MAX_EDITOR_FILE_BYTES) throw new Error('Direct file reads are limited to 32 MB to protect the FORGE runtime. Use a bounded tool, external viewer, or split the file.');
     const bytes = await fs.readFile(absolute);
     if (bytes.includes(0)) return { path: relativePath, content: bytes.toString('base64'), modifiedAt: stat.mtimeMs, encoding: 'base64', binary: true };
     let content: string;

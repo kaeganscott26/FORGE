@@ -1,6 +1,6 @@
 {
   "name": "lodash.isequal",
-  "version": "2.4.0-beta",
+  "version": "2.5.0-beta",
   "private": true,
   "description": "Node.js replacement for the deprecated lodash.isequal package",
   "main": "index.cjs",

@@ -1,6 +1,6 @@
 # 🗺️ FORGE Documentation
 
-This directory is the map for people building with, evaluating, or extending FORGE. It documents source build `2.4.0-beta`; start with the outcome you need, then follow the narrowest relevant guide.
+This directory is the map for people building with, evaluating, or extending FORGE. It documents the unpublished `2.5.0-beta` source candidate; start with the outcome you need, then follow the narrowest relevant guide.
 
 **Current implementation authority:** start with [Current Implementation](CURRENT_IMPLEMENTATION.md). It is reconciled against `main` and supersedes stale implementation claims in point-in-time reviews, audits, verification snapshots, and archived release notes.
 
@@ -38,7 +38,7 @@ This directory is the map for people building with, evaluating, or extending FOR
 - [Build Artifact Policy](BUILD_ARTIFACT_POLICY.md) — manifest-led artifact selection and cleanup.
 - [Releasing FORGE](../RELEASING.md) — exact source, tag, workflow, package, and public-hash procedure.
 - [Native packaging](PACKAGING.md) — repeatable macOS, Linux, and Windows package procedures, runtime-identity parity, and artifact expectations.
-- [Current Release Notes](../RELEASE_NOTES.md) — user-facing FORGE v2.3 Beta changes.
+- [Current Release Notes](../RELEASE_NOTES.md) — user-facing v2.5 test-candidate changes and prior release history.
 - [FORGE 2.3 beta verification](V2.3.0_BETA1_VERIFICATION.md) — tag, workflow, and published-asset evidence for `v2.3.0-beta.1`.
 - [Semantic memory regression repair](SEMANTIC_MEMORY_REPAIR.md) — Git boundary, verified root cause, memory measurements, and the retained tool-first design for `2.4.0-beta`.
 

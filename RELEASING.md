@@ -1,6 +1,6 @@
 # 🚀 Releasing FORGE
 
-The current coordinated release is **FORGE 2.4.0-beta**, published from the exact `v2.4.0-beta` tag. The release workflow validates Linux, macOS, and Windows packages before publishing a complete draft release.
+The current source candidate is **FORGE 2.5.0-beta**. It is intentionally untagged and unpublished while local Linux/FORGE-OS installation plus Windows/macOS package acceptance are pending. The release workflow validates Linux, macOS, and Windows packages before any complete draft can be published.
 
 ## 🧭 Release philosophy
 
@@ -24,7 +24,7 @@ The workspace-owned release task and its observed checkpoints are authoritative.
 - Stable accepts only strictly newer normal SemVer.
 - A legacy stored `preview` preference migrates to Beta.
 - Drafts, malformed versions, unsupported identifiers, equal versions, and downgrades are rejected.
-- Tags use `v<package-version>`; the current source beta is `v2.4.0-beta` and its public name is `FORGE v2.4.0-beta`.
+- Tags use `v<package-version>`; if the current candidate is approved, its tag will be `v2.5.0-beta` and public name will be `FORGE v2.5.0-beta`.
 
 Never move or republish a tag to different source. See [Release Channels](docs/RELEASE_CHANNELS.md).
 
@@ -44,7 +44,7 @@ Commit, push, merge, tag, upload, publication, installation, and remote cleanup 
 
 ## 📌 Version bump and authoritative source
 
-Use normal SemVer syntax. For this release every workspace manifest and `package-lock.json` reports `2.4.0-beta`. The public tag is `v2.4.0-beta`, and diagnostics report the Beta channel. Run `npm run verify:release-version` before packaging to check the root manifest, every workspace manifest, the lockfile, staged runtime metadata, and current release documents together.
+Use normal SemVer syntax. For this candidate every workspace manifest and `package-lock.json` reports `2.5.0-beta`. There is no public v2.5 tag yet, and diagnostics report the Beta channel. Run `npm run verify:release-version` before packaging to check the root manifest, every workspace manifest, the lockfile, staged runtime metadata, and current release documents together.
 
 Read-only provenance checks include:
 

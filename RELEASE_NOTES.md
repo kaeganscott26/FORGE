@@ -1,4 +1,13 @@
-# ✨ FORGE v2.4.0-beta
+# ✨ FORGE v2.5.0-beta test candidate
+
+## 2.5.0-beta — Living intelligence
+
+- Introduces the northern-lights FORGE identity across macOS, Windows, Linux, and FORGE-OS with a new application mark, distinct display/UI typography, animated glass surfaces, and a low-overhead Three.js aurora field.
+- Visualizes the real AI layer instead of a decorative mock: context load, semantic records, FORGE memory, active tools, tasks, terminals, and index state are sampled through typed read-only IPC.
+- Adds subtle opt-out system sounds, Browser/Explorer/Intelligence animated backgrounds, reduced-motion support, hidden-window animation suspension, and WebGL fallback behavior.
+- Carries forward the repaired, off-by-default semantic embedding layer and adds a pre-allocation 32 MB direct file-read limit plus clearer permission errors.
+
+This candidate has not been published. Packaging, native-platform acceptance, and user approval remain required before a public v2.5 release.
 
 ## 2.4.0-beta — Native semantic context
 
@@ -15,7 +24,7 @@ The prior entries below are historical release notes.
 - Replaces approval-state audit records with execution-state records and creates new workspace databases without approval tables or columns.
 - Repairs shared browser-tab controls and terminal sizing behavior while preserving platform adapters.
 
-The `v2.3.0-beta.1` material below is a historical release record. Current source and packaging remain `v2.4.0-beta`.
+The `v2.3.0-beta.1` material below is a historical release record. Current source is the unpublished `2.5.0-beta` candidate.
 
 ## 🧭 Predictable agent execution
 

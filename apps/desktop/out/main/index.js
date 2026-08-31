@@ -2111,6 +2111,7 @@ const IPC_CHANNELS = {
   semanticIndexStatus: "semantic.index.status",
   semanticIndexRebuild: "semantic.index.rebuild",
   contextHealthGet: "context.health.get",
+  runtimeTelemetry: "runtime.telemetry",
   agentSkillsList: "agent.skills.list",
   agentAsk: "agent.ask",
   agentExplainProject: "agent.explainProject",
@@ -2232,6 +2233,7 @@ const mimeByExtension = {
 const textExtensions = /* @__PURE__ */ new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "jsonc", "md", "markdown", "txt", "log", "html", "htm", "css", "scss", "sass", "less", "xml", "yaml", "yml", "toml", "ini", "conf", "env", "py", "rb", "php", "java", "kt", "kts", "c", "h", "cpp", "hpp", "cc", "rs", "go", "swift", "sql", "graphql", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd"]);
 const textNames = /* @__PURE__ */ new Set([".env", ".env.local", ".env.example", ".gitignore", ".gitattributes", ".editorconfig", ".npmrc", ".yarnrc", "dockerfile", "makefile", "readme", "license", "changelog"]);
 const CLASSIFICATION_SAMPLE_BYTES = 64 * 1024;
+const MAX_EDITOR_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_MEDIA_PREVIEW_BYTES = 100 * 1024 * 1024;
 function isKnownTextFile(name, extension) {
   return textExtensions.has(extension) || textNames.has(name.toLowerCase()) || name.toLowerCase().startsWith(".env.");
@@ -2316,6 +2318,7 @@ class WorkspaceService extends EventEmitter {
     const absolute = await this.resolve(relativePath2);
     const stat = await promises.stat(absolute);
     if (!stat.isFile()) throw new Error("Path is not a file.");
+    if (stat.size > MAX_EDITOR_FILE_BYTES) throw new Error("Direct file reads are limited to 32 MB to protect the FORGE runtime. Use a bounded tool, external viewer, or split the file.");
     const bytes = await promises.readFile(absolute);
     if (bytes.includes(0)) return { path: relativePath2, content: bytes.toString("base64"), modifiedAt: stat.mtimeMs, encoding: "base64", binary: true };
     let content;
@@ -10814,8 +10817,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "3ff06b3924aa2092a3b37b55a475e09387dcffc1",
-    buildDate: "2026-08-27T04:32:18.810Z",
+    commit: "514bd6b3dd36641879e785af652243df141cef49",
+    buildDate: "2026-08-31T09:35:33.990Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -10869,7 +10872,9 @@ function register(channel, action) {
       }
       return { success: true, data };
     } catch (error) {
-      return { success: false, error: { message: error instanceof Error ? error.message : "An unexpected error occurred." } };
+      const code = error instanceof Error && "code" in error ? String(error.code) : void 0;
+      const message = code === "EACCES" || code === "EPERM" ? "FORGE does not have permission to access that location. Choose a user-owned workspace or update the file permissions, then try again." : error instanceof Error ? error.message : "An unexpected error occurred.";
+      return { success: false, error: { message, code } };
     }
   });
 }
@@ -11201,6 +11206,22 @@ function registerHandlers() {
   register(IPC_CHANNELS.semanticIndexStatus, async () => storage.semanticIndexStatus());
   register(IPC_CHANNELS.semanticIndexRebuild, async () => semanticIndexer.rebuild());
   register(IPC_CHANNELS.contextHealthGet, async () => semanticContext.health());
+  register(IPC_CHANNELS.runtimeTelemetry, async () => {
+    const [semantic, project] = await Promise.all([storage.semanticIndexStatus(), storage.dashboard()]);
+    const requests = project ? await toolRouter.listRequests(project.id) : [];
+    const memory = process.memoryUsage();
+    return {
+      sampledAt: Date.now(),
+      process: { pid: process.pid, uptimeSeconds: process.uptime(), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal, externalBytes: memory.external, arrayBuffersBytes: memory.arrayBuffers },
+      semantic,
+      activity: {
+        runningTools: requests.filter((request) => request.state === "running").length,
+        queuedTools: requests.filter((request) => request.state === "requested").length,
+        runningTasks: project?.tasks.filter((task) => ["running", "waiting"].includes(task.status)).length ?? 0,
+        activeTerminals: terminalService.list().filter((session) => session.state === "running").length
+      }
+    };
+  });
   register(IPC_CHANNELS.agentSkillsList, async () => {
     const info = workspace.info();
     if (!info) throw new Error("Open a workspace before listing skills.");
@@ -11384,7 +11405,7 @@ if (!ownsSingleInstanceLock) {
     mainWindow?.focus();
   });
   app.whenReady().then(async () => {
-    const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-1024.png");
+    const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-v2.5-1024.png");
     if (process.platform === "darwin" && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
     try {
       await settings.init();

@@ -128,7 +128,13 @@ function register<C extends IPCChannel>(channel: C, action: (request: IPCRequest
       }
       return { success: true, data };
     }
-    catch (error) { return { success: false, error: { message: error instanceof Error ? error.message : 'An unexpected error occurred.' } }; }
+    catch (error) {
+      const code = error instanceof Error && 'code' in error ? String(error.code) : undefined;
+      const message = code === 'EACCES' || code === 'EPERM'
+        ? 'FORGE does not have permission to access that location. Choose a user-owned workspace or update the file permissions, then try again.'
+        : error instanceof Error ? error.message : 'An unexpected error occurred.';
+      return { success: false, error: { message, code } };
+    }
   });
 }
 
@@ -412,6 +418,22 @@ function registerHandlers(): void {
   register(IPC_CHANNELS.semanticIndexStatus, async () => storage.semanticIndexStatus());
   register(IPC_CHANNELS.semanticIndexRebuild, async () => semanticIndexer.rebuild());
   register(IPC_CHANNELS.contextHealthGet, async () => semanticContext.health());
+  register(IPC_CHANNELS.runtimeTelemetry, async () => {
+    const [semantic, project] = await Promise.all([storage.semanticIndexStatus(), storage.dashboard()]);
+    const requests = project ? await toolRouter.listRequests(project.id) : [];
+    const memory = process.memoryUsage();
+    return {
+      sampledAt: Date.now(),
+      process: { pid: process.pid, uptimeSeconds: process.uptime(), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal, externalBytes: memory.external, arrayBuffersBytes: memory.arrayBuffers },
+      semantic,
+      activity: {
+        runningTools: requests.filter((request) => request.state === 'running').length,
+        queuedTools: requests.filter((request) => request.state === 'requested').length,
+        runningTasks: project?.tasks.filter((task) => ['running', 'waiting'].includes(task.status)).length ?? 0,
+        activeTerminals: terminalService.list().filter((session) => session.state === 'running').length
+      }
+    };
+  });
   register(IPC_CHANNELS.agentSkillsList, async () => {
     const info = workspace.info();
     if (!info) throw new Error('Open a workspace before listing skills.');
@@ -517,7 +539,7 @@ app.on('second-instance', (_event, commandLine) => {
 });
 
 app.whenReady().then(async () => {
-  const developmentIcon = join(process.cwd(), 'apps/desktop/resources/ForgeIcon-1024.png');
+  const developmentIcon = join(process.cwd(), 'apps/desktop/resources/ForgeIcon-v2.5-1024.png');
   if (process.platform === 'darwin' && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
   try { await settings.init(); await applyAISettings(); updater.setChannel(settings.updateChannel()); registerHandlers(); const startupWorkspace = process.argv.find((argument) => argument.startsWith('--workspace='))?.slice('--workspace='.length); if (startupWorkspace) await openWorkspaceAt(startupWorkspace); createWindow(); app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); }
   catch (error) { dialog.showErrorBox('FORGE could not start', error instanceof Error ? error.message : String(error)); app.quit(); }
