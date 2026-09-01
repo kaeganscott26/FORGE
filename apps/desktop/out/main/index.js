@@ -8301,7 +8301,7 @@ async function resolveWorkspacePath(workspaceRoot, requested) {
 }
 function assertCanonicalExecutable(command, args) {
   if (!command.trim() || command.includes("\0")) throw new Error("A valid executable is required.");
-  if (/\s/.test(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
+  if (/\s/.test(command) && !path__default.isAbsolute(command)) throw new Error('Executable and arguments must be separate before execution; for example use command "hermes" with args ["acp", "--help"], or command "bash" with args ["-lc", "<script>"] for shell syntax.');
   if (args.some((argument) => argument.includes("\0"))) throw new Error("Shell arguments may not contain null bytes.");
 }
 function filteredEnvironment(requested = {}, allowlist = []) {
@@ -10385,6 +10385,26 @@ function requiredDirectEvidence(prompt, observedTools) {
   if (/\b(?:regression|introduced|when (?:did|was)|git boundary)\b/.test(normalized)) required2.add("git.log");
   return [...required2].filter((toolName) => !observed.has(toolName));
 }
+function assertToolIdentity(request, result, conversationId) {
+  if (!request?.id || !request?.toolName) throw new Error("FORGE tool routing returned an incomplete request identity.");
+  if (request.conversationId !== conversationId) throw new Error(`FORGE tool request conversation mismatch: expected ${conversationId}, received ${String(request.conversationId)}.`);
+  if (!result) return;
+  if (result.requestId !== request.id) throw new Error(`FORGE tool result request mismatch: expected ${request.id}, received ${String(result.requestId)}.`);
+  if (result.toolName !== request.toolName) throw new Error(`FORGE tool result name mismatch: expected ${request.toolName}, received ${String(result.toolName)}.`);
+}
+function runtimeToolRecoveryGuidance(toolName, errorMessage, availableTools) {
+  const message = errorMessage.toLowerCase();
+  const catalog = [...availableTools].sort().join(", ");
+  const guidance = [`Runtime tool catalog: ${catalog || "(none)"}.`, `The failed ${toolName} invocation does not mean the tool is unavailable; distinguish argument, policy, and execution failures from capability absence.`];
+  if (/workspace-relative|traverse upward|escapes? (?:the )?(?:active )?workspace|absolute paths? require/i.test(errorMessage)) {
+    guidance.push('FORGE file tools are intentionally workspace-scoped. Do not retry them with absolute paths, ~, or .. traversal. Restart discovery at file.list path "." and use only observed workspace-relative paths.');
+    if (availableTools.has("shell.run")) guidance.push("If the user explicitly needs OS-level inspection outside the workspace, shell.run is available. Keep its workingDirectory inside the workspace and pass the external path only as a command argument.");
+  }
+  if (/eacces|eperm|permission denied|scandir/.test(message)) guidance.push("Treat unreadable filesystem paths as skippable evidence. Do not chmod/chown container, cache, or system-owned paths merely to satisfy indexing.");
+  if (toolName.startsWith("browser.") && availableTools.has("browser.read")) guidance.push("browser.read/browser.find operate on the currently visible FORGE Browser page; do not infer that browser context is absent merely because a filesystem lookup failed.");
+  if (toolName.startsWith("terminal.") && availableTools.has("terminal.read")) guidance.push("terminal.read reads existing FORGE terminal sessions and is separate from workspace file traversal.");
+  return guidance.join(" ");
+}
 function createNativeAgentRuntime(dependencies) {
   const { storage: storage2, workspace: workspace2, agent: agent2, toolRouter: toolRouter2, taskRuntime: taskRuntime2, settings: settings2, aiProvider: aiProvider2, git: git2, emitRuntimeEvent: emitRuntimeEvent2, resolveReasoningRuntime: resolveReasoningRuntime2 } = dependencies;
   const maxRuntimeMs = Math.min(Math.max(Number(process.env.FORGE_AGENT_MAX_RUNTIME_MS) || 15 * 6e4, 6e4), 60 * 6e4);
@@ -10414,8 +10434,11 @@ function createNativeAgentRuntime(dependencies) {
       const info = workspace2.info();
       if (!project || !info) throw new Error("Open a workspace before requesting agent tools.");
       const definitions = toolRouter2.providerDefinitions();
+      const availableTools = new Set(definitions.map((definition2) => definition2.name));
+      const capabilityCatalog = [...availableTools].sort().join(", ");
       let turn = await activeAgent.askWithTools(prompt, history, definitions);
       const outcomes = [];
+      const runtimeFailures = [];
       const semanticRecordIds = /* @__PURE__ */ new Set();
       const rememberSemanticContext = (context) => {
         for (const artifact of context?.artifacts ?? []) if (typeof artifact.metadata?.semanticRecordId === "string") semanticRecordIds.add(artifact.metadata.semanticRecordId);
@@ -10469,39 +10492,55 @@ ${evidence3}`, continuationHistory, definitions);
           }
           if (missingEvidence.length) throw new Error(`The active reasoning provider did not produce successful required evidence after ${evidenceNudges} recovery attempts: ${missingEvidence.join(", ")}.`);
           const evidence2 = loopGuard.observedResults().join("\n\n");
-          modelContent = (await activeAgent.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results:
+          modelContent = (await activeAgent.askWithContext(`Every requested tool call would repeat the same normalized arguments against the same workspace state. Do not request another tool. Complete the response from these observed results. A failed invocation is not evidence that the tool itself is unavailable. Available runtime tools: ${capabilityCatalog}.
 
 ${evidence2}`, continuationHistory)).content;
           break;
         }
         const round = [];
+        const validationEvidence = [];
         for (const call of fresh) {
           const toolOperationId = call.id || randomUUID();
-          await emitRuntimeEvent2?.("tool.requested", { operationId: toolOperationId, toolName: call.name, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+          let requestId = call.id;
           let succeeded = false;
+          await emitRuntimeEvent2?.("tool.requested", { operationId: toolOperationId, toolName: call.name, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
           try {
             const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel, userRequest: prompt, task: executionTask });
+            assertToolIdentity(outcome.request, outcome.result, state.activeConversationId);
+            requestId = outcome.request.id;
+            succeeded = outcome.result?.success ?? false;
             round.push(outcome);
             outcomes.push(outcome);
-            succeeded = outcome.result?.success ?? false;
             loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
             if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const guidance = runtimeToolRecoveryGuidance(call.name, message, availableTools);
+            validationEvidence.push(JSON.stringify({ toolName: call.name, success: false, error: { code: "TOOL_ROUTING_FAILED", message }, recovery: guidance }, null, 2));
+            runtimeFailures.push(`Tool ${call.name} routing failed: ${message}`);
+            loopGuard.record(call, await workspaceRevision(), { success: false, error: { code: "TOOL_ROUTING_FAILED", message }, output: { recovery: guidance } });
           } finally {
-            await emitRuntimeEvent2?.("tool.completed", { operationId: toolOperationId, toolName: call.name, success: succeeded, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+            await emitRuntimeEvent2?.("tool.completed", { operationId: toolOperationId, toolName: call.name, requestId, success: succeeded, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
           }
         }
-        const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
+        const resultEvidence = round.filter((outcome) => outcome.result).map((outcome) => {
+          const result = outcome.result;
+          const bounded2 = boundedToolEvidence(result);
+          return result.success ? bounded2 : `${bounded2}
+Recovery guidance: ${runtimeToolRecoveryGuidance(result.toolName, result.error?.message ?? "Tool execution failed.", availableTools)}`;
+        });
+        const evidence = [...resultEvidence, ...validationEvidence].join("\n\n");
         continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
-        turn = await activeAgent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. FORGE supplies execution identity and audit context internally.
+        turn = await activeAgent.askWithTools(`Continue the original request using these bounded Tool Result records. Do not repeat completed tool calls. Do not claim a tool is missing when it appears in the runtime catalog. A failed file path is a scope or input failure, not proof that other tools are absent. file.* tools must stay workspace-relative; system paths require an appropriate advertised tool instead of ../ traversal. Runtime tool catalog for this turn: ${capabilityCatalog}. FORGE supplies execution identity and audit context internally.
 
 ${evidence}`, continuationHistory, definitions);
         rememberSemanticContext(turn.context);
       }
-      const summary = outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? "succeeded" : "failed"}${result?.error ? `: ${result.error.message}` : ""}.`).join("\n");
+      const summary = [...outcomes.map(({ request, result }) => `Tool ${request.toolName} ${result?.success ? "succeeded" : "failed"}${result?.error ? `: ${result.error.message}` : ""}.`), ...runtimeFailures].join("\n");
       const content = [modelContent, summary].filter(Boolean).join("\n\n") || "FORGE received no response from the model.";
       await storage2.appendConversation(state.activeConversationId, "assistant", content);
       await storage2.markSemanticRecordsUsed([...semanticRecordIds], outcomes.length === 0 || outcomes.every((outcome) => outcome.result?.success));
-      await emitRuntimeEvent2?.("agent.completed", { ...operation, conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
+      await emitRuntimeEvent2?.("agent.completed", { ...operation, conversationId: state.activeConversationId, toolCount: outcomes.length, routingFailureCount: runtimeFailures.length, runtime: selectedRuntime.kind });
       return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: artifact.metadata?.relevance, reason: artifact.metadata?.reason })), contextHealth: turn.context.metrics };
     } catch (error) {
       await emitRuntimeEvent2?.("agent.blocked", { ...operation, message: error instanceof Error ? error.message : String(error) });
@@ -10885,8 +10924,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "4f213d3fb2d6f3530b6cd616c257e930f4297caa",
-    buildDate: "2026-08-31T21:00:56.590Z",
+    commit: "f772fc4f85209b4beacc0b2a44f82a218e28732a",
+    buildDate: "2026-09-01T04:06:44.454Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
