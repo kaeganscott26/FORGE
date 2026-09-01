@@ -1,6 +1,6 @@
 # Optional Semantic Discovery
 
-FORGE `2.4.0-beta` retains semantic embeddings as an optional discovery assistant. They are off on fresh installs and never replace current workspace tools or deterministic context.
+FORGE `2.5.0-beta` retains the repaired semantic embeddings as an optional discovery assistant. They are off on fresh installs and never replace current workspace tools or deterministic context.
 
 ## Authority and routing
 

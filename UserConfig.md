@@ -1,6 +1,6 @@
 # FORGE User Configuration
 
-This guide describes the current `2.4.0-beta` settings contract. Settings are application-global and stored under Electron's platform user-data directory, not inside a workspace. Workspace state remains in `<workspace>/.forge/metadata.sqlite`.
+This guide describes the current `2.5.0-beta` settings contract. Settings are application-global and stored under Electron's platform user-data directory, not inside a workspace. Workspace state remains in `<workspace>/.forge/metadata.sqlite`.
 
 ## Inference provider
 

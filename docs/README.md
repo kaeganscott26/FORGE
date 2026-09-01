@@ -1,6 +1,6 @@
 # FORGE Documentation
 
-These documents describe current `2.4.0-beta` source behavior unless explicitly marked as historical. Source under `apps/`, `packages/`, `scripts/`, and `.github/workflows/` remains authoritative when documentation and implementation disagree.
+These documents describe current `2.5.0-beta` source behavior unless explicitly marked as historical. Source under `apps/`, `packages/`, `scripts/`, and `.github/workflows/` remains authoritative when documentation and implementation disagree.
 
 ## Start here
 

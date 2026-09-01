@@ -1,6 +1,6 @@
 # Releasing FORGE
 
-This guide describes the current cross-platform `2.4.0-beta` release system. The existing `v2.4.0-beta` tag resolves to `ff798b91a1a027a4891214c4da6549fc3336d210`; current `main` is ahead of it. Never move that tag or replace same-version public assets. Post-tag fixes require a new semantic version.
+This guide describes the current cross-platform `2.5.0-beta` release system. The annotated `v2.5.0-beta` tag resolves to `430796e2b4de543f5e9c6b8a8195e407353c9f68`. Never move that tag or replace same-version public assets; post-tag fixes require a new semantic version.
 
 ## Release invariants
 
@@ -29,7 +29,7 @@ npm run build
 git diff --check
 ```
 
-Before running the gate, update the version-specific trigger, `release_tag`, and release title in `.github/workflows/release.yml`. The current workflow is intentionally pinned to the `v2.4.0-beta` line; `npm run verify:release-version` must reject stale workflow/release documentation after a version bump.
+Before running the gate, update the version-specific trigger, `release_tag`, and release title in `.github/workflows/release.yml`. The current workflow is intentionally pinned to the `v2.5.0-beta` line; `npm run verify:release-version` must reject stale workflow/release documentation after a version bump.
 
 Review the exact diff, commit it, push `main`, and prove local/remote equality before creating the annotated tag.
 
@@ -90,7 +90,7 @@ After the workflow completes, verify:
 8. the installed app opens, loads the packaged renderer, opens a workspace, and remains responsive;
 9. signing/notarization status is reported independently from integrity.
 
-The current GitHub `v2.4.0-beta` release is public and complete but is presently reported as `isPrerelease: false` despite the workflow's intended `--prerelease` publication. Treat that as a known release-record defect; do not silently rewrite history.
+The GitHub `v2.5.0-beta` release is public, non-draft, and reported as a prerelease. Its annotated tag and remote asset digests remain part of the provenance chain; signing/notarization status remains a separate assertion.
 
 ## Update-policy validation
 

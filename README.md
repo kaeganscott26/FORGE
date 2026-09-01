@@ -4,9 +4,9 @@
 
 FORGE keeps project files, documentation, Git evidence, persistent tasks, conversations, and durable memory attached to the workspace while models and agent runtimes remain replaceable.
 
-Current source version: `2.4.0-beta` · Electron 43 · React 19 · TypeScript · Windows x64, universal macOS, and Linux x64 packages.
+Current release: `2.5.0-beta` · living intelligence UI · bounded semantic context · Hermes-ready runtime · Electron 43 · React 19 · TypeScript · Windows x64, universal macOS, and Linux x64 packages.
 
-The published [`v2.4.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta) artifacts were built from tag commit `ff798b9`. `main` contains later fixes in the same source version, including workspace/database recovery, context corrections, runtime/packaging parity, and workspace-open response recovery. Those post-tag commits are not part of the published assets and require a new semantic version and tag before public distribution.
+The published [`v2.5.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.5.0-beta) artifacts were built from annotated tag commit `430796e`. The release adds the living intelligence visual system, complete artifact-packet telemetry, reliable activity indicators and sounds, and carries forward workspace/database recovery, bounded context, runtime parity, and workspace-open response recovery.
 
 ## Why FORGE exists
 
@@ -40,13 +40,13 @@ Native FORGE is the active execution path. Hermes detection, endpoint checks, an
 
 ## Install
 
-Download the package for your platform from the [v2.4.0-beta release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta):
+Download the package for your platform from the [v2.5.0-beta release](https://github.com/kaeganscott26/FORGE/releases/tag/v2.5.0-beta):
 
-- macOS: `FORGE-2.4.0-beta-universal.dmg`
-- Windows x64: `FORGE-2.4.0-beta-x64.exe`
-- Linux x64: `FORGE-2.4.0-beta-x86_64.AppImage` or `FORGE-2.4.0-beta-amd64.deb`
+- macOS: `FORGE-2.5.0-beta-universal.dmg`
+- Windows x64: `FORGE-2.5.0-beta-x64.exe`
+- Linux x64: `FORGE-2.5.0-beta-x86_64.AppImage` or `FORGE-2.5.0-beta-amd64.deb`
 
-The current packages are not backed by Apple Developer ID notarization or Windows publisher signing. Verify the published `SHA256SUMS` and release asset digests before installation. The GitHub release currently reports `isPrerelease: false` despite its beta SemVer identity; FORGE still treats it according to semantic-version/channel policy.
+The current packages are not backed by Apple Developer ID notarization or Windows publisher signing. Verify the published `SHA256SUMS` and release asset digests before installation. GitHub reports `v2.5.0-beta` as a prerelease, matching its Beta semantic-version identity.
 
 ### Install or update from source
 

@@ -117,9 +117,10 @@ export function filteredEnvironment(requested: Record<string, string> = {}, allo
 export function terminalEnvironment(shell: string): Record<string, string> {
   const home = os.homedir();
   const username = os.userInfo().username;
+  const userPrefix = path.join(home, '.local');
   const inherited = filteredEnvironment();
   const pathEntries = [
-    path.join(home, '.local', 'bin'),
+    path.join(userPrefix, 'bin'),
     path.join(home, '.opencode', 'bin'),
     ...(process.platform === 'win32' ? [] : ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']),
     ...(inherited.PATH ?? '').split(path.delimiter)
@@ -133,6 +134,7 @@ export function terminalEnvironment(shell: string): Record<string, string> {
     TERM: inherited.TERM ?? 'xterm-256color',
     COLORTERM: 'truecolor',
     TERM_PROGRAM: 'FORGE',
+    NPM_CONFIG_PREFIX: userPrefix,
     PATH: [...new Set(pathEntries)].join(path.delimiter)
   };
 }
@@ -266,10 +268,12 @@ export class TerminalService {
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id, session);
     terminal.onData((data) => {
+      if (this.sessions.get(id)?.process !== terminal) return;
       info.recentOutput = `${info.recentOutput}${data}`.slice(-this.outputLimit);
       this.publish({ sessionId: id, type: 'output', data });
     });
     terminal.onExit(({ exitCode }) => {
+      if (this.sessions.get(id)?.process !== terminal) return;
       info.state = 'exited'; info.exitCode = exitCode;
       this.publish({ sessionId: id, type: 'exit', exitCode });
     });
@@ -285,7 +289,7 @@ export class TerminalService {
   }
   resize(id: string, columns: number, rows: number): void { this.required(id).process.resize(Math.max(20, columns), Math.max(5, rows)); }
   terminate(id: string): void { const session = this.required(id); if (session.info.state === 'running') session.process.kill(); }
-  async restart(id: string): Promise<TerminalSessionInfo> { const current = this.required(id); const relative = path.relative(current.canonicalWorkspaceRoot, current.info.cwd) || '.'; this.terminate(id); this.sessions.delete(id); return this.create(relative, 100, 30, id); }
+  async restart(id: string): Promise<TerminalSessionInfo> { const current = this.required(id); const relative = path.relative(current.canonicalWorkspaceRoot, current.info.cwd) || '.'; const { cols, rows } = current.process; this.sessions.delete(id); if (current.info.state === 'running') current.process.kill(); return this.create(relative, cols, rows, id); }
   remove(id: string): void { this.terminate(id); this.sessions.delete(id); }
   dispose(): void { for (const id of [...this.sessions.keys()]) this.remove(id); }
   private required(id: string): TerminalSession {

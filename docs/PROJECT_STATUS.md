@@ -1,12 +1,12 @@
 # FORGE Project Status
 
-Last audited: 2026-08-27 · source version `2.4.0-beta`.
+Last audited: 2026-08-31 · source version `2.5.0-beta`.
 
 ## Current source
 
 `main` implements the local-first Electron desktop, provider-neutral workspace intelligence, Native FORGE agent execution, the autonomous ToolRouter, persistent tasks, optional semantic context, a sandboxed Browser, FORGE Live, and coordinated Linux/macOS/Windows packaging.
 
-Current source is ahead of the published `v2.4.0-beta` tag while retaining the same package version. The published tag resolves to `ff798b91a1a027a4891214c4da6549fc3336d210`; later source fixes are not in those public assets and must use a new version/tag before publication.
+The published annotated `v2.5.0-beta` tag resolves to `430796e2b4de543f5e9c6b8a8195e407353c9f68`. It adds the living-intelligence UI, complete artifact-packet telemetry, activity indicators and sounds, and retains the 2.4 recovery, bounded-context, and cross-platform packaging work.
 
 ## Implemented
 
@@ -25,6 +25,7 @@ Current source is ahead of the published `v2.4.0-beta` tag while retaining the s
 | FORGE Live | Contained loopback static server, ports 5500–5599, in-memory reload client, Browser preview |
 | Runtime profiles | Native active; Hermes command/endpoint detection, reachability, skill metadata, and safe fallback |
 | Packaging | Linux AppImage/DEB, universal macOS DMG/ZIP, Windows x64 NSIS, runtime metadata, manifests, hashes, updater YAML, installed-runtime verifiers |
+| Living UI | Shared v2.5 identity, bounded Three.js aurora, glass surfaces, reduced-motion support, opt-out sounds, and real context/memory/process telemetry |
 
 ## Execution-security state
 
@@ -34,7 +35,7 @@ Enforced boundaries remain: semantic schema validation, workspace/symlink contai
 
 ## Published release
 
-[`v2.4.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.4.0-beta) was published on 2026-08-26 with Linux x64, universal macOS, and Windows x64 packages plus updater metadata, blockmaps, `SHA256SUMS`, and a build manifest. GitHub currently reports it as a normal release (`isPrerelease: false`) despite its beta SemVer and workflow intent.
+[`v2.5.0-beta`](https://github.com/kaeganscott26/FORGE/releases/tag/v2.5.0-beta) was published on 2026-08-31 with Linux x64, universal macOS, and Windows x64 packages plus updater metadata, blockmaps, `SHA256SUMS`, and a build manifest. GitHub reports it as a non-draft prerelease.
 
 The published macOS package is not claimed as Developer ID notarized, and the Windows package is not claimed as publisher signed. Integrity/provenance and platform signing are separate assertions.
 
@@ -44,7 +45,7 @@ The published macOS package is not claimed as Developer ID notarized, and the Wi
 2. Semantic discovery requires a separately available OpenAI-compatible embedding provider and is disabled on fresh installs.
 3. Persistent tasks reconcile observed processes and artifacts but do not provide a general cross-restart supervisor for every external operation.
 4. Public packages lack established Apple notarization and Windows publisher signing.
-5. Current `main` and published `v2.4.0-beta` share a version but differ in source; the next public release must increment the version.
-6. The existing beta release's GitHub prerelease flag is incorrect and must be verified explicitly in the next release.
+5. Post-tag source changes require a strictly newer semantic version and annotated tag before publication.
+6. Release verification must continue to check GitHub's prerelease flag independently from the version string.
 
 Validation claims belong in the commit/release evidence that produced them. Historical records are in [`docs/archive`](archive/README.md).

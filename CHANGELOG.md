@@ -4,8 +4,15 @@
 
 ## Unreleased
 
+- Fixed the Intelligence layer so it reports the complete provider-neutral artifact packet instead of exposing only optional semantic-retrieval counters.
+- Replaced millisecond cache freshness with monotonic invalidation revisions so rapid file or memory changes cannot leave an older intelligence packet active.
+- Added event-correlated agent, tool, and durable-task telemetry with completion visibility for fast operations.
+- Repaired synthesized system sounds by unlocking Web Audio from pointer or keyboard interaction and restoring audible tap, completion, and warning levels.
+- Advanced the shared renderer to `2.5.0-beta` with an adaptive Three.js aurora field, glass transitions, animated Explorer/Browser/Intelligence surfaces, bundled typography, a new forge mark, and opt-out interface sounds.
+- Added typed live intelligence telemetry for context utilization, semantic records, FORGE memory, running tools, durable tasks, and terminal processes, with hidden-window, reduced-motion, device-pixel-ratio, and WebGL safeguards.
+- Added a 32 MB pre-allocation file-read guard and actionable `EACCES`/`EPERM` guidance while preserving permission-tolerant traversal.
 - Recovered workspace opening when Electron returns a null or missing successful response payload: the renderer now reloads canonical `workspace.info`, preserves cancellation, and has focused regression coverage for folder and Home opening.
-- Consolidated public documentation around the current autonomous `2.4.0-beta` runtime and cross-platform package contract. Dated audits, implementation logs, superseded plans/reviews, and older release verification records now live under `docs/archive/`.
+- Consolidated public documentation around the current autonomous `2.5.0-beta` runtime and cross-platform package contract. Dated audits, implementation logs, superseded plans/reviews, and older release verification records now live under `docs/archive/`.
 - Repaired the `2.4.0-beta` semantic-context memory regression without reverting the current runtime: retrieval is lazy/tool-first and capped, stale/failed records inject nothing, vectors use Float32 blobs, sql.js index writes are batched, file updates are incremental, and local Ollama unloads after each operation. Native FORGE, Hermes, FORGE Live, Browser/Home, updates, tasks, memory, and ToolRouter remain on the current line.
 - Separated model-visible tool arguments from runtime execution metadata. Providers no longer see or supply `reason`, nested `taskContext`, task-creation conversation identity, or task-process execution IDs; FORGE now injects workspace, conversation, model, request, and optional task/step linkage internally and persists task/step audit columns in schema v8.
 - Completed the autonomous ToolRouter migration: valid registered operations execute directly without the retired approval queue/session-grant layer, while containment, validation, cancellation, rollback, redaction, network controls, and execution-state auditing remain enforced.

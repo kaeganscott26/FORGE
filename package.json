@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "2.4.0-beta",
+  "version": "2.5.0-beta",
   "desktopName": "forge.desktop",
   "private": true,
   "description": "Local-first AI-native development workspace",
@@ -48,7 +48,7 @@
   "build": {
     "appId": "com.kaeganscott26.forge",
     "productName": "FORGE",
-    "icon": "apps/desktop/resources/ForgeIcon-1024.png",
+    "icon": "apps/desktop/resources/ForgeIcon-v2.5-1024.png",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "directories": {
       "output": "dist_electron"
@@ -104,7 +104,7 @@
       ]
     },
     "win": {
-      "icon": "apps/desktop/resources/ForgeIcon-1024.png",
+      "icon": "apps/desktop/resources/ForgeIcon-v2.5-1024.png",
       "target": [
         {
           "target": "nsis",
@@ -136,7 +136,7 @@
         }
       ],
       "category": "Development",
-      "icon": "apps/desktop/resources/ForgeIcon-1024.png"
+      "icon": "apps/desktop/resources/ForgeIcon-v2.5-1024.png"
     }
   },
   "devDependencies": {
@@ -160,7 +160,10 @@
     "vitest": "^3.2.6"
   },
   "dependencies": {
+    "@fontsource-variable/oxanium": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@monaco-editor/react": "^4.6.0",
+    "@types/three": "^0.185.4",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "dompurify": "^3.4.13",
@@ -172,6 +175,7 @@
     "react-dom": "^19.0.0",
     "simple-git": "^3.27.0",
     "sql.js": "^1.12.0",
+    "three": "^0.185.1",
     "undici": "^7.29.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.2",

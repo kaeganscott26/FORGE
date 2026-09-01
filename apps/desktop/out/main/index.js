@@ -2111,6 +2111,7 @@ const IPC_CHANNELS = {
   semanticIndexStatus: "semantic.index.status",
   semanticIndexRebuild: "semantic.index.rebuild",
   contextHealthGet: "context.health.get",
+  runtimeTelemetry: "runtime.telemetry",
   agentSkillsList: "agent.skills.list",
   agentAsk: "agent.ask",
   agentExplainProject: "agent.explainProject",
@@ -2232,6 +2233,7 @@ const mimeByExtension = {
 const textExtensions = /* @__PURE__ */ new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs", "json", "jsonc", "md", "markdown", "txt", "log", "html", "htm", "css", "scss", "sass", "less", "xml", "yaml", "yml", "toml", "ini", "conf", "env", "py", "rb", "php", "java", "kt", "kts", "c", "h", "cpp", "hpp", "cc", "rs", "go", "swift", "sql", "graphql", "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd"]);
 const textNames = /* @__PURE__ */ new Set([".env", ".env.local", ".env.example", ".gitignore", ".gitattributes", ".editorconfig", ".npmrc", ".yarnrc", "dockerfile", "makefile", "readme", "license", "changelog"]);
 const CLASSIFICATION_SAMPLE_BYTES = 64 * 1024;
+const MAX_EDITOR_FILE_BYTES = 32 * 1024 * 1024;
 const MAX_MEDIA_PREVIEW_BYTES = 100 * 1024 * 1024;
 function isKnownTextFile(name, extension) {
   return textExtensions.has(extension) || textNames.has(name.toLowerCase()) || name.toLowerCase().startsWith(".env.");
@@ -2316,6 +2318,7 @@ class WorkspaceService extends EventEmitter {
     const absolute = await this.resolve(relativePath2);
     const stat = await promises.stat(absolute);
     if (!stat.isFile()) throw new Error("Path is not a file.");
+    if (stat.size > MAX_EDITOR_FILE_BYTES) throw new Error("Direct file reads are limited to 32 MB to protect the FORGE runtime. Use a bounded tool, external viewer, or split the file.");
     const bytes = await promises.readFile(absolute);
     if (bytes.includes(0)) return { path: relativePath2, content: bytes.toString("base64"), modifiedAt: stat.mtimeMs, encoding: "base64", binary: true };
     let content;
@@ -4787,7 +4790,7 @@ ${context.files.slice(0, 180).map((file) => `${file.type === "directory" ? "dir"
     if (context.recentCommits?.length) add({ id: "git-history", kind: "git", title: "Recent Git history", content: context.recentCommits.map((commit) => `${commit.hash.slice(0, 8)} ${commit.message}`).join("\n"), priority: 92 });
     if (context.metadata) add({ id: "project-metadata", kind: "metadata", title: "Current project goals, tasks, and runtime metadata", content: JSON.stringify(context.metadata, null, 2), priority: 88 });
     for (const memory of context.memories ?? []) add({ id: `memory:${memory.id}`, kind: "memory", title: memory.title || memory.type, content: memory.content, priority: memory.type === "decision" ? 54 : 50, updatedAt: memory.updatedAt, metadata: { relevance: memory.relevance ?? 80, reason: memory.reasons?.join(" · ") ?? "Durable historical workspace knowledge; current source and tool evidence take precedence." } });
-    let metrics = this.semantic?.health() ?? { tokensUsed: 0, tokenBudget: DEFAULT_CONTEXT_TOKEN_BUDGET, relevance: 0, freshness: 0, authority: 0, redundancy: 0, staleRatio: 0, recordsConsidered: 0, recordsSelected: 0, sourceDistribution: {}, degraded: true, fallbackReason: "Semantic context has not been initialized." };
+    let metrics = this.semantic?.health() ?? { redundancy: 0, degraded: true, fallbackReason: "Semantic context has not been initialized." };
     if (this.semantic && shouldUseSemanticRetrieval(query, context)) {
       const retrieval = await this.semantic.searchSemanticContext(query, { limit: DEFAULT_SEMANTIC_RESULT_LIMIT, tokenBudget: Math.min(DEFAULT_SEMANTIC_TOKEN_BUDGET, Math.floor(this.tokenBudget * 0.2)) });
       metrics = this.semantic.health();
@@ -4808,12 +4811,49 @@ Evidence authority, highest first: (1) explicit files or tools requested by the 
 
 Workspace evidence for this turn:
 ${evidence || "No workspace evidence was available."}`;
-    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: { ...metrics, tokensUsed: estimateTokens(systemPrompt), tokenBudget: this.tokenBudget } };
+    return { systemPrompt, artifacts: budgeted.selected, omittedArtifactIds: budgeted.omittedArtifactIds, characterBudget, characterCount: systemPrompt.length, tokenBudget: this.tokenBudget, tokenCount: estimateTokens(systemPrompt), metrics: packetMetrics(budgeted.selected, artifacts.length, estimateTokens(systemPrompt), this.tokenBudget, metrics) };
   }
   async envelope(query, memories, characterBudget) {
     const compiled = await this.assemble(query, memories, characterBudget);
     return { ...compiled, query, generatedAt: Date.now() };
   }
+}
+const AUTHORITY_BY_KIND = Object.freeze({
+  identity: 1,
+  configuration: 0.96,
+  source: 0.94,
+  git: 0.9,
+  architecture: 0.86,
+  documentation: 0.82,
+  metadata: 0.78,
+  memory: 0.72,
+  terminal: 0.66,
+  conversation: 0.48
+});
+function normalizedMetric(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(1, Math.max(0, numeric > 1 ? numeric / 100 : numeric));
+}
+function packetMetrics(selected, considered, tokensUsed, tokenBudget, semantic) {
+  const average = (selector) => selected.length ? selected.reduce((sum, artifact) => sum + selector(artifact), 0) / selected.length : 0;
+  const now = Date.now();
+  const sourceDistribution = {};
+  for (const artifact of selected) sourceDistribution[artifact.kind] = (sourceDistribution[artifact.kind] ?? 0) + 1;
+  return {
+    tokensUsed,
+    tokenBudget,
+    relevance: average((artifact) => normalizedMetric(artifact.metadata?.relevance, 0.75)),
+    freshness: average((artifact) => normalizedMetric(artifact.metadata?.freshness, artifact.updatedAt ? Math.exp(-Math.max(0, now - artifact.updatedAt) / (120 * 864e5)) : 1)),
+    authority: average((artifact) => normalizedMetric(artifact.metadata?.authority, AUTHORITY_BY_KIND[artifact.kind])),
+    redundancy: semantic.redundancy,
+    staleRatio: selected.length ? selected.filter((artifact) => ["stale", "archived", "superseded"].includes(String(artifact.metadata?.lifecycle ?? ""))).length / selected.length : 0,
+    recordsConsidered: considered,
+    recordsSelected: selected.length,
+    sourceDistribution,
+    degraded: semantic.degraded,
+    fallbackReason: semantic.fallbackReason
+  };
 }
 function shouldUseSemanticRetrieval(query, context) {
   const normalized = query.trim().toLowerCase();
@@ -4838,9 +4878,13 @@ class WorkspaceIntelligenceService {
     this.observations = observations;
   }
   invalidatedAt;
+  invalidationRevision = 0;
+  packetRevision = -1;
   invalidationReasons = /* @__PURE__ */ new Set();
+  latestPacket = null;
   async invalidate(reason2, payload = {}) {
     this.invalidatedAt = Date.now();
+    this.invalidationRevision += 1;
     this.invalidationReasons.add(reason2);
     await this.observations?.recordProjectObservation(reason2, payload);
   }
@@ -4848,6 +4892,7 @@ class WorkspaceIntelligenceService {
     return this.context.assemble(query, memories, characterBudget);
   }
   async packet(query, memories, characterBudget) {
+    const revision = this.invalidationRevision;
     const compiled = await this.assemble(query, memories, characterBudget);
     const projectObservations = await this.observations?.listProjectObservations() ?? [];
     const observationContent = projectObservations.length ? JSON.stringify(projectObservations, null, 2).slice(0, 8e3) : "";
@@ -4856,7 +4901,16 @@ class WorkspaceIntelligenceService {
 
 ## ${artifact.title}
 ${artifact.content}` : compiled.systemPrompt;
-    return { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    const packet = { ...compiled, systemPrompt, artifacts: artifact ? [artifact, ...compiled.artifacts] : compiled.artifacts, characterCount: systemPrompt.length, tokenCount: Math.ceil(systemPrompt.length / 4), metrics: { ...compiled.metrics, tokensUsed: Math.ceil(systemPrompt.length / 4) }, query, generatedAt: Date.now(), invalidatedAt: this.invalidatedAt, invalidationReasons: [...this.invalidationReasons], projectObservations };
+    this.latestPacket = packet;
+    this.packetRevision = revision;
+    this.invalidationReasons.clear();
+    return packet;
+  }
+  /** Returns the actual most-recent agent packet, rebuilding a baseline packet after invalidation. */
+  async snapshot(memories) {
+    if (this.latestPacket && this.packetRevision === this.invalidationRevision) return structuredClone(this.latestPacket);
+    return this.packet("", memories);
   }
 }
 const EXCLUDED_PATH_PARTS = /* @__PURE__ */ new Set([".git", ".forge", ".obsidian", "node_modules", "dist_electron", "out", "coverage", "build", ".next", "__pycache__"]);
@@ -8267,9 +8321,10 @@ function filteredEnvironment(requested = {}, allowlist = []) {
 function terminalEnvironment(shell2) {
   const home = os.homedir();
   const username = os.userInfo().username;
+  const userPrefix = path__default.join(home, ".local");
   const inherited = filteredEnvironment();
   const pathEntries = [
-    path__default.join(home, ".local", "bin"),
+    path__default.join(userPrefix, "bin"),
     path__default.join(home, ".opencode", "bin"),
     ...process.platform === "win32" ? [] : ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"],
     ...(inherited.PATH ?? "").split(path__default.delimiter)
@@ -8283,6 +8338,7 @@ function terminalEnvironment(shell2) {
     TERM: inherited.TERM ?? "xterm-256color",
     COLORTERM: "truecolor",
     TERM_PROGRAM: "FORGE",
+    NPM_CONFIG_PREFIX: userPrefix,
     PATH: [...new Set(pathEntries)].join(path__default.delimiter)
   };
 }
@@ -8453,10 +8509,12 @@ class TerminalService {
     const session = { info, process: terminal, workspaceRoot: root, canonicalWorkspaceRoot };
     this.sessions.set(id2, session);
     terminal.onData((data) => {
+      if (this.sessions.get(id2)?.process !== terminal) return;
       info.recentOutput = `${info.recentOutput}${data}`.slice(-this.outputLimit);
       this.publish({ sessionId: id2, type: "output", data });
     });
     terminal.onExit(({ exitCode }) => {
+      if (this.sessions.get(id2)?.process !== terminal) return;
       info.state = "exited";
       info.exitCode = exitCode;
       this.publish({ sessionId: id2, type: "exit", exitCode });
@@ -8482,9 +8540,10 @@ class TerminalService {
   async restart(id2) {
     const current = this.required(id2);
     const relative = path__default.relative(current.canonicalWorkspaceRoot, current.info.cwd) || ".";
-    this.terminate(id2);
+    const { cols, rows } = current.process;
     this.sessions.delete(id2);
-    return this.create(relative, 100, 30, id2);
+    if (current.info.state === "running") current.process.kill();
+    return this.create(relative, cols, rows, id2);
   }
   remove(id2) {
     this.terminate(id2);
@@ -10341,7 +10400,9 @@ function createNativeAgentRuntime(dependencies) {
     }
   };
   const runAgentTurn = async (conversationId, prompt, executionTask) => {
-    await emitRuntimeEvent2?.("agent.started", { conversationId });
+    const operationId = randomUUID();
+    const operation = { operationId, conversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId };
+    await emitRuntimeEvent2?.("agent.started", operation);
     try {
       const selectedRuntime = resolveReasoningRuntime2 ? await resolveReasoningRuntime2() : { agent: agent2, provider: aiProvider2, kind: "native" };
       const activeAgent = selectedRuntime.agent;
@@ -10415,13 +10476,19 @@ ${evidence2}`, continuationHistory)).content;
         }
         const round = [];
         for (const call of fresh) {
-          await emitRuntimeEvent2?.("tool.requested", { toolName: call.name, conversationId: state.activeConversationId });
-          const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel, userRequest: prompt, task: executionTask });
-          round.push(outcome);
-          outcomes.push(outcome);
-          loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
-          await emitRuntimeEvent2?.("tool.completed", { toolName: call.name, success: outcome.result?.success ?? false, conversationId: state.activeConversationId });
-          if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+          const toolOperationId = call.id || randomUUID();
+          await emitRuntimeEvent2?.("tool.requested", { operationId: toolOperationId, toolName: call.name, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+          let succeeded = false;
+          try {
+            const outcome = await toolRouter2.request(call, { workspaceId: project.id, workspaceRoot: info.rootPath, conversationId: state.activeConversationId, modelId: turn.modelId ?? settings2.publicSettings().apiModel, userRequest: prompt, task: executionTask });
+            round.push(outcome);
+            outcomes.push(outcome);
+            succeeded = outcome.result?.success ?? false;
+            loopGuard.record(call, await workspaceRevision(), { success: outcome.result?.success, affectedPaths: outcome.result?.affectedPaths, exitCode: outcome.result?.exitCode, error: outcome.result?.error, output: outcome.result?.output });
+            if (outcome.result) await recordTaskOutcome(outcome.request, outcome.result);
+          } finally {
+            await emitRuntimeEvent2?.("tool.completed", { operationId: toolOperationId, toolName: call.name, success: succeeded, conversationId: state.activeConversationId, taskId: executionTask?.taskId, stepId: executionTask?.stepId });
+          }
         }
         const evidence = round.filter((outcome) => outcome.result).map((outcome) => boundedToolEvidence(outcome.result)).join("\n\n");
         continuationHistory.push({ role: "assistant", content: turn.content || "I requested FORGE tools." });
@@ -10434,10 +10501,10 @@ ${evidence}`, continuationHistory, definitions);
       const content = [modelContent, summary].filter(Boolean).join("\n\n") || "FORGE received no response from the model.";
       await storage2.appendConversation(state.activeConversationId, "assistant", content);
       await storage2.markSemanticRecordsUsed([...semanticRecordIds], outcomes.length === 0 || outcomes.every((outcome) => outcome.result?.success));
-      await emitRuntimeEvent2?.("agent.completed", { conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
+      await emitRuntimeEvent2?.("agent.completed", { ...operation, conversationId: state.activeConversationId, toolCount: outcomes.length, runtime: selectedRuntime.kind });
       return { content, contextUsed: turn.context.artifacts.length > 0, conversationId: state.activeConversationId, memories: turn.memories.map((memory) => ({ id: memory.id, title: memory.title })), contextSources: turn.context.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: artifact.metadata?.relevance, reason: artifact.metadata?.reason })), contextHealth: turn.context.metrics };
     } catch (error) {
-      await emitRuntimeEvent2?.("agent.blocked", { conversationId, message: error instanceof Error ? error.message : String(error) });
+      await emitRuntimeEvent2?.("agent.blocked", { ...operation, message: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   };
@@ -10798,6 +10865,10 @@ let browserBookmarks = [];
 let browserHistory = [];
 let rendererSource = "file:// development build";
 let forgeLive = null;
+const activeToolOperations = /* @__PURE__ */ new Set();
+const activeTaskOperations = /* @__PURE__ */ new Set();
+let lastToolActivityAt = 0;
+let lastTaskActivityAt = 0;
 function liveMainWindow() {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
 }
@@ -10814,8 +10885,8 @@ function detachBrowserView() {
 function appBuildInfo() {
   return {
     ...buildReleaseIdentity(app.getVersion(), app.isPackaged),
-    commit: "3ff06b3924aa2092a3b37b55a475e09387dcffc1",
-    buildDate: "2026-08-27T04:32:18.810Z",
+    commit: "4f213d3fb2d6f3530b6cd616c257e930f4297caa",
+    buildDate: "2026-08-31T21:00:56.590Z",
     runtime: app.isPackaged ? "packaged" : "development",
     rendererSource,
     platform: process.platform,
@@ -10851,6 +10922,24 @@ async function resolveReasoningRuntime() {
   return profile.active === "hermes" ? { agent: hermesAgent, provider: hermesProvider, kind: "hermes" } : { agent, provider: aiProvider, kind: "native" };
 }
 async function emitRuntimeEvent(type, payload) {
+  const operationId = typeof payload?.operationId === "string" ? payload.operationId : "";
+  if (type === "tool.requested") {
+    if (operationId) activeToolOperations.add(operationId);
+    lastToolActivityAt = Date.now();
+  }
+  if (type === "tool.completed") {
+    if (operationId) activeToolOperations.delete(operationId);
+    lastToolActivityAt = Date.now();
+  }
+  if (type === "agent.started" && typeof payload?.taskId === "string") {
+    activeTaskOperations.add(operationId || String(payload.taskId));
+    lastTaskActivityAt = Date.now();
+  }
+  if (["agent.completed", "agent.blocked"].includes(type) && typeof payload?.taskId === "string") {
+    activeTaskOperations.delete(operationId || String(payload.taskId));
+    lastTaskActivityAt = Date.now();
+  }
+  if (type === "task.changed") lastTaskActivityAt = Date.now();
   if (type === "context.invalidated") await intelligence.invalidate(String(payload?.channel ?? "runtime-event"), payload);
   const workspaceId = (await storage.dashboard().catch(() => null))?.id;
   if (!workspaceId) return;
@@ -10869,7 +10958,9 @@ function register(channel, action) {
       }
       return { success: true, data };
     } catch (error) {
-      return { success: false, error: { message: error instanceof Error ? error.message : "An unexpected error occurred." } };
+      const code = error instanceof Error && "code" in error ? String(error.code) : void 0;
+      const message = code === "EACCES" || code === "EPERM" ? "FORGE does not have permission to access that location. Choose a user-owned workspace or update the file permissions, then try again." : error instanceof Error ? error.message : "An unexpected error occurred.";
+      return { success: false, error: { message, code } };
     }
   });
 }
@@ -10879,6 +10970,8 @@ async function openWorkspaceAt(rootPath) {
   pendingSemanticPaths.clear();
   terminalService.dispose();
   dirtyEditorPaths.clear();
+  activeToolOperations.clear();
+  activeTaskOperations.clear();
   disposeBrowserTabs();
   await forgeLive?.stop().catch(() => void 0);
   forgeLive = null;
@@ -11155,9 +11248,16 @@ function registerHandlers() {
   register(IPC_CHANNELS.gitPush, async () => git.push());
   register(IPC_CHANNELS.metaDashboard, async () => {
     const project = await storage.dashboard();
+    const packet = await intelligence.snapshot(await memoryRetriever.search("workspace architecture decisions documentation source", 6));
     const all = (nodes) => nodes.flatMap((node) => [node, ...node.children ? all(node.children) : []]);
     const files = all(await workspace.list());
-    return { project, recentCommits: await git.log(8).catch(() => []), contextHealth: { ...semanticContext.health(), hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length } };
+    return {
+      project,
+      recentCommits: await git.log(8).catch(() => []),
+      contextHealth: { ...packet.metrics, hasReadme: files.some((file) => /^readme\.md$/i.test(file.name)), noteCount: files.filter((file) => file.extension === "md").length, codeFileCount: files.filter((file) => ["ts", "tsx", "js", "jsx", "py", "cpp", "c"].includes(file.extension ?? "")).length },
+      contextSources: packet.artifacts.map((artifact) => ({ id: artifact.id, kind: artifact.kind, title: artifact.title, path: artifact.path, relevance: typeof artifact.metadata?.relevance === "number" ? artifact.metadata.relevance : void 0, reason: typeof artifact.metadata?.reason === "string" ? artifact.metadata.reason : void 0 })),
+      contextGeneratedAt: packet.generatedAt
+    };
   });
   register(IPC_CHANNELS.metaGoalCreate, async (request) => storage.createGoal(request.title, request.description));
   register(IPC_CHANNELS.metaGoalUpdate, async (request) => storage.updateGoal(request.goalId, request.title, request.description, request.status));
@@ -11201,6 +11301,26 @@ function registerHandlers() {
   register(IPC_CHANNELS.semanticIndexStatus, async () => storage.semanticIndexStatus());
   register(IPC_CHANNELS.semanticIndexRebuild, async () => semanticIndexer.rebuild());
   register(IPC_CHANNELS.contextHealthGet, async () => semanticContext.health());
+  register(IPC_CHANNELS.runtimeTelemetry, async () => {
+    const [semantic, project] = await Promise.all([storage.semanticIndexStatus(), storage.dashboard()]);
+    const requests = project ? await toolRouter.listRequests(project.id) : [];
+    const memory = process.memoryUsage();
+    const now = Date.now();
+    const persistedRunningTasks = project?.tasks.filter((task) => task.status === "running").length ?? 0;
+    return {
+      sampledAt: Date.now(),
+      process: { pid: process.pid, uptimeSeconds: process.uptime(), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, heapTotalBytes: memory.heapTotal, externalBytes: memory.external, arrayBuffersBytes: memory.arrayBuffers },
+      semantic,
+      activity: {
+        runningTools: Math.max(activeToolOperations.size, requests.filter((request) => request.state === "running").length),
+        queuedTools: requests.filter((request) => request.state === "requested").length,
+        runningTasks: Math.max(activeTaskOperations.size, persistedRunningTasks),
+        activeTerminals: terminalService.list().filter((session) => session.state === "running").length,
+        toolsActive: activeToolOperations.size > 0 || now - lastToolActivityAt < 1500,
+        tasksActive: activeTaskOperations.size > 0 || now - lastTaskActivityAt < 1500
+      }
+    };
+  });
   register(IPC_CHANNELS.agentSkillsList, async () => {
     const info = workspace.info();
     if (!info) throw new Error("Open a workspace before listing skills.");
@@ -11384,7 +11504,7 @@ if (!ownsSingleInstanceLock) {
     mainWindow?.focus();
   });
   app.whenReady().then(async () => {
-    const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-1024.png");
+    const developmentIcon = join(process.cwd(), "apps/desktop/resources/ForgeIcon-v2.5-1024.png");
     if (process.platform === "darwin" && is.dev && app.dock && existsSync(developmentIcon)) app.dock.setIcon(developmentIcon);
     try {
       await settings.init();

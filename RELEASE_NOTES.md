@@ -1,8 +1,16 @@
-# FORGE 2.4 source line
+# FORGE 2.5.0-beta
 
-## Current `main` after `v2.4.0-beta`
+## Living intelligence
 
-Current `main` remains versioned `2.4.0-beta` but is ahead of the published tag. It includes:
+The `v2.5.0-beta` release introduces the shared living-intelligence experience across macOS, Windows, Linux, and FORGE-OS:
+
+- northern-lights FORGE identity, bundled typography, animated glass surfaces, and a bounded Three.js aurora field;
+- typed live telemetry for the selected artifact packet, semantic records, FORGE memory, active tools, tasks, terminals, and index state;
+- event-correlated tool and durable-task activity so fast operations remain visible;
+- reliable opt-out system sounds, reduced-motion support, hidden-window animation suspension, and WebGL fallback behavior;
+- a 32 MB pre-allocation direct-read guard and clearer permission errors.
+
+The release also carries forward the post-2.4 recovery and parity work:
 
 - workspace-open response recovery: if the open operation succeeds but Electron drops or nulls the response payload, the renderer reloads canonical `workspace.info` instead of storing a null workspace;
 - malformed workspace-database recovery from a verified backup while preserving the corrupt original;
@@ -10,7 +18,7 @@ Current `main` remains versioned `2.4.0-beta` but is ahead of the published tag.
 - shared runtime and packaging parity across Linux, macOS, and Windows, including embedded commit metadata, manifests, native architecture checks, and installed-runtime verification;
 - branch/runtime audit and documentation consolidation.
 
-These post-tag changes are not in the existing public `v2.4.0-beta` assets. Do not replace those assets or move the published tag. Publish them only under a new semantic version and annotated tag.
+Linux, macOS, and Windows packages are built from the same annotated source tag; platform-native package hashes remain distinct.
 
 ## Published `v2.4.0-beta`
 

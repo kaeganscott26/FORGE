@@ -1,6 +1,6 @@
 # Current FORGE Implementation
 
-This is a source-oriented inventory for the `2.4.0-beta` line.
+This is a source-oriented inventory for the `2.5.0-beta` line, last reconciled on 2026-08-31.
 
 ## Desktop boundary
 
@@ -20,6 +20,7 @@ This is a source-oriented inventory for the `2.4.0-beta` line.
 - Semantic embeddings are optional and off by default; failure injects no semantic evidence and leaves ordinary tools operational.
 - Native FORGE runs the current agent loop. It is bounded by elapsed runtime and suppresses only redundant identical calls against unchanged observed workspace state.
 - `@forge/agent-runtime` detects Hermes and skills but keeps Native FORGE active without a compatible structured execution bridge.
+- The shared renderer uses a bounded Three.js aurora, bundled typography, animated glass surfaces, opt-out sounds, reduced-motion handling, and typed live context/memory/process telemetry without granting Node.js authority to the renderer.
 
 ## Tools
 

@@ -81,7 +81,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.4.0-beta')) || github.event_name == 'workflow_dispatch' }}
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/tags/v2.5.0-beta') || github.event_name == 'workflow_dispatch' }}
     needs: [package-linux, package-macos, package-windows]
     runs-on: ubuntu-latest
     steps:
@@ -91,7 +91,7 @@ jobs:
       - name: Verify tag and publish complete release
         env: { GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
         run: |
-          release_tag='v2.4.0-beta'
+          release_tag='v2.5.0-beta'
           upload_directory="$RUNNER_TEMP/forge-release-upload"
           mkdir -p "$upload_directory"
           declare -A names=()
@@ -103,9 +103,9 @@ jobs:
             fi
             names[$name]=1
             cp "$asset" "$upload_directory/$name"
-          done < <(find release-assets -mindepth 2 -maxdepth 2 -type f ! -name build-manifest.json ! -name SHA256SUMS -print | sort)
+          done < <(find release-assets -mindepth 2 -maxdepth 2 -type f ! -name build-manifest.json ! -name SHA256SUMS ! -name builder-debug.yml ! -name builder-effective-config.yaml -print | sort)
           mapfile -t assets < <(find "$upload_directory" -maxdepth 1 -type f -print | sort)
           test "${#assets[@]}" -eq 11
           (cd "$upload_directory" && sha256sum * > SHA256SUMS.all)
           assets+=("$upload_directory/SHA256SUMS.all")
-          gh release create "$release_tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.4.0-beta" --notes-file RELEASE_NOTES.md --prerelease
+          gh release create "$release_tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --title "FORGE 2.5.0-beta" --notes-file RELEASE_NOTES.md --prerelease

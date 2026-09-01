@@ -1,6 +1,6 @@
 # FORGE User Manual
 
-This manual describes the current `2.4.0-beta` source line. Published `v2.4.0-beta` packages are available for universal macOS, Windows x64, and Linux x64; `main` contains additional post-tag fixes that are not part of those published binaries.
+This manual describes the current `2.5.0-beta` source line. Published `v2.5.0-beta` packages are available for universal macOS, Windows x64, and Linux x64.
 
 ## 1. Open a workspace
 

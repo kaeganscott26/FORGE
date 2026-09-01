@@ -16,6 +16,7 @@ describe('shell and terminal services', () => {
     expect(environment.HOME).toBe(os.homedir());
     expect(environment.SHELL).toBe('/bin/zsh');
     expect(environment.TERM_PROGRAM).toBe('FORGE');
+    expect(environment.NPM_CONFIG_PREFIX).toBe(path.join(os.homedir(), '.local'));
     expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining([path.join(os.homedir(), '.local', 'bin')]));
     if (process.platform !== 'win32') expect(environment.PATH?.split(path.delimiter)).toEqual(expect.arrayContaining(['/opt/homebrew/bin', '/usr/local/bin']));
     expect(environment.OPENAI_API_KEY).toBeUndefined();

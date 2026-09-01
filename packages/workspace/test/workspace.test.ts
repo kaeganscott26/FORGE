@@ -97,6 +97,16 @@ describe('WorkspaceService state', () => {
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 
+  it('refuses oversized direct reads before allocating the complete file', async () => {
+    const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-read-bound-'));
+    try {
+      await fs.writeFile(join(root, 'oversized.log'), '');
+      await fs.truncate(join(root, 'oversized.log'), (32 * 1024 * 1024) + 1);
+      const service = new WorkspaceService(); await service.open(root);
+      await expect(service.readFile('oversized.log')).rejects.toThrow(/limited to 32 MB/);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
   it('classifies source and configuration files as text even with an ambiguous MIME type', async () => {
     const root = await fs.mkdtemp(join(tmpdir(), 'forge-workspace-text-classification-'));
     try {

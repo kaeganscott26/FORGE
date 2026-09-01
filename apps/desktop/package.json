@@ -1,6 +1,6 @@
 {
   "name": "@forge/desktop",
-  "version": "2.4.0-beta",
+  "version": "2.5.0-beta",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js"
